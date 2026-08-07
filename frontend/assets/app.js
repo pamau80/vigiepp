@@ -2194,6 +2194,7 @@
           <label><input type="checkbox" id="nEnabled" ${notifConfig.enabled ? "checked" : ""}/> Activar notificaciones</label>
           <label><input type="checkbox" id="nOnBad" ${notifConfig.on_non_compliant ? "checked" : ""}/> Avisar en incumplimiento EPP</label>
           <label><input type="checkbox" id="nOnUnknown" ${notifConfig.on_unknown_face ? "checked" : ""}/> Avisar rostro desconocido</label>
+          <label><input type="checkbox" id="nOnZone" ${notifConfig.on_zone_alert !== false ? "checked" : ""}/> Avisar zonas / near-miss</label>
           <label><input type="checkbox" id="nOnlyKnown" ${notifConfig.only_known_workers ? "checked" : ""}/> Solo trabajadores conocidos (EPP)</label>
           <label><span>Cooldownora entre avisos (segundos)</span>
             <input type="number" id="nCooldown" min="0" max="3600" value="${notifConfig.cooldown_seconds ?? 120}"/>
