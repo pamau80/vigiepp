@@ -1,0 +1,1 @@
+"""VigiEPP — detección de EPP con IA para faenas en Chile."""

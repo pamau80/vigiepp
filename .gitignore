@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+.env.*
+
+# Local runtime data / biometrics (keep structure, ignore contents)
+backend/data/faces/
+backend/data/workers.json
+backend/data/scan_events.jsonl
+backend/data/notifications.json
+backend/data/notification_log.jsonl
+backend/data/zones.json
+backend/datasets/
+backend/runs/
+
+# Large / downloaded model weights
+backend/models/**/*.pt
+backend/models/**/*.onnx
+backend/data/models/*.onnx
+backend/yolov8n.pt
+*.pt
+!backend/models/.gitkeep
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
+
+# Audit scratch / OneDrive junk
+_audit_prod/
+frontend/frontend/
+**/_trash_*
+
+# Deploy archives
+*.tar.gz

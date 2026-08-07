@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: vigiepp
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/health
+    envVars:
+      - key: PORT
+        value: 8000
+    disk:
+      name: vigiepp-data
+      mountPath: /app/backend/data
+      sizeGB: 1

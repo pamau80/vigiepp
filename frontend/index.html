@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no"
+  />
+  <meta name="theme-color" content="#e85d04" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="VigiEPP" />
+  <meta name="format-detection" content="telephone=no" />
+  <meta name="description" content="VigiEPP — detección de EPP e identidad para faena (Chile)" />
+  <title>VigiEPP — Control de EPP con IA</title>
+  <link rel="manifest" href="/assets/manifest.webmanifest" />
+  <link rel="icon" href="/assets/favicon.png" type="image/png" />
+  <link rel="apple-touch-icon" href="/assets/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true"></div>
+      <div>
+        <p class="brand-name">VigiEPP</p>
+        <p class="brand-tag">EPP + identidad · Chile</p>
+      </div>
+    </div>
+    <nav class="mode-nav" role="tablist" aria-label="Secciones">
+      <button class="mode-btn active" data-mode="monitor" type="button">1 · Monitoreo</button>
+      <button class="mode-btn" data-mode="identity" type="button">2 · Personas</button>
+      <button class="mode-btn" data-mode="teach" type="button">3 · Ropa / EPP</button>
+      <button class="mode-btn" data-mode="config" type="button">4 · Config</button>
+      <button class="mode-btn" data-mode="reports" type="button">5 · Informes</button>
+    </nav>
+    <div class="top-status" id="modelStatus">
+      <span class="dot"></span>
+      <span id="modelStatusText">Cargando IA…</span>
+    </div>
+    <span id="offlineBadge" class="offline-badge hidden" aria-live="polite"></span>
+  </header>
+
+  <main class="layout">
+    <section class="stage">
+      <div class="stage-toolbar" id="monitorToolbar">
+        <div class="source-group">
+          <span class="toolbar-label">Fuente</span>
+          <div class="tabs" role="tablist">
+            <button class="tab active" data-source="camera" type="button">Webcam</button>
+            <button class="tab" data-source="rtsp" type="button">IP / NVR</button>
+            <button class="tab" data-source="upload" type="button">Foto</button>
+          </div>
+        </div>
+        <label class="field inline profile-field">
+          <span>Perfil faena</span>
+          <select id="profileSelect"></select>
+        </label>
+      </div>
+
+      <div class="viewport viewport-portrait">
+        <div class="scan-frame">
+          <video id="liveVideo" playsinline webkit-playsinline muted autoplay></video>
+          <canvas id="overlayCanvas"></canvas>
+          <img id="annotatedImg" alt="Resultado" hidden />
+          <div class="silhouette-guide" id="silhouetteGuide" data-guide="body" aria-hidden="true">
+            <svg class="guide-body" viewBox="0 0 200 360" preserveAspectRatio="xMidYMid meet">
+              <defs>
+                <mask id="silMask">
+                  <rect width="200" height="360" fill="white"/>
+                  <ellipse cx="100" cy="58" rx="32" ry="38" fill="black"/>
+                  <rect x="88" y="90" width="24" height="22" rx="6" fill="black"/>
+                  <path d="M40 120 C40 112, 55 108, 70 108 L130 108 C145 108, 160 112, 160 120
+                           L168 210 C170 250, 155 268, 130 275 L70 275 C45 268, 30 250, 32 210 Z" fill="black"/>
+                  <path d="M72 275 L68 340 L90 340 L100 290 L110 340 L132 340 L128 275 Z" fill="black"/>
+                </mask>
+              </defs>
+              <rect class="sil-dim" width="200" height="360" mask="url(#silMask)" />
+              <ellipse class="sil-outline" cx="100" cy="58" rx="32" ry="38"/>
+              <rect class="sil-outline" x="88" y="90" width="24" height="22" rx="6"/>
+              <path class="sil-outline" d="M40 120 C40 112, 55 108, 70 108 L130 108 C145 108, 160 112, 160 120
+                       L168 210 C170 250, 155 268, 130 275 L70 275 C45 268, 30 250, 32 210 Z"/>
+              <path class="sil-outline" d="M72 275 L68 340 L90 340 L100 290 L110 340 L132 340 L128 275 Z"/>
+            </svg>
+            <svg class="guide-face" viewBox="0 0 200 360" preserveAspectRatio="xMidYMid meet">
+              <defs>
+                <mask id="faceMask">
+                  <rect width="200" height="360" fill="white"/>
+                  <ellipse cx="100" cy="130" rx="58" ry="78" fill="black"/>
+                </mask>
+              </defs>
+              <rect class="sil-dim" width="200" height="360" mask="url(#faceMask)" />
+              <ellipse class="sil-outline face-oval" cx="100" cy="130" rx="58" ry="78"/>
+            </svg>
+            <p class="sil-hint" id="silHint">Encajá el cuerpo en la silueta vertical</p>
+          </div>
+          <div class="viewport-overlay" id="overlayHint">
+            <p>Inicia el monitoreo y encajá en la silueta</p>
+          </div>
+          <div class="live-badge" id="liveBadge" hidden><span class="pulse"></span> EN VIVO</div>
+          <div class="align-badge" id="alignBadge" data-state="idle">Posicionate</div>
+          <div class="person-chip hidden" id="personChip">
+            <span id="personChipName">—</span>
+            <span id="personChipRut"></span>
+          </div>
+          <div class="enroll-overlay hidden" id="enrollOverlay">
+            <p class="enroll-pose" id="enrollPoseTitle">1/4 Frente</p>
+            <p class="enroll-hint" id="enrollPoseHint">Mirá de frente</p>
+            <p class="enroll-count" id="enrollCount"></p>
+            <button type="button" class="btn primary enroll-capture-btn hidden" id="btnCapturePose">Tomar foto</button>
+          </div>
+          <div class="sil-zoom" id="silZoom" aria-label="Zoom de silueta">
+            <button type="button" id="btnSilZoomOut" title="Alejar silueta">−</button>
+            <input type="range" id="silZoomRange" min="55" max="130" value="100" step="5" />
+            <button type="button" id="btnSilZoomIn" title="Acercar silueta">+</button>
+            <span id="silZoomLabel">100%</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="controls control-bar" id="cameraControls">
+        <button id="btnStartCam" class="btn primary" type="button">Iniciar</button>
+        <button id="btnStopCam" class="btn ghost" type="button" disabled>Detener</button>
+        <button id="btnFlipCam" class="btn secondary" type="button" title="Cambiar cámara">Cámara</button>
+        <button id="btnFullscreen" class="btn secondary" type="button" title="Pantalla completa">Pantalla completa</button>
+        <label class="check">
+          <input type="checkbox" id="chkIdentify" checked />
+          Identificar rostro
+        </label>
+        <label class="check" id="lblFullscreen">
+          <input type="checkbox" id="chkFullscreen" checked />
+          Abrir a pantalla completa
+        </label>
+        <span class="hint" id="speedHint">Lectura vertical · cuerpo completo</span>
+      </div>
+
+      <div class="controls control-bar hidden" id="rtspControls">
+        <label class="field grow">
+          <span>URL RTSP (cámara IP / NVR)</span>
+          <input id="rtspUrl" type="text" placeholder="rtsp://usuario:clave@192.168.1.64:554/Streaming/Channels/101" />
+        </label>
+        <button id="btnStartRtsp" class="btn primary" type="button">Conectar</button>
+        <button id="btnStopRtsp" class="btn ghost" type="button" disabled>Detener</button>
+      </div>
+
+      <div class="controls control-bar hidden" id="uploadControls">
+        <label class="btn secondary file-btn">
+          Subir foto
+          <input id="fileInput" type="file" accept="image/*" hidden />
+        </label>
+      </div>
+
+      <div class="controls control-bar hidden" id="identityControls">
+        <label class="field">
+          <span>Nombre</span>
+          <input id="workerName" type="text" placeholder="Ej. Juan Pérez" autocomplete="name" />
+        </label>
+        <label class="field">
+          <span>RUT</span>
+          <input id="workerRut" type="text" placeholder="12.345.678-9" autocomplete="off" />
+        </label>
+        <button id="btnEnroll" class="btn primary" type="button">Iniciar poses</button>
+        <button id="btnCapturePoseId" class="btn primary hidden" type="button">Tomar foto</button>
+        <button id="btnCancelEnroll" class="btn ghost hidden" type="button">Cancelar</button>
+        <label class="btn secondary file-btn">
+          Adjuntar fotos
+          <input id="faceTrainPhotos" type="file" accept="image/*" multiple hidden />
+        </label>
+        <button id="btnIdentify" class="btn secondary" type="button">Probar ID</button>
+        <p class="hint" id="enrollCoach">4 poses con cámara o varias fotos adjuntas · una persona a la vez</p>
+      </div>
+
+      <div class="controls control-bar hidden" id="teachControls">
+        <label class="field grow">
+          <span>Clase / prenda a enseñar</span>
+          <select id="teachClass"></select>
+        </label>
+        <button id="btnTeachSample" class="btn primary" type="button">Foto cámara</button>
+        <label class="btn secondary file-btn">
+          Adjuntar fotos
+          <input id="teachPhotos" type="file" accept="image/*" multiple hidden />
+        </label>
+        <label class="btn secondary file-btn">
+          Adjuntar video
+          <input id="teachVideo" type="file" accept="video/*,.mp4,.mov,.webm" hidden />
+        </label>
+        <button id="btnTeachTrain" class="btn secondary" type="button">Entrenar modelo</button>
+        <button id="btnTeachActivate" class="btn ghost" type="button">Activar modelo</button>
+        <p class="hint" id="teachHint">Fotos + videos · 30–80 ejemplos por prenda</p>
+      </div>
+
+      <div class="controls control-bar hidden" id="teachExtraControls">
+        <label class="field grow">
+          <span>Nueva prenda (no listada)</span>
+          <input id="teachNewClass" type="text" placeholder="Ej. casaca naranja ACME / pantalón denim faena" />
+        </label>
+        <button id="btnTeachAddClass" class="btn primary" type="button">Crear clase</button>
+        <p class="hint">Para ropa que el modelo base aún no conoce.</p>
+      </div>
+
+      <div class="controls control-bar hidden" id="configControls">
+        <p class="hint">Ajustá silueta, guía facial y reglas de enrolamiento en el panel derecho. Los cambios se aplican al instante.</p>
+      </div>
+
+      <div class="reports-desk hidden" id="reportsDesk">
+        <aside class="reports-menu" aria-label="Menú de informes">
+          <p class="reports-menu-title">Estadísticas</p>
+          <button type="button" class="rep-item" data-rep="safety_score">Safety Score</button>
+          <button type="button" class="rep-item" data-rep="overview">Resumen general</button>
+          <button type="button" class="rep-item" data-rep="byday">Cumplimiento por día</button>
+          <button type="button" class="rep-item" data-rep="ranking">Ranking trabajadores</button>
+          <button type="button" class="rep-item" data-rep="missing">EPP faltante frecuente</button>
+          <button type="button" class="rep-item" data-rep="profiles">Por perfil de faena</button>
+          <button type="button" class="rep-item" data-rep="unknown">Sin identidad / desconocidos</button>
+
+          <p class="reports-menu-title">Generación de informes</p>
+          <button type="button" class="rep-item" data-rep="daily">Informe diario</button>
+          <button type="button" class="rep-item" data-rep="weekly">Informe semanal</button>
+          <button type="button" class="rep-item" data-rep="monthly">Informe mensual</button>
+          <button type="button" class="rep-item" data-rep="csv_all">Exportar CSV completo</button>
+          <button type="button" class="rep-item" data-rep="csv_bad">Exportar solo incumplimientos</button>
+          <button type="button" class="rep-item" data-rep="print">Informe imprimible</button>
+          <button type="button" class="rep-item" data-rep="txt">Descargar resumen TXT</button>
+
+          <p class="reports-menu-title">Notificaciones</p>
+          <button type="button" class="rep-item" data-rep="notif_setup">Configurar canales</button>
+          <button type="button" class="rep-item" data-rep="notif_rules">Reglas de alerta</button>
+          <button type="button" class="rep-item" data-rep="notif_template">Plantilla de mensaje</button>
+          <button type="button" class="rep-item" data-rep="notif_test">Probar / enviar ahora</button>
+          <button type="button" class="rep-item" data-rep="notif_log">Historial de envíos</button>
+        </aside>
+
+        <div class="reports-main">
+          <div class="reports-toolbar">
+            <label class="field inline">
+              <span>Rango</span>
+              <select id="repDays">
+                <option value="1">Hoy / 24h</option>
+                <option value="7" selected>7 días</option>
+                <option value="30">30 días</option>
+                <option value="90">90 días</option>
+              </select>
+            </label>
+            <label class="field inline">
+              <span>Perfil</span>
+              <select id="repProfile">
+                <option value="">Todos</option>
+              </select>
+            </label>
+            <button type="button" class="btn secondary" id="btnRepRefresh">Actualizar</button>
+          </div>
+          <div class="reports-content" id="reportsContent">
+            <p class="muted">Elegí una opción del menú izquierdo.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="panel" id="sidePanel">
+      <div class="panel-head">
+        <p class="panel-title">Panel de control</p>
+        <p class="panel-sub" id="panelContext">Resultado del escaneo en vivo</p>
+      </div>
+
+      <section class="card status-card" id="complianceBox" data-state="idle" data-monitor-only>
+        <div class="status-top">
+          <p class="card-kicker">Resultado</p>
+          <span class="status-pill" id="statusPill">Standby</span>
+        </div>
+        <p class="card-title" id="complianceValue">En espera</p>
+        <p class="card-text" id="complianceSummary">Inicia el monitoreo para evaluar EPP e identidad.</p>
+        <p class="card-meta" id="safetyScoreLive"></p>
+        <p class="card-meta" id="exposureLive"></p>
+      </section>
+
+      <section class="card card-person" data-hide-teach>
+        <p class="card-kicker">Persona</p>
+        <p class="person-name" id="identityName">Sin identificar</p>
+        <p class="card-text" id="identityRut">Registra personas en la sección 2 · Personas</p>
+        <p class="card-meta" id="identityMethod"></p>
+      </section>
+
+      <section class="card" data-monitor-only>
+        <div class="card-row">
+          <p class="card-kicker">EPP requerido</p>
+          <p class="card-meta" id="profileDesc">—</p>
+        </div>
+        <div class="chips" id="requiredChips"></div>
+        <p class="card-kicker list-label">Detectado ahora</p>
+        <ul class="item-list" id="detList">
+          <li class="muted">Sin detecciones</li>
+        </ul>
+      </section>
+
+      <section class="card" data-monitor-only>
+        <p class="card-kicker">Alertas</p>
+        <ul class="item-list alert-list" id="alertList">
+          <li class="muted">Sin alertas</li>
+        </ul>
+      </section>
+
+      <section class="card panel-section" data-show="monitor" id="registryCard">
+        <p class="card-kicker">Últimos registros</p>
+        <ul class="item-list" id="scanList">
+          <li class="muted">Aún no hay escaneos con identidad</li>
+        </ul>
+      </section>
+
+      <section class="card panel-section" data-show="identity" id="identityBlock">
+        <p class="card-kicker">Personas enroladas</p>
+        <p class="card-meta">Ficha · foto · calidad · activo/inactivo · grupo · último visto</p>
+        <label class="field worker-search-field">
+          <span class="sr-only">Buscar</span>
+          <input id="workerSearch" type="search" placeholder="Buscar por nombre, RUT o grupo…" autocomplete="off" />
+        </label>
+        <div class="tabs worker-filter-tabs" role="tablist" aria-label="Filtro personas">
+          <button type="button" class="tab active" data-worker-filter="active">Activos</button>
+          <button type="button" class="tab" data-worker-filter="all">Todos</button>
+          <button type="button" class="tab" data-worker-filter="inactive">Inactivos</button>
+        </div>
+        <div class="pose-progress hidden" id="poseProgress">
+          <div class="pose-bar"><span id="poseBarFill"></span></div>
+          <p id="poseStepLabel">Posición 0/4</p>
+        </div>
+        <ul class="item-list worker-list" id="workerList">
+          <li class="muted">Nadie enrolado</li>
+        </ul>
+        <p class="hint" id="workerListHint"></p>
+      </section>
+
+      <section class="card panel-section" data-show="teach" id="teachBlock">
+        <p class="card-kicker">Clases de ropa / EPP</p>
+        <p class="card-text" id="teachStats">0 ejemplos</p>
+        <p class="card-meta">Adjuntá fotos o video de la prenda. Creá clases nuevas si hace falta.</p>
+        <ul class="item-list" id="teachClassList">
+          <li class="muted">Sin clases cargadas</li>
+        </ul>
+      </section>
+
+      <section class="card panel-section config-card" data-show="config" id="configBlock">
+        <p class="card-kicker">Guías visuales</p>
+        <label class="cfg-row">
+          <span>
+            <strong>Silueta corporal</strong>
+            <small>Mostrar la guía predefinida de cuerpo completo</small>
+          </span>
+          <input type="checkbox" id="cfgSilhouette" checked />
+        </label>
+        <label class="cfg-row">
+          <span>
+            <strong>Validar silueta en monitoreo</strong>
+            <small>Exige encaje en la silueta antes de dar Cumple / No cumple</small>
+          </span>
+          <input type="checkbox" id="cfgSilhouetteGate" checked />
+        </label>
+        <label class="cfg-row">
+          <span>
+            <strong>Guía de rostro</strong>
+            <small>Al enrolar o identificar, cambiar a figura de cara</small>
+          </span>
+          <input type="checkbox" id="cfgFaceGuide" checked />
+        </label>
+        <label class="cfg-row cfg-slider-row">
+          <span>
+            <strong>Porte silueta corporal</strong>
+            <small>Tamaño de la figura de cuerpo completo · <b id="cfgBodyScaleVal">100%</b></small>
+          </span>
+          <input type="range" id="cfgBodyScale" min="55" max="130" value="100" step="5" />
+        </label>
+        <label class="cfg-row cfg-slider-row">
+          <span>
+            <strong>Porte guía facial</strong>
+            <small>Tamaño del óvalo de rostro · <b id="cfgFaceScaleVal">100%</b></small>
+          </span>
+          <input type="range" id="cfgFaceScale" min="55" max="140" value="100" step="5" />
+        </label>
+        <label class="cfg-row cfg-slider-row">
+          <span>
+            <strong>Posición vertical</strong>
+            <small>Subí o bajá la guía · <b id="cfgGuideYVal">0</b></small>
+          </span>
+          <input type="range" id="cfgGuideY" min="-20" max="20" value="0" step="1" />
+        </label>
+
+        <p class="card-kicker cfg-sep">Enrolamiento</p>
+        <p class="card-meta">Las poses se capturan al pulsar «Tomar foto» (una por ángulo).</p>
+
+        <p class="card-kicker cfg-sep">Prevención profesional</p>
+        <label class="cfg-row">
+          <span>
+            <strong>Audio en piso</strong>
+            <small>Voz: avisa faltas / zona (Web Speech)</small>
+          </span>
+          <input type="checkbox" id="cfgAudioAlerts" checked />
+        </label>
+        <label class="cfg-row">
+          <span>
+            <strong>Anonimizar rostros</strong>
+            <small>Difumina caras desconocidas (privacidad)</small>
+          </span>
+          <input type="checkbox" id="cfgAnonymize" checked />
+        </label>
+        <label class="cfg-row">
+          <span>
+            <strong>Mostrar zonas</strong>
+            <small>Dibuja zonas restringidas / vía vehículos</small>
+          </span>
+          <input type="checkbox" id="cfgShowZones" checked />
+        </label>
+        <div id="zonesEditor" class="zones-editor">
+          <p class="card-meta">Zonas (activá y ajustá). Tipo «vía» = near-miss peatón.</p>
+          <div id="zonesList"></div>
+          <button type="button" class="btn secondary" id="btnZoneAdd">+ Zona</button>
+          <button type="button" class="btn primary" id="btnZoneSave">Guardar zonas</button>
+          <p class="hint" id="zonesHint"></p>
+        </div>
+
+        <p class="card-kicker cfg-sep">Monitoreo</p>
+        <label class="cfg-row cfg-slider-row">
+          <span>
+            <strong>Umbral de match facial</strong>
+            <small>Más alto = más estricto · <b id="cfgIdThreshVal">36%</b></small>
+          </span>
+          <input type="range" id="cfgIdThresh" min="20" max="60" value="36" step="1" />
+        </label>
+        <label class="cfg-row">
+          <span>
+            <strong>Identificar rostro</strong>
+            <small>Reconocer trabajador durante el escaneo EPP</small>
+          </span>
+          <input type="checkbox" id="cfgIdentifyDefault" checked />
+        </label>
+        <label class="cfg-row">
+          <span>
+            <strong>Cajas EPP en vivo</strong>
+            <small>Opcional · por defecto apagado (las faltas van al panel)</small>
+          </span>
+          <input type="checkbox" id="cfgShowBoxes" />
+        </label>
+        <label class="cfg-row">
+          <span>
+            <strong>Pantalla completa al iniciar</strong>
+          </span>
+          <input type="checkbox" id="cfgFullscreenDefault" checked />
+        </label>
+        <p class="card-meta" id="cfgSavedHint">Los cambios se guardan en este navegador.</p>
+      </section>
+
+      <section class="card panel-section" data-show="reports" id="reportsSide">
+        <p class="card-kicker">Centro de informes</p>
+        <p class="card-text" id="repSideSummary">Estadísticas, exportación y alertas.</p>
+        <ul class="item-list" id="repSideList">
+          <li class="muted">Abrí una opción del menú amplio</li>
+        </ul>
+      </section>
+    </aside>
+  </main>
+
+  <footer class="footer">
+    <span>VigiEPP</span>
+    <span id="fpsLabel">— ms</span>
+  </footer>
+
+  <script src="/assets/app.js"></script>
+</body>
+</html>

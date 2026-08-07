@@ -1,0 +1,12 @@
+**/__pycache__
+**/*.pyc
+**/.venv
+**/venv
+.git
+_audit_prod
+backend/runs
+backend/datasets
+**/*.log
+backend/yolov8n.pt
+backend/models/.cache
+frontend/frontend
