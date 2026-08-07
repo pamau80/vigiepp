@@ -374,7 +374,22 @@
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
-      const res = await fetch(path, { ...options, signal: ctrl.signal });
+      const headers = { ...(options.headers || {}) };
+      const token = sessionStorage.getItem("vigiepp.token");
+      if (token && !headers["X-VigiEPP-Key"] && !headers.Authorization) {
+        headers["X-VigiEPP-Key"] = token;
+      }
+      const res = await fetch(path, {
+        ...options,
+        headers,
+        credentials: "include",
+        signal: ctrl.signal,
+      });
+      if (res.status === 401 && !path.startsWith("/api/auth/")) {
+        sessionStorage.removeItem("vigiepp.token");
+        await ensureAuth(true);
+        throw new Error("Sesión expirada. Volvé a entrar.");
+      }
       const data = await res.json().catch(() => ({}));
       if (!res.ok && res.status !== 202) {
         const detail = data.detail || data.error || `HTTP ${res.status}`;
@@ -387,6 +402,73 @@
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  function showAuthGate(show, hint = "") {
+    const gate = $("#authGate");
+    if (!gate) return;
+    gate.classList.toggle("hidden", !show);
+    document.body.classList.toggle("auth-locked", !!show);
+    const h = $("#authHint");
+    if (h) h.textContent = hint || "";
+    if (show) $("#authPin")?.focus();
+  }
+
+  async function ensureAuth(force = false) {
+    try {
+      const st = await fetch("/api/auth/status", { credentials: "include" }).then((r) => r.json());
+      if (!st.auth_enabled) {
+        showAuthGate(false);
+        $("#btnLogout")?.classList.add("hidden");
+        return true;
+      }
+      if (!force) {
+        const me = await fetch("/api/auth/me", {
+          credentials: "include",
+          headers: sessionStorage.getItem("vigiepp.token")
+            ? { "X-VigiEPP-Key": sessionStorage.getItem("vigiepp.token") }
+            : {},
+        });
+        if (me.ok) {
+          showAuthGate(false);
+          $("#btnLogout")?.classList.remove("hidden");
+          return true;
+        }
+      }
+    } catch (_) {
+      /* show gate */
+    }
+
+    return new Promise((resolve) => {
+      showAuthGate(true, "PIN requerido para continuar");
+      const form = $("#authForm");
+      const onSubmit = async (e) => {
+        e.preventDefault();
+        const pin = $("#authPin")?.value || "";
+        const hint = $("#authHint");
+        try {
+          const res = await fetch("/api/auth/login", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ pin }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            if (hint) hint.textContent = data.detail || "PIN incorrecto";
+            return;
+          }
+          if (data.token) sessionStorage.setItem("vigiepp.token", data.token);
+          showAuthGate(false);
+          $("#btnLogout")?.classList.remove("hidden");
+          form?.removeEventListener("submit", onSubmit);
+          resolve(true);
+        } catch (err) {
+          if (hint) hint.textContent = err.message || "Error de red";
+        }
+      };
+      form?.addEventListener("submit", onSubmit);
+    });
   }
 
   function sleep(ms) {
@@ -724,6 +806,7 @@
   }
 
   async function boot() {
+    await ensureAuth();
     try {
       const health = await api("/api/health");
       els.modelStatus.classList.toggle("ready", !!health.model_ready);
@@ -2383,6 +2466,14 @@
     const i = Number(btn.getAttribute("data-z-del"));
     zonesCache = readZonesFromEditor().filter((_, idx) => idx !== i);
     renderZonesEditor();
+  });
+
+  $("#btnLogout")?.addEventListener("click", async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+    } catch (_) {}
+    sessionStorage.removeItem("vigiepp.token");
+    await ensureAuth(true);
   });
 
   boot();

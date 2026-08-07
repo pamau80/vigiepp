@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import base64
 import logging
+import os
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 import cv2
 import numpy as np
@@ -18,10 +20,11 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from . import auth as auth_mod
+from . import exposure as exposure_mod
 from . import notifications as notif_mod
 from . import reports as reports_mod
 from . import zones as zones_mod
-from . import exposure as exposure_mod
 from .compliance import evaluate
 from .detector import PPEDetector, decode_image_bytes, encode_jpeg
 from .identity import IdentityRegistry, IdentityService
@@ -51,20 +54,27 @@ async def lifespan(_: FastAPI):
     stop_all()
 
 
+_docs = "/docs" if auth_mod.docs_enabled() else None
 app = FastAPI(
     title="VigiEPP",
     description="Detección de EPP con IA — demo para faenas en Chile",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
+    docs_url=_docs,
+    redoc_url=_docs and "/redoc",
+    openapi_url="/openapi.json" if auth_mod.docs_enabled() else None,
 )
 
+_cors_raw = os.getenv("VIGIEPP_CORS_ORIGINS", "").strip()
+_cors_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()] if _cors_raw else ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(auth_mod.AuthMiddleware)
 
 
 class DetectB64Request(BaseModel):
@@ -77,6 +87,37 @@ class RTSPStartRequest(BaseModel):
     url: str
     profile: str = "general"
     conf: float = 0.35
+
+
+class AuthLoginRequest(BaseModel):
+    pin: str = Field(..., min_length=1, max_length=128)
+
+
+def _validate_rtsp_url(url: str) -> str:
+    raw = (url or "").strip()
+    if not raw:
+        raise HTTPException(400, "URL RTSP requerida")
+    parsed = urlparse(raw)
+    if parsed.scheme not in ("rtsp", "rtsps"):
+        raise HTTPException(400, "Solo se permiten URLs rtsp:// o rtsps://")
+    host = (parsed.hostname or "").lower()
+    blocked = {
+        "localhost",
+        "127.0.0.1",
+        "::1",
+        "0.0.0.0",
+        "metadata.google.internal",
+        "169.254.169.254",
+        "metadata",
+    }
+    if host in blocked or host.startswith("127.") or host.endswith(".local"):
+        raise HTTPException(400, "Host RTSP no permitido")
+    allow = os.getenv("VIGIEPP_RTSP_ALLOW", "").strip()
+    if allow and allow != "*":
+        allowed_hosts = {h.strip().lower() for h in allow.split(",") if h.strip()}
+        if host not in allowed_hosts:
+            raise HTTPException(400, "Host RTSP fuera de la lista permitida")
+    return raw
 
 
 def _strip_data_url(b64: str) -> str:
@@ -271,7 +312,43 @@ def health() -> dict[str, Any]:
         "model_ready": det.ready,
         "model": det.model_name,
         "warning": det.error,
+        "auth_enabled": auth_mod.auth_enabled(),
     }
+
+
+@app.get("/api/auth/status")
+def auth_status() -> dict[str, Any]:
+    return auth_mod.auth_status()
+
+
+@app.post("/api/auth/login")
+def auth_login(body: AuthLoginRequest, response: Response) -> dict[str, Any]:
+    if not auth_mod.auth_enabled():
+        return {"ok": True, "auth_enabled": False, "message": "Auth desactivada"}
+    if not auth_mod.credentials_ok(body.pin):
+        raise HTTPException(401, "PIN incorrecto")
+    token = auth_mod.create_session()
+    auth_mod.set_session_cookie(response, token)
+    return {"ok": True, "auth_enabled": True, "token": token, "expires_hours": auth_mod.SESSION_HOURS}
+
+
+@app.post("/api/auth/logout")
+def auth_logout(request: Request, response: Response) -> dict[str, Any]:
+    token = auth_mod.extract_token(request)
+    auth_mod.revoke_session(token)
+    auth_mod.clear_session_cookie(response)
+    return {"ok": True}
+
+
+@app.get("/api/auth/me")
+def auth_me(request: Request) -> dict[str, Any]:
+    if not auth_mod.auth_enabled():
+        return {"ok": True, "authenticated": True, "auth_enabled": False}
+    token = auth_mod.extract_token(request)
+    ok = auth_mod.session_valid(token) or (bool(token) and auth_mod.credentials_ok(token))
+    if not ok:
+        raise HTTPException(401, "No autorizado")
+    return {"ok": True, "authenticated": True, "auth_enabled": True}
 
 
 @app.get("/api/profiles")
@@ -435,12 +512,11 @@ def notifications_test() -> dict[str, Any]:
 
 @app.post("/api/rtsp/start")
 def rtsp_start(body: RTSPStartRequest) -> dict[str, Any]:
-    if not body.url.strip():
-        raise HTTPException(400, "URL RTSP requerida")
-    stream = get_or_create_stream(body.url)
+    url = _validate_rtsp_url(body.url)
+    stream = get_or_create_stream(url)
     return {
         "ok": True,
-        "url": body.url,
+        "url": url,
         "connected": stream.connected,
         "error": stream.last_error,
         "hint": "Usa GET /api/rtsp/frame?url=...&profile=... para frames anotados",
@@ -454,6 +530,7 @@ def rtsp_frame(
     conf: float = 0.35,
     identify: bool = False,
 ) -> JSONResponse:
+    url = _validate_rtsp_url(url)
     stream = get_or_create_stream(url)
     frame = stream.read()
     if frame is None:
@@ -767,6 +844,17 @@ def teach_activate() -> dict[str, Any]:
 @app.websocket("/ws/detect")
 async def ws_detect(websocket: WebSocket) -> None:
     """Recibe frames JPEG binarios; responde JSON con resultado + imagen anotada."""
+    if auth_mod.auth_enabled():
+        token = websocket.cookies.get(auth_mod.COOKIE_NAME) or websocket.query_params.get("token")
+        header = websocket.headers.get(auth_mod.HEADER_NAME.lower()) or websocket.headers.get("authorization")
+        if header and header.lower().startswith("bearer "):
+            token = header[7:].strip()
+        elif header:
+            token = header.strip()
+        ok = auth_mod.session_valid(token) or (bool(token) and auth_mod.credentials_ok(token))
+        if not ok:
+            await websocket.close(code=4401)
+            return
     await websocket.accept()
     det = PPEDetector.get()
     profile = "general"

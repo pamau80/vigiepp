@@ -1236,6 +1236,42 @@ body.is-fullscreen .panel {
   white-space: nowrap;
 }
 .offline-badge.hidden { display: none; }
+.btn-logout {
+  margin-left: 0.35rem;
+  font-size: 0.75rem;
+  padding: 0.28rem 0.55rem;
+}
+.auth-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  background: rgba(8, 10, 9, 0.94);
+  padding: 1.25rem;
+}
+.auth-gate.hidden { display: none; }
+body.auth-locked .layout,
+body.auth-locked .topbar {
+  filter: blur(2px);
+  pointer-events: none;
+  user-select: none;
+}
+.auth-card {
+  width: min(360px, 100%);
+  display: grid;
+  gap: 0.85rem;
+  padding: 1.35rem 1.25rem;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 14px;
+  background: rgba(18, 22, 20, 0.96);
+}
+.auth-card .brand-name {
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 1.85rem;
+  letter-spacing: 0.04em;
+  margin: 0;
+}
 @media (max-width: 720px) {
   .zone-row { grid-template-columns: 1fr 1fr; }
 }
