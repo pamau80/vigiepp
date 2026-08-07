@@ -2124,8 +2124,16 @@
 
     if (key === "notif_setup") {
       const ac = notifConfig.access_control || {};
+      const et = notifConfig.email_transport || {};
+      const emailHint =
+        et.mode === "resend"
+          ? "Email real vía Resend"
+          : et.mode === "smtp"
+            ? `Email real vía SMTP (${et.smtp_host || "host"})`
+            : "Sin SMTP/Resend → solo abre mailto en el navegador";
       els.reportsContent.innerHTML = `
         <h3 class="rep-section-title">Canales de notificación</h3>
+        <p class="card-meta">${emailHint}</p>
         <form class="rep-form" id="notifChannelsForm">
           <label><span>Webhook (Slack / Teams / Discord / genérico)</span>
             <input type="checkbox" id="nWhEn" ${ch.webhook?.enabled ? "checked" : ""}/> Activar
@@ -2135,9 +2143,10 @@
             <input type="checkbox" id="nWaEn" ${ch.whatsapp_webhook?.enabled ? "checked" : ""}/> Activar
             <input type="url" id="nWaUrl" placeholder="https://..." value="${ch.whatsapp_webhook?.url || ""}"/>
           </label>
-          <label><span>Email (abre cliente / mailto)</span>
+          <label><span>Email</span>
             <input type="checkbox" id="nEmEn" ${ch.email?.enabled ? "checked" : ""}/> Activar
             <input type="email" id="nEmTo" placeholder="seguridad@empresa.cl" value="${ch.email?.to || ""}"/>
+            <input type="email" id="nEmCc" placeholder="cc opcional" value="${ch.email?.cc || ""}"/>
           </label>
           <p class="card-kicker">Abrir acceso (torniquete)</p>
           <label><span>Control de acceso por webhook</span>
@@ -2154,7 +2163,11 @@
           channels: {
             webhook: { enabled: $("#nWhEn").checked, url: $("#nWhUrl").value.trim() },
             whatsapp_webhook: { enabled: $("#nWaEn").checked, url: $("#nWaUrl").value.trim() },
-            email: { enabled: $("#nEmEn").checked, to: $("#nEmTo").value.trim() },
+            email: {
+              enabled: $("#nEmEn").checked,
+              to: $("#nEmTo").value.trim(),
+              cc: $("#nEmCc")?.value.trim() || "",
+            },
           },
           access_control: {
             enabled: $("#nAcEn").checked,
@@ -2176,6 +2189,7 @@
     if (key === "notif_rules") {
       els.reportsContent.innerHTML = `
         <h3 class="rep-section-title">Reglas de alerta</h3>
+        <p class="card-meta">La coolora es por persona + tipo de alerta (no bloquea a otros).</p>
         <form class="rep-form" id="notifRulesForm">
           <label><input type="checkbox" id="nEnabled" ${notifConfig.enabled ? "checked" : ""}/> Activar notificaciones</label>
           <label><input type="checkbox" id="nOnBad" ${notifConfig.on_non_compliant ? "checked" : ""}/> Avisar en incumplimiento EPP</label>
@@ -2195,6 +2209,7 @@
             enabled: $("#nEnabled").checked,
             on_non_compliant: $("#nOnBad").checked,
             on_unknown_face: $("#nOnUnknown").checked,
+            on_zone_alert: $("#nOnZone").checked,
             only_known_workers: $("#nOnlyKnown").checked,
             cooldown_seconds: Number($("#nCooldown").value) || 0,
           }),
@@ -2465,6 +2480,21 @@
     } catch (err) {
       if (els.zonesHint) els.zonesHint.textContent = err.message;
     }
+  });
+  $$("[data-zone-preset]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.getAttribute("data-zone-preset");
+      if (!id) return;
+      if (!confirm(`¿Reemplazar zonas actuales por el preset «${id}»?`)) return;
+      try {
+        const res = await api(`/api/zones/presets/${id}`, { method: "POST" });
+        zonesCache = res.zones || [];
+        renderZonesEditor();
+        if (els.zonesHint) els.zonesHint.textContent = `Preset «${id}» aplicado · ${zonesCache.length} zonas`;
+      } catch (err) {
+        if (els.zonesHint) els.zonesHint.textContent = err.message;
+      }
+    });
   });
   els.zonesList?.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-z-del]");

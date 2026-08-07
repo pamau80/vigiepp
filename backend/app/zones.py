@@ -20,8 +20,8 @@ DEFAULT = {
         {
             "id": "zona-restringida-demo",
             "name": "Zona restringida",
-            "type": "restricted",  # restricted | vehicle_lane
-            "enabled": False,
+            "type": "restricted",
+            "enabled": True,
             "x": 0.05,
             "y": 0.1,
             "w": 0.35,
@@ -32,7 +32,7 @@ DEFAULT = {
             "id": "via-vehiculos-demo",
             "name": "Vía vehículos",
             "type": "vehicle_lane",
-            "enabled": False,
+            "enabled": True,
             "x": 0.55,
             "y": 0.35,
             "w": 0.4,
@@ -42,6 +42,70 @@ DEFAULT = {
     ],
     "updated_at": None,
 }
+
+
+PRESETS: dict[str, list[dict[str, Any]]] = {
+    "faena": DEFAULT["zones"],
+    "porteria": [
+        {
+            "id": "acceso-principal",
+            "name": "Línea de acceso",
+            "type": "restricted",
+            "enabled": True,
+            "x": 0.25,
+            "y": 0.15,
+            "w": 0.5,
+            "h": 0.7,
+            "color": "#e85d04",
+        }
+    ],
+    "bodega": [
+        {
+            "id": "pasillo-montacargas",
+            "name": "Pasillo montacargas",
+            "type": "vehicle_lane",
+            "enabled": True,
+            "x": 0.35,
+            "y": 0.05,
+            "w": 0.3,
+            "h": 0.9,
+            "color": "#d62828",
+        },
+        {
+            "id": "area-carga",
+            "name": "Área de carga",
+            "type": "restricted",
+            "enabled": True,
+            "x": 0.02,
+            "y": 0.55,
+            "w": 0.3,
+            "h": 0.4,
+            "color": "#e85d04",
+        },
+    ],
+}
+
+
+def apply_preset(name: str) -> dict[str, Any]:
+    key = (name or "faena").strip().lower()
+    zones = PRESETS.get(key)
+    if not zones:
+        raise ValueError(f"Preset desconocido: {name}. Usa: {', '.join(PRESETS)}")
+    # copias nuevas con ids únicos si ya existen
+    payload_zones = []
+    for z in zones:
+        item = dict(z)
+        item["id"] = str(item.get("id") or uuid.uuid4().hex[:10])
+        payload_zones.append(item)
+    return save_zones(payload_zones)
+
+
+def list_presets() -> list[dict[str, Any]]:
+    return [
+        {"id": "faena", "name": "Faena general", "zones": 2, "hint": "Restringida + vía vehículos"},
+        {"id": "porteria", "name": "Portería / acceso", "zones": 1, "hint": "Línea de control frontal"},
+        {"id": "bodega", "name": "Bodega / montacargas", "zones": 2, "hint": "Pasillo + área de carga"},
+    ]
 
 
 def _ensure() -> None:

@@ -363,6 +363,7 @@ def health() -> dict[str, Any]:
         "auth_enabled": auth_mod.auth_enabled(),
         "data_dir": str(paths_mod.data_dir()),
         "data_persistent": paths_mod.is_persistent(),
+        "email_transport": notif_mod.email_transport_status().get("mode"),
     }
 
 
@@ -448,6 +449,14 @@ async def detect_upload(
     elif identify and identity and not identity.get("known"):
         _maybe_notify_unknown(profile, identity)
     try:
+        notif_mod.maybe_notify_zones(
+            identity,
+            (payload.get("zones") or {}).get("alerts") or [],
+            profile,
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("Notificación de zona falló")
+    try:
         access = notif_mod.maybe_access_gate(identity, payload["compliance"], profile)
         if access is not None:
             payload["access"] = access
@@ -459,6 +468,19 @@ async def detect_upload(
 @app.get("/api/zones")
 def zones_get() -> dict[str, Any]:
     return zones_mod.get_zones()
+
+
+@app.get("/api/zones/presets")
+def zones_presets() -> dict[str, Any]:
+    return {"presets": zones_mod.list_presets()}
+
+
+@app.post("/api/zones/presets/{preset_id}")
+def zones_apply_preset(preset_id: str) -> dict[str, Any]:
+    try:
+        return zones_mod.apply_preset(preset_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @app.post("/api/zones")
@@ -512,7 +534,8 @@ def reports_summary_txt(days: int = 7, profile: Optional[str] = None) -> PlainTe
 
 @app.get("/api/notifications/config")
 def notifications_config_get() -> dict[str, Any]:
-    return notif_mod.get_config()
+    cfg = notif_mod.get_config()
+    return {**cfg, "email_transport": notif_mod.email_transport_status()}
 
 
 @app.post("/api/notifications/config")

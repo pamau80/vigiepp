@@ -1236,12 +1236,11 @@ body.is-fullscreen .panel {
   white-space: nowrap;
 }
 .offline-badge.hidden { display: none; }
-.worker-backup-actions {
+.zone-presets {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.45rem;
-  align-items: center;
-  margin-top: 0.75rem;
+  gap: 0.4rem;
+  margin-bottom: 0.65rem;
 }
 .worker-backup-actions select {
   font: inherit;
