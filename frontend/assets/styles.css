@@ -1487,6 +1487,18 @@ body[data-role="operator"] .mode-btn:not([data-mode="monitor"]) {
   padding: 1.25rem;
 }
 .auth-gate.hidden { display: none; }
+
+.persist-banner {
+  background: color-mix(in srgb, #c45c26 22%, var(--bg, #121212));
+  border-bottom: 1px solid color-mix(in srgb, #c45c26 50%, transparent);
+  color: var(--text, #f2f2f2);
+  font-size: 0.85rem;
+  line-height: 1.35;
+  padding: 0.55rem 1rem;
+  text-align: center;
+}
+.persist-banner.hidden { display: none; }
+.persist-banner strong { font-weight: 700; }
 body.auth-locked .layout,
 body.auth-locked .topbar {
   filter: blur(2px);

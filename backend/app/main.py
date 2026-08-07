@@ -52,6 +52,14 @@ async def lifespan(_: FastAPI):
     except Exception:  # noqa: BLE001
         logger.exception("Precarga de modelo EPP falló")
     try:
+        from . import cloud_persist as cloud_mod
+
+        result = cloud_mod.pull_and_restore_if_empty()
+        if result.get("restored"):
+            logger.info("Identidad restaurada desde cloud: %s", result.get("workers"))
+    except Exception:  # noqa: BLE001
+        logger.exception("Cloud persist pull falló")
+    try:
         IdentityRegistry.get()
     except Exception:  # noqa: BLE001
         logger.exception("Precarga de identidad facial falló")
@@ -210,7 +218,7 @@ def _build_response(
     return payload
 
 
-def _identify_on_frame(frame: np.ndarray, threshold: float = 0.36) -> dict[str, Any] | None:
+def _identify_on_frame(frame: np.ndarray, threshold: float = 0.42) -> dict[str, Any] | None:
     try:
         result = IdentityService().identify(frame, threshold=threshold)
         person = result.get("identified")
@@ -224,6 +232,8 @@ def _identify_on_frame(frame: np.ndarray, threshold: float = 0.36) -> dict[str, 
                 "method": result.get("method"),
                 "faces_detected": result.get("faces_detected", 0),
                 "score": match.get("score"),
+                "confidence": match.get("confidence"),
+                "reject_reason": match.get("reject_reason"),
                 "face_box": face_box,
             }
         return {
@@ -233,6 +243,8 @@ def _identify_on_frame(frame: np.ndarray, threshold: float = 0.36) -> dict[str, 
             "id": person.get("id"),
             "method": result.get("method"),
             "score": match.get("score"),
+            "confidence": match.get("confidence") or ("high" if person.get("id") else "none"),
+            "reject_reason": match.get("reject_reason"),
             "faces_detected": result.get("faces_detected", 0),
             "face_box": face_box,
             "group": person.get("group"),
@@ -377,6 +389,17 @@ class HardwareTestBody(BaseModel):
 @app.get("/api/health")
 def health() -> dict[str, Any]:
     det = PPEDetector.get()
+    from . import cloud_persist as cloud_mod
+
+    cloud = cloud_mod.status()
+    ephemeral = cloud.get("ephemeral_host") or (
+        paths_mod.is_persistent() and not cloud.get("configured")
+        and os.getenv("RENDER", "").strip() != ""
+    )
+    # En Render Free /data existe pero se borra al sleep: marcar riesgo si no hay cloud.
+    if os.getenv("RENDER") or os.getenv("RENDER_SERVICE_ID"):
+        if not cloud.get("configured"):
+            ephemeral = True
     return {
         "status": "ok",
         "product": "VigiEPP",
@@ -385,7 +408,9 @@ def health() -> dict[str, Any]:
         "warning": det.error,
         "auth_enabled": auth_mod.auth_enabled(),
         "data_dir": str(paths_mod.data_dir()),
-        "data_persistent": paths_mod.is_persistent(),
+        "data_persistent": paths_mod.is_persistent() and not ephemeral,
+        "data_ephemeral_risk": bool(ephemeral),
+        "cloud_backup": cloud,
         "email_transport": notif_mod.email_transport_status().get("mode"),
     }
 
@@ -445,7 +470,7 @@ async def detect_upload(
     identify: bool = Form(True),
     return_image: bool = Form(False),
     imgsz: int = Form(416),
-    threshold: float = Form(0.36),
+    threshold: float = Form(0.42),
 ) -> JSONResponse:
     data = await file.read()
     if not data:
@@ -465,7 +490,7 @@ async def detect_upload(
     det = PPEDetector.get()
     detections, annotated = det.predict(frame, conf=conf, imgsz=imgsz)
 
-    thr = max(0.2, min(0.7, float(threshold or 0.36)))
+    thr = max(0.28, min(0.7, float(threshold or 0.42)))
     identity = _identify_on_frame(frame, threshold=thr) if identify else None
     if identity and return_image:
         annotated = _draw_identity(annotated, identity)
@@ -729,6 +754,12 @@ async def identity_backup_restore(
     try:
         result = backup_mod.restore_backup_zip(raw, mode=mode.strip() or "merge")
         backup_mod.reload_identity_registry()
+        try:
+            from . import cloud_persist as cloud_mod
+
+            cloud_mod.schedule_push(2.0)
+        except Exception:  # noqa: BLE001
+            pass
         return result
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -872,14 +903,23 @@ async def identity_enroll_photos(
             400,
             errors[0] if errors else "Ninguna foto tuvo rostro usable. Subí fotos de frente, con buena luz.",
         )
+    ready = bool(last_worker and last_worker.get("ready"))
     return JSONResponse(
         {
             "ok": True,
             "saved": saved,
             "failed": failed,
             "worker": last_worker,
-            "message": f"Rostro: {saved} fotos cargadas"
-            + (f" · {failed} descartadas" if failed else ""),
+            "ready": ready,
+            "message": (
+                f"Rostro: {saved} fotos de calidad"
+                + (f" · {failed} descartadas (borrosas/ángulo/lejos)" if failed else "")
+                + (
+                    " · ficha lista para identificación estricta."
+                    if ready
+                    else " · incompleta: necesitás al menos 4 muestras aceptadas."
+                )
+            ),
         }
     )
 
@@ -887,14 +927,15 @@ async def identity_enroll_photos(
 @app.post("/api/identity/identify")
 async def identity_identify(
     file: UploadFile = File(...),
-    threshold: float = Form(0.36),
+    threshold: float = Form(0.42),
 ) -> JSONResponse:
     data = await file.read()
     try:
         frame = decode_image_bytes(data)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    result = IdentityService().identify(frame, threshold=threshold)
+    thr = max(0.28, min(0.7, float(threshold or 0.42)))
+    result = IdentityService().identify(frame, threshold=thr)
     jpeg = encode_jpeg(result.pop("annotated"))
     result["image_b64"] = base64.b64encode(jpeg).decode("ascii")
     return JSONResponse(result)

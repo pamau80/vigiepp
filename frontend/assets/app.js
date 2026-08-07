@@ -190,7 +190,7 @@
     identifyDefault: true,
     showPpeBoxes: false,
     fullscreenDefault: true,
-    identifyThreshold: 0.36,
+    identifyThreshold: 0.42,
     audioAlerts: true,
     audioAlertRepeats: 0,
     anonymizeFaces: true,
@@ -208,6 +208,12 @@
       settings.faceScale = Math.max(55, Math.min(140, Number(settings.faceScale) || 100));
       settings.guideOffsetY = Math.max(-20, Math.min(20, Number(settings.guideOffsetY) || 0));
       settings.audioAlertRepeats = Math.max(0, Math.min(10, Number(settings.audioAlertRepeats) || 0));
+      settings.identifyThreshold = Math.max(
+        0.3,
+        Math.min(0.65, Number(settings.identifyThreshold) || 0.42)
+      );
+      // Migrar umbral demo antiguo a modo precisión
+      if (settings.identifyThreshold < 0.38) settings.identifyThreshold = 0.42;
     } catch (_) {
       settings = defaultSettings();
     }
@@ -236,7 +242,7 @@
     if (els.cfgPoseAttempts) els.cfgPoseAttempts.value = String(settings.poseAttempts || 8);
     if (els.cfgIdentifyDefault) els.cfgIdentifyDefault.checked = !!settings.identifyDefault;
     if (els.cfgIdThresh) {
-      const pct = Math.round((settings.identifyThreshold || 0.36) * 100);
+      const pct = Math.round((settings.identifyThreshold || 0.42) * 100);
       els.cfgIdThresh.value = String(pct);
       if (els.cfgIdThreshVal) els.cfgIdThreshVal.textContent = `${pct}%`;
     }
@@ -267,7 +273,7 @@
     settings.poseAttempts = Math.max(1, Math.min(20, Number(els.cfgPoseAttempts?.value) || 8));
     settings.identifyDefault = !!els.cfgIdentifyDefault?.checked;
     if (els.cfgIdThresh) {
-      settings.identifyThreshold = Math.max(0.2, Math.min(0.6, (Number(els.cfgIdThresh.value) || 36) / 100));
+      settings.identifyThreshold = Math.max(0.3, Math.min(0.65, (Number(els.cfgIdThresh.value) || 42) / 100));
       if (els.cfgIdThreshVal) els.cfgIdThreshVal.textContent = `${Math.round(settings.identifyThreshold * 100)}%`;
     }
     settings.showPpeBoxes = !!els.cfgShowBoxes?.checked;
@@ -880,6 +886,7 @@
       els.modelStatusText.textContent = health.model_ready
         ? `IA lista · ${health.model || "EPP"}`
         : health.warning || "Cargando";
+      showPersistBanner(health);
     } catch {
       els.modelStatus.classList.add("error");
       els.modelStatusText.textContent = "Backend no disponible";
@@ -1057,7 +1064,7 @@
     }
 
     if (mode === "identity" && els.enrollCoach) {
-      els.enrollCoach.textContent = "4 poses con cámara o varias fotos adjuntas · una persona a la vez";
+      els.enrollCoach.textContent = "4 poses de calidad obligatorias · luz frontal · una persona";
     }
     applyGuideMode();
   }
@@ -1212,12 +1219,35 @@
           ? "Sin RUT"
           : "No está en el registro";
     const score =
-      identity.score != null ? ` · ${Math.round(identity.score * 100)}%` : "";
-    els.identityMethod.textContent = known
-      ? `Rostro reconocido${score}`
-      : identity.faces_detected
-        ? `Rostro visto, no enrolado${score}`
-        : "Sin rostro detectado";
+      identity.score != null ? `${Math.round(Number(identity.score) * 100)}%` : null;
+    const confMap = {
+      high: "confianza alta",
+      medium: "confianza media",
+      low: "confianza baja",
+      ambiguous: "ambigüedad",
+      none: "",
+    };
+    const confTxt = confMap[identity.confidence] || "";
+    if (known) {
+      els.identityMethod.textContent = [
+        "Rostro reconocido",
+        score,
+        confTxt,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    } else if (identity.faces_detected) {
+      const why = identity.reject_reason || "sin match estricto";
+      els.identityMethod.textContent = [
+        "No identificado",
+        score,
+        why,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    } else {
+      els.identityMethod.textContent = "Sin rostro detectado";
+    }
 
     els.personChip.classList.remove("hidden");
     els.personChip.classList.toggle("unknown", !known);
@@ -1237,7 +1267,7 @@
       fd.append("identify", identify ? "true" : "false");
       fd.append("return_image", returnImage ? "true" : "false");
       fd.append("imgsz", "416");
-      fd.append("threshold", String(settings.identifyThreshold || 0.36));
+      fd.append("threshold", String(settings.identifyThreshold || 0.42));
       const data = await api("/api/detect", { method: "POST", body: fd }, 15000);
       updateUi(data);
       if (identify && data.identity?.known) refreshScans();
@@ -1546,10 +1576,11 @@
     }
   }
 
-  function qualityLabel(q) {
+  function qualityLabel(q, ready) {
+    if (ready === false) return "NO LISTO";
     const n = Number(q) || 0;
     if (n >= 85) return "Alta";
-    if (n >= 50) return "Media";
+    if (n >= 60) return "Media";
     if (n > 0) return "Baja";
     return "Sin fotos";
   }
@@ -1557,10 +1588,111 @@
   async function refreshWorkers() {
     try {
       workersCache = await api("/api/identity/workers");
+      if (!workersCache.length) {
+        const restored = await restoreBrowserBackupIfServerEmpty();
+        if (restored) {
+          workersCache = await api("/api/identity/workers");
+          if (els.enrollCoach) {
+            els.enrollCoach.textContent =
+              "Se restauró el respaldo de este navegador (Render Free borra el disco al dormir).";
+          }
+        }
+      } else {
+        scheduleBrowserBackup();
+      }
       renderWorkerList();
     } catch (err) {
       console.error(err);
       if (els.workerListHint) els.workerListHint.textContent = "No se pudo cargar la lista";
+    }
+  }
+
+  const IDB_NAME = "vigiepp-persist";
+  const IDB_STORE = "backups";
+  const IDB_KEY = "identity-latest";
+  let browserBackupTimer = null;
+
+  function idbOpen() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(IDB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function saveBrowserBackupBlob(blob) {
+    const db = await idbOpen();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, "readwrite");
+      tx.objectStore(IDB_STORE).put({ blob, savedAt: Date.now(), bytes: blob.size }, IDB_KEY);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  }
+
+  async function loadBrowserBackupBlob() {
+    const db = await idbOpen();
+    const row = await new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, "readonly");
+      const req = tx.objectStore(IDB_STORE).get(IDB_KEY);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+    db.close();
+    return row;
+  }
+
+  function scheduleBrowserBackup() {
+    if (browserBackupTimer) clearTimeout(browserBackupTimer);
+    browserBackupTimer = setTimeout(() => {
+      syncBrowserBackupFromServer().catch(() => {});
+    }, 1500);
+  }
+
+  async function syncBrowserBackupFromServer() {
+    const res = await fetch("/api/identity/backup", { credentials: "same-origin" });
+    if (!res.ok) return;
+    const blob = await res.blob();
+    if (!blob || blob.size < 80) return;
+    await saveBrowserBackupBlob(blob);
+  }
+
+  async function restoreBrowserBackupIfServerEmpty() {
+    const stored = await loadBrowserBackupBlob();
+    if (!stored?.blob) return false;
+    const fd = new FormData();
+    fd.append("file", stored.blob, "identity-browser-backup.zip");
+    fd.append("mode", "replace");
+    await api("/api/identity/backup/restore", { method: "POST", body: fd }, 90000);
+    return true;
+  }
+
+  function showPersistBanner(health) {
+    const el = $("#persistBanner");
+    if (!el) return;
+    const cloud = health?.cloud_backup || {};
+    const risk = !!health?.data_ephemeral_risk;
+    if (!risk && cloud.configured) {
+      el.classList.add("hidden");
+      el.textContent = "";
+      return;
+    }
+    if (!risk) {
+      el.classList.add("hidden");
+      return;
+    }
+    el.classList.remove("hidden");
+    if (cloud.configured) {
+      el.innerHTML =
+        "<strong>Render Free:</strong> el disco se borra al dormir, pero hay respaldo cloud activo. Tras despertar se restauran solas las personas.";
+    } else {
+      el.innerHTML =
+        "<strong>Render Free:</strong> sin disco permanente. Este navegador guarda un respaldo automático de personas/fotos y lo restaura al volver. Para no depender del navegador: Starter+disco o cloud backup.";
     }
   }
 
@@ -1585,12 +1717,16 @@
               ? `<img class="worker-photo" src="${w.photo_url}?t=${encodeURIComponent(w.last_seen || w.face_samples || 0)}" alt="" />`
               : `<div class="worker-photo placeholder" aria-hidden="true"></div>`;
             const qn = w.quality || 0;
+            const ready =
+              w.ready === true ||
+              ((w.face_samples || 0) >= (w.min_samples_ready || 4) && (w.embedding_count || w.face_samples || 0) >= 3);
+            const qLabel = qualityLabel(qn, ready);
             return `<li data-worker-id="${w.id}" class="${active ? "" : "is-inactive"}">
               ${photo}
               <div class="worker-meta">
-                <strong>${escapeHtml(w.name || "Sin nombre")}${active ? "" : " · inactivo"}</strong>
+                <strong>${escapeHtml(w.name || "Sin nombre")}${active ? "" : " · inactivo"}${ready ? "" : " · incompleto"}</strong>
                 <span class="conf">${escapeHtml(w.rut || "—")}${w.group ? " · " + escapeHtml(w.group) : ""}</span>
-                <span class="conf">${w.face_samples || 0} fotos · calidad ${qn}% (${qualityLabel(qn)}) · ${formatLastSeen(w.last_seen)}</span>
+                <span class="conf">${w.face_samples || 0}/4 muestras · calidad ${qn}% (${qLabel}) · ${formatLastSeen(w.last_seen)}</span>
               </div>
               <div class="worker-actions">
                 <button type="button" class="btn-mini" data-toggle-active="${w.id}">${active ? "Desactivar" : "Activar"}</button>
@@ -1830,7 +1966,7 @@
           }
           if (enrollAbort) throw new Error("Cancelado");
           setPoseUI(i, "Capturando…", okCount);
-          const blob = await captureBlob(0.85, 720);
+          const blob = await captureBlob(0.92, 960);
           if (!blob) {
             els.enrollCount.textContent = "Sin cámara — reintentá";
             if (els.enrollCoach) els.enrollCoach.textContent = "No hay imagen de cámara. Revisá permisos y reintentá.";
@@ -1858,12 +1994,13 @@
               await sleep(450);
               break;
             }
-            els.enrollCount.textContent = "Sin rostro — reintentá";
+            const why = last.error || last.message || "Sin rostro válido";
+            els.enrollCount.textContent = "Calidad baja — reintentá";
             if (els.enrollCoach) {
-              els.enrollCoach.textContent = "No detecté rostro. Acomodate y pulsá Tomar foto de nuevo.";
+              els.enrollCoach.textContent = why;
             }
           } catch (e) {
-            els.enrollCount.textContent = "Error — reintentá";
+            els.enrollCount.textContent = "Rechazado — reintentá";
             if (els.enrollCoach) els.enrollCoach.textContent = e.message;
           }
         }
@@ -1871,9 +2008,9 @@
       endPoseUI();
       await refreshWorkers();
       const done =
-        okCount >= 3
-          ? `Listo ${okCount}/4. Ya podés identificar en Monitoreo.`
-          : `Solo ${okCount}/4. Rehacé con más luz o adjuntá fotos.`;
+        okCount >= 4
+          ? `Listo ${okCount}/4. Identificación estricta activa en Monitoreo.`
+          : `Incompleto ${okCount}/4. Rehacé poses con luz frontal (calidad obligatoria).`;
       if (els.enrollCoach) els.enrollCoach.textContent = done;
     } catch (err) {
       if (els.enrollCoach) els.enrollCoach.textContent = err.message;
@@ -1919,22 +2056,34 @@
     applyGuideMode();
     if (!mediaStream) await startCamera({ silentDetect: true });
     showLive();
-    const blob = await captureBlob(0.85, 720);
+    const blob = await captureBlob(0.92, 960);
     const fd = new FormData();
     fd.append("file", blob, "id.jpg");
-    fd.append("threshold", String(settings.identifyThreshold || 0.36));
+    fd.append("threshold", String(settings.identifyThreshold || 0.42));
     try {
       const data = await api("/api/identity/identify", { method: "POST", body: fd });
       const faceBox = data.matches?.[0]?.box || null;
+      const m0 = data.matches?.[0] || {};
       if (faceBox) lastFaceBox = faceBox;
       if (data.identified) {
         setIdentityCard({
           known: !!data.identified.id,
           name: data.identified.name,
           rut: data.identified.rut,
-          score: data.matches?.[0]?.score,
+          score: m0.score,
+          confidence: m0.confidence,
+          reject_reason: m0.reject_reason,
           faces_detected: data.faces_detected,
           face_box: faceBox,
+        });
+      } else {
+        setIdentityCard({
+          known: false,
+          name: null,
+          faces_detected: data.faces_detected || 0,
+          score: m0.score,
+          confidence: m0.confidence,
+          reject_reason: m0.reject_reason,
         });
       }
       drawDetections([], lastFrameSize.w, lastFrameSize.h, {

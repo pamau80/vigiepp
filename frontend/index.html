@@ -36,6 +36,7 @@
       <p class="hint" id="authHint"></p>
     </form>
   </div>
+  <div id="persistBanner" class="persist-banner hidden" role="status"></div>
   <header class="topbar">
     <div class="brand">
       <div class="brand-mark" aria-hidden="true"></div>
@@ -204,7 +205,7 @@
           <input id="faceTrainPhotos" type="file" accept="image/*" multiple hidden />
         </label>
         <button id="btnIdentify" class="btn secondary" type="button">Probar ID</button>
-        <p class="hint" id="enrollCoach">4 poses con cámara o varias fotos adjuntas · una persona a la vez</p>
+        <p class="hint" id="enrollCoach">4 poses de calidad obligatorias · luz frontal · una persona</p>
       </div>
 
       <div class="controls control-bar hidden" id="teachControls">
@@ -345,7 +346,7 @@
 
       <section class="card panel-section" data-show="identity" id="identityBlock">
         <p class="card-kicker">Personas enroladas</p>
-        <p class="card-meta">Ficha · foto · calidad · activo/inactivo · grupo · último visto</p>
+        <p class="card-meta">Ficha · 4 muestras mín. · calidad · listo/incompleto · último visto</p>
         <label class="field worker-search-field">
           <span class="sr-only">Buscar</span>
           <input id="workerSearch" type="search" placeholder="Buscar por nombre, RUT o grupo…" autocomplete="off" />
@@ -480,9 +481,9 @@
         <label class="cfg-row cfg-slider-row">
           <span>
             <strong>Umbral de match facial</strong>
-            <small>Más alto = más estricto · <b id="cfgIdThreshVal">36%</b></small>
+            <small>Modo precisión · más alto = más estricto · <b id="cfgIdThreshVal">42%</b></small>
           </span>
-          <input type="range" id="cfgIdThresh" min="20" max="60" value="36" step="1" />
+          <input type="range" id="cfgIdThresh" min="30" max="65" value="42" step="1" />
         </label>
         <label class="cfg-row">
           <span>

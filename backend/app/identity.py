@@ -26,8 +26,14 @@ MODELS_DIR = face_models_dir()
 YUNET_PATH = MODELS_DIR / "face_detection_yunet_2023mar.onnx"
 SFACE_PATH = MODELS_DIR / "face_recognition_sface_2021dec.onnx"
 
-# Umbral cosine SFace (OpenCV recomienda ~0.363). Un poco más permisivo para demo.
-DEFAULT_THRESHOLD = 0.36
+# Modo precisión: OpenCV SFace ~0.363; usamos umbral más alto + margen obligatorio.
+DEFAULT_THRESHOLD = 0.42
+MIN_MATCH_MARGIN = 0.06  # diferencia mínima vs 2.º candidato
+MIN_SAMPLES_READY = 4  # muestras de calidad para considerar ficha lista
+MIN_SAMPLES_MATCH = 3  # por debajo: no se acepta match facial (evitar falsos)
+MIN_FACE_AREA_RATIO = 0.045  # cara ≥ ~4.5% del frame
+MIN_DETECT_SCORE = 0.65
+MIN_SHARPNESS = 35.0  # varianza Laplaciana del crop
 
 RUT_RE = re.compile(r"\b(\d{1,2}\.?\d{3}\.?\d{3})\-?([0-9Kk])\b")
 
@@ -48,21 +54,77 @@ class Worker:
 
 
 def compute_quality(face_samples: int) -> int:
-    """Score 0–100 según cantidad de muestras faciales."""
+    """Score 0–100 según cantidad de muestras faciales de calidad."""
     n = int(face_samples or 0)
     if n <= 0:
         return 0
     if n == 1:
-        return 25
+        return 20
     if n == 2:
-        return 50
+        return 40
     if n == 3:
-        return 70
+        return 60
     if n == 4:
         return 85
+    if n == 5:
+        return 92
     if n >= 6:
         return 100
     return 90
+
+
+def is_identity_ready(face_samples: int) -> bool:
+    return int(face_samples or 0) >= MIN_SAMPLES_READY
+
+
+def assess_face_quality(
+    frame_bgr: np.ndarray,
+    face_row: np.ndarray,
+) -> tuple[bool, str, dict[str, Any]]:
+    """Valida tamaño, score YuNet, nitidez y frontalidad antes de enrolar/match."""
+    h, w = frame_bgr.shape[:2]
+    fx, fy, fw, fh = [float(v) for v in face_row[:4]]
+    area_ratio = (fw * fh) / float(max(1, w * h))
+    det_score = float(face_row[14]) if len(face_row) > 14 else 0.0
+    meta: dict[str, Any] = {
+        "area_ratio": round(area_ratio, 4),
+        "detect_score": round(det_score, 3),
+        "sharpness": None,
+        "frontal": None,
+    }
+
+    if area_ratio < MIN_FACE_AREA_RATIO:
+        return False, "Acercá más el rostro a la cámara (muy lejos).", meta
+    if det_score and det_score < MIN_DETECT_SCORE:
+        return False, "Rostro poco claro. Mejorá la luz y mirá de frente.", meta
+
+    # Landmarks YuNet: RE, LE, nose, RM, LM
+    if len(face_row) >= 14:
+        re_x, re_y = float(face_row[4]), float(face_row[5])
+        le_x, le_y = float(face_row[6]), float(face_row[7])
+        nose_x = float(face_row[8])
+        eye_dist = abs(le_x - re_x) + 1e-6
+        eye_y_diff = abs(le_y - re_y) / max(fh, 1.0)
+        nose_center = abs((nose_x - (re_x + le_x) / 2.0) / eye_dist)
+        eye_span = eye_dist / max(fw, 1.0)
+        frontal_ok = eye_y_diff < 0.22 and nose_center < 0.45 and 0.25 <= eye_span <= 0.95
+        meta["frontal"] = round(1.0 - min(1.0, eye_y_diff + nose_center * 0.5), 3)
+        if not frontal_ok:
+            return False, "Mirá de frente a la cámara (sin perfil extremo).", meta
+
+    x1 = max(0, int(fx))
+    y1 = max(0, int(fy))
+    x2 = min(w, int(fx + fw))
+    y2 = min(h, int(fy + fh))
+    crop = frame_bgr[y1:y2, x1:x2]
+    if crop.size < 100:
+        return False, "Recorte facial inválido. Reintentá.", meta
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    sharp = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+    meta["sharpness"] = round(sharp, 1)
+    if sharp < MIN_SHARPNESS:
+        return False, "Imagen borrosa. Sostené firme y con buena luz.", meta
+    return True, "ok", meta
 
 
 def worker_from_dict(item: dict[str, Any]) -> Worker:
@@ -85,11 +147,17 @@ def worker_public(w: Worker) -> dict[str, Any]:
     d = asdict(w)
     folder = FACES_DIR / w.id
     has_photo = False
+    emb_count = 0
     if folder.exists():
         has_photo = any(folder.glob("face_*.jpg"))
+        emb_count = len(list(folder.glob("emb_*.npy")))
+    samples = int(w.face_samples or emb_count or 0)
     d["has_photo"] = has_photo
     d["photo_url"] = f"/api/identity/workers/{w.id}/photo" if has_photo else None
-    d["quality"] = w.quality or compute_quality(w.face_samples)
+    d["quality"] = w.quality or compute_quality(samples)
+    d["ready"] = is_identity_ready(samples) and (emb_count > 0 or samples > 0)
+    d["embedding_count"] = emb_count or samples
+    d["min_samples_ready"] = MIN_SAMPLES_READY
     return d
 
 
@@ -176,37 +244,67 @@ class IdentityRegistry:
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         WORKERS_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        try:
+            from . import cloud_persist as cloud_mod
+
+            cloud_mod.schedule_push()
+        except Exception:  # noqa: BLE001
+            logger.debug("cloud_persist schedule omitido", exc_info=True)
 
     def _migrate_embeddings(self) -> None:
-        """Regenera embeddings SFace desde fotos guardadas (invalida .npy antiguos)."""
+        """Carga embeddings SFace; regenera solo si faltan .npy válidos."""
         if self._backend != "sface" or self._recognizer is None:
             return
+        changed = False
         for wid, worker in list(self._workers.items()):
             folder = FACES_DIR / wid
             if not folder.exists():
+                self._embeddings[wid] = []
                 continue
-            # borrar embeddings viejos (histograma 256-d)
-            for old in folder.glob("emb_*.npy"):
-                old.unlink(missing_ok=True)
             embs: list[np.ndarray] = []
-            for img_path in sorted(folder.glob("face_*.jpg")):
-                img = cv2.imread(str(img_path))
-                if img is None:
-                    continue
-                feat = self.extract_feature_from_image(img)
-                if feat is None:
-                    # la foto guardada ya es un crop: forzar feature directa
-                    try:
-                        aligned = cv2.resize(img, (112, 112))
-                        feat = self._recognizer.feature(aligned).flatten().astype(np.float32)
-                    except Exception:  # noqa: BLE001
+            for emb_path in sorted(folder.glob("emb_*.npy")):
+                try:
+                    e = np.load(str(emb_path))
+                    e = np.asarray(e, dtype=np.float32).flatten()
+                    # SFace ~128-d; descartar histograma viejo u otros
+                    if e.size < 64 or e.size > 512:
+                        emb_path.unlink(missing_ok=True)
+                        changed = True
                         continue
-                embs.append(feat)
-                np.save(folder / f"emb_{len(embs):03d}.npy", feat)
+                    embs.append(e)
+                except Exception:  # noqa: BLE001
+                    emb_path.unlink(missing_ok=True)
+                    changed = True
+
+            if not embs:
+                for img_path in sorted(folder.glob("face_*.jpg")):
+                    img = cv2.imread(str(img_path))
+                    if img is None:
+                        continue
+                    feat = self.extract_feature_from_image(img)
+                    if feat is None:
+                        # crop ya centrado: reintentar con padding + detección
+                        pad = 24
+                        padded = cv2.copyMakeBorder(
+                            img, pad, pad, pad, pad, cv2.BORDER_REFLECT_101
+                        )
+                        feat = self.extract_feature_from_image(padded)
+                    if feat is None:
+                        logger.warning("No se pudo regenerar embedding desde %s", img_path.name)
+                        continue
+                    embs.append(feat)
+                    np.save(folder / f"emb_{len(embs):03d}.npy", feat)
+                    changed = True
+                if embs:
+                    logger.info("Regenerados %s embeddings SFace para %s", len(embs), worker.name)
+
             self._embeddings[wid] = embs
-            worker.face_samples = len(embs)
-            logger.info("Migrados %s embeddings SFace para %s", len(embs), worker.name)
-        self._save()
+            if worker.face_samples != len(embs):
+                worker.face_samples = len(embs)
+                worker.quality = compute_quality(len(embs))
+                changed = True
+        if changed:
+            self._save()
 
     def extract_feature_from_image(self, frame_bgr: np.ndarray) -> Optional[np.ndarray]:
         faces = self.detect_faces(frame_bgr)
@@ -421,6 +519,15 @@ class IdentityService:
             }
 
         face_row = max(faces, key=lambda f: float(f[2]) * float(f[3]))
+        ok_q, q_msg, q_meta = assess_face_quality(frame_bgr, face_row)
+        if not ok_q:
+            return {
+                "ok": False,
+                "error": q_msg,
+                "quality_check": q_meta,
+                "face_enrolled": False,
+            }
+
         feat = self.registry.feature_from_face(frame_bgr, face_row)
         if feat is None:
             return {"ok": False, "error": "No se pudo extraer huella facial. Reintentá."}
@@ -450,6 +557,18 @@ class IdentityService:
             worker = existing
             if name.strip():
                 worker.name = name.strip()
+            # Evitar muestras casi idénticas (no aportan precisión)
+            prior = self.registry._embeddings.get(worker.id) or []
+            if prior:
+                best_dup = max(self.registry.match_score(feat, e) for e in prior)
+                if best_dup >= 0.97:
+                    return {
+                        "ok": False,
+                        "error": "Muestra demasiado similar a una ya guardada. Cambiá un poco el ángulo o la expresión.",
+                        "quality_check": q_meta,
+                        "face_enrolled": False,
+                        "duplicate_score": round(float(best_dup), 3),
+                    }
         else:
             display_name = name.strip() or (
                 f"Trabajador {rut_norm}" if rut_norm else f"Persona {len(self.registry._workers) + 1}"
@@ -472,6 +591,8 @@ class IdentityService:
         self.registry._workers[worker.id] = worker
         self.registry._save()
 
+        ready = is_identity_ready(worker.face_samples)
+        remain = max(0, MIN_SAMPLES_READY - worker.face_samples)
         return {
             "ok": True,
             "worker": worker_public(worker),
@@ -479,9 +600,15 @@ class IdentityService:
             "face_enrolled": True,
             "face_box": [x1, y1, x2, y2],
             "samples": worker.face_samples,
+            "quality_check": q_meta,
+            "ready": ready,
             "message": (
-                f"Enrolado: {worker.name} — muestra {worker.face_samples} · calidad {worker.quality}%. "
-                f"{'Listo para identificar.' if worker.face_samples >= 2 else 'Recomendado: enrolá 2–3 veces más (gira un poco la cabeza).'}"
+                f"Enrolado: {worker.name} — muestra {worker.face_samples}/{MIN_SAMPLES_READY} · calidad {worker.quality}%. "
+                + (
+                    "Ficha lista para identificación estricta."
+                    if ready
+                    else f"Faltan {remain} muestra(s) de calidad (frente + ángulos leves)."
+                )
             ),
         }
 
@@ -541,14 +668,29 @@ class IdentityService:
 
         for face_row in faces:
             x, y, w, h = [int(v) for v in face_row[:4]]
-            feat = self.registry.feature_from_face(frame_bgr, face_row)
+            ok_q, q_msg, q_meta = assess_face_quality(frame_bgr, face_row)
+            feat = self.registry.feature_from_face(frame_bgr, face_row) if ok_q else None
             best_id, best_score, second = None, -1.0, -1.0
+            reject_reason = None if ok_q else q_msg
+
             if feat is not None:
                 for wid, embs in self.registry._embeddings.items():
                     cand = self.registry._workers.get(wid)
                     if not cand or not getattr(cand, "active", True) or not embs:
                         continue
-                    score = max(self.registry.match_score(feat, e) for e in embs)
+                    # Fichas con pocas muestras: no participan (evita falsos positivos)
+                    if len(embs) < MIN_SAMPLES_MATCH and int(cand.face_samples or 0) < MIN_SAMPLES_MATCH:
+                        continue
+                    # Media de los 2 mejores matches contra la galería (más estable que un solo pico)
+                    sample_scores = sorted(
+                        (self.registry.match_score(feat, e) for e in embs),
+                        reverse=True,
+                    )
+                    score = (
+                        float(np.mean(sample_scores[:2]))
+                        if len(sample_scores) >= 2
+                        else float(sample_scores[0])
+                    )
                     if score > best_score:
                         second = best_score
                         best_score, best_id = score, wid
@@ -556,18 +698,35 @@ class IdentityService:
                         second = score
 
             worker = None
-            # Acepta si supera umbral, o si es claramente el mejor (margen vs 2do)
             accepted = False
-            if best_id is not None and best_score >= threshold:
-                accepted = True
-            elif best_id is not None and best_score >= threshold * 0.85 and (best_score - second) >= 0.08:
-                accepted = True
+            confidence = "none"
+            thr = float(threshold)
+            margin = float(best_score - second) if best_id is not None else 0.0
+
+            if best_id is not None and feat is not None and not reject_reason:
+                # Aceptación estricta: umbral + margen vs 2.º (si hay competencia)
+                has_rival = second >= 0.0
+                margin_ok = (not has_rival) or (margin >= MIN_MATCH_MARGIN)
+                if best_score >= thr and margin_ok:
+                    accepted = True
+                    confidence = "high" if best_score >= thr + 0.08 and margin >= MIN_MATCH_MARGIN + 0.04 else "medium"
+                elif best_score >= thr and not margin_ok:
+                    reject_reason = "Ambigüedad entre dos personas parecidas"
+                    confidence = "ambiguous"
+                elif best_score >= thr - 0.04:
+                    reject_reason = f"Score insuficiente ({best_score:.0%} < {thr:.0%})"
+                    confidence = "low"
+                else:
+                    reject_reason = "Sin coincidencia suficiente"
+                    confidence = "low"
 
             if accepted:
                 worker = self.registry._workers[best_id]
                 if not getattr(worker, "active", True):
                     worker = None
                     accepted = False
+                    confidence = "none"
+                    reject_reason = "Trabajador inactivo"
                 else:
                     label = f"{worker.name}"
             if not accepted:
@@ -575,7 +734,7 @@ class IdentityService:
 
             color = (46, 160, 67) if worker else (50, 50, 220)
             cv2.rectangle(annotated, (x, y), (x + w, y + h), color, 2)
-            score_txt = f"{best_score:.0%}" if best_id is not None else "—"
+            score_txt = f"{best_score:.0%}" if best_id is not None and best_score >= 0 else "—"
             cv2.putText(
                 annotated,
                 f"{label} {score_txt}",
@@ -588,12 +747,19 @@ class IdentityService:
             matches.append(
                 {
                     "box": [x, y, x + w, y + h],
-                    "score": round(float(best_score), 3) if best_id is not None else None,
-                    "threshold": threshold,
+                    "score": round(float(best_score), 3) if best_id is not None and best_score >= 0 else None,
+                    "second_score": round(float(second), 3) if second >= 0 else None,
+                    "margin": round(float(margin), 3) if best_id is not None else None,
+                    "threshold": thr,
+                    "confidence": confidence,
+                    "reject_reason": reject_reason,
+                    "quality_check": q_meta,
                     "worker": worker_public(worker) if worker else None,
                     "known": worker is not None,
                     "best_candidate": (
-                        worker_public(self.registry._workers[best_id]) if best_id and not worker else None
+                        worker_public(self.registry._workers[best_id])
+                        if best_id and not worker and best_id in self.registry._workers
+                        else None
                     ),
                 }
             )

@@ -1,5 +1,5 @@
 /* Service worker: shell cache + fallback offline (sin API) */
-const CACHE = "vigiepp-shell-v15";
+const CACHE = "vigiepp-shell-v17";
 const SHELL = ["/", "/assets/styles.css", "/assets/app.js", "/assets/favicon.png", "/assets/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
