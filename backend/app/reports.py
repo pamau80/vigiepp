@@ -10,10 +10,16 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .scanlog import EVENTS_FILE, _lock
+from .paths import data_dir
+from .scanlog import EVENTS_FILE, _lock, recent_scans  # noqa: F401
 
-DATA_DIR = Path(__file__).resolve().parents[1] / "data"
-WORKERS_FILE = DATA_DIR / "workers.json"
+
+def _workers_file() -> Path:
+    return data_dir() / "workers.json"
+
+
+def _events_file() -> Path:
+    return data_dir() / "scan_events.jsonl"
 
 
 def _parse_ts(ts: str | None) -> datetime | None:
@@ -26,10 +32,11 @@ def _parse_ts(ts: str | None) -> datetime | None:
 
 
 def load_all_scans(limit: int | None = None) -> list[dict[str, Any]]:
-    if not EVENTS_FILE.exists():
+    events = _events_file()
+    if not events.exists():
         return []
     with _lock:
-        lines = EVENTS_FILE.read_text(encoding="utf-8").strip().splitlines()
+        lines = events.read_text(encoding="utf-8").strip().splitlines()
     out: list[dict[str, Any]] = []
     for line in reversed(lines):
         try:
@@ -42,10 +49,11 @@ def load_all_scans(limit: int | None = None) -> list[dict[str, Any]]:
 
 
 def load_workers() -> list[dict[str, Any]]:
-    if not WORKERS_FILE.exists():
+    workers_file = _workers_file()
+    if not workers_file.exists():
         return []
     try:
-        data = json.loads(WORKERS_FILE.read_text(encoding="utf-8"))
+        data = json.loads(workers_file.read_text(encoding="utf-8"))
         if isinstance(data, list):
             return data
         if isinstance(data, dict):

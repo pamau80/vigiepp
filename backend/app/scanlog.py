@@ -9,7 +9,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-DATA_DIR = Path(__file__).resolve().parents[1] / "data"
+from .paths import data_dir
+
+DATA_DIR = data_dir()
 EVENTS_FILE = DATA_DIR / "scan_events.jsonl"
 _lock = threading.Lock()
 
@@ -28,6 +30,9 @@ class ScanEvent:
 
 
 def log_scan(event: ScanEvent) -> None:
+    global DATA_DIR, EVENTS_FILE
+    DATA_DIR = data_dir()
+    EVENTS_FILE = DATA_DIR / "scan_events.jsonl"
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     with _lock:
         with EVENTS_FILE.open("a", encoding="utf-8") as fh:
@@ -35,6 +40,8 @@ def log_scan(event: ScanEvent) -> None:
 
 
 def recent_scans(limit: int = 20) -> list[dict[str, Any]]:
+    global EVENTS_FILE
+    EVENTS_FILE = data_dir() / "scan_events.jsonl"
     if not EVENTS_FILE.exists():
         return []
     with _lock:

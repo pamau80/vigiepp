@@ -9,7 +9,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-DATA_DIR = Path(__file__).resolve().parents[1] / "data"
+from .paths import data_dir
+
+DATA_DIR = data_dir()
 ZONES_FILE = DATA_DIR / "zones.json"
 _lock = threading.Lock()
 
@@ -43,6 +45,9 @@ DEFAULT = {
 
 
 def _ensure() -> None:
+    global DATA_DIR, ZONES_FILE
+    DATA_DIR = data_dir()
+    ZONES_FILE = DATA_DIR / "zones.json"
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     if not ZONES_FILE.exists():
         payload = dict(DEFAULT)

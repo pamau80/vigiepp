@@ -10,7 +10,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-DATA_DIR = Path(__file__).resolve().parents[1] / "data"
+from .paths import data_dir
+
+DATA_DIR = data_dir()
 CONFIG_FILE = DATA_DIR / "notifications.json"
 LOG_FILE = DATA_DIR / "notification_log.jsonl"
 _lock = threading.Lock()
@@ -40,6 +42,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
 
 
 def _ensure() -> None:
+    global DATA_DIR, CONFIG_FILE, LOG_FILE
+    DATA_DIR = data_dir()
+    CONFIG_FILE = DATA_DIR / "notifications.json"
+    LOG_FILE = DATA_DIR / "notification_log.jsonl"
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     if not CONFIG_FILE.exists():
         CONFIG_FILE.write_text(

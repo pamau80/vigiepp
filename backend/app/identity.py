@@ -17,10 +17,12 @@ import numpy as np
 
 logger = logging.getLogger("vigiepp.identity")
 
-DATA_DIR = Path(__file__).resolve().parents[1] / "data"
+from .paths import data_dir, face_models_dir
+
+DATA_DIR = data_dir()
 WORKERS_FILE = DATA_DIR / "workers.json"
 FACES_DIR = DATA_DIR / "faces"
-MODELS_DIR = DATA_DIR / "models"
+MODELS_DIR = face_models_dir()
 YUNET_PATH = MODELS_DIR / "face_detection_yunet_2023mar.onnx"
 SFACE_PATH = MODELS_DIR / "face_recognition_sface_2021dec.onnx"
 
@@ -107,6 +109,13 @@ class IdentityRegistry:
     _lock = threading.Lock()
 
     def __init__(self) -> None:
+        global DATA_DIR, WORKERS_FILE, FACES_DIR, MODELS_DIR, YUNET_PATH, SFACE_PATH
+        DATA_DIR = data_dir()
+        WORKERS_FILE = DATA_DIR / "workers.json"
+        FACES_DIR = DATA_DIR / "faces"
+        MODELS_DIR = face_models_dir()
+        YUNET_PATH = MODELS_DIR / "face_detection_yunet_2023mar.onnx"
+        SFACE_PATH = MODELS_DIR / "face_recognition_sface_2021dec.onnx"
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         FACES_DIR.mkdir(parents=True, exist_ok=True)
         MODELS_DIR.mkdir(parents=True, exist_ok=True)

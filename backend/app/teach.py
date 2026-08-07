@@ -15,12 +15,14 @@ from typing import Any
 import cv2
 import numpy as np
 
+from .paths import custom_weights_path, teach_dataset_dir, teach_runs_dir
+
 logger = logging.getLogger("vigiepp.teach")
 
 BASE = Path(__file__).resolve().parents[1]
-DATASET_DIR = BASE / "datasets" / "custom_ppe"
+DATASET_DIR = teach_dataset_dir()
 META_FILE = DATASET_DIR / "meta.json"
-RUNS_DIR = BASE / "runs" / "custom_ppe"
+RUNS_DIR = teach_runs_dir()
 
 # Clases base + el cliente puede agregar prendas propias (meta.custom_classes)
 TEACHABLE_CLASSES: list[dict[str, str]] = [
@@ -50,6 +52,10 @@ class TeachStore:
     _lock = threading.Lock()
 
     def __init__(self) -> None:
+        global DATASET_DIR, META_FILE, RUNS_DIR
+        DATASET_DIR = teach_dataset_dir()
+        META_FILE = DATASET_DIR / "meta.json"
+        RUNS_DIR = teach_runs_dir()
         DATASET_DIR.mkdir(parents=True, exist_ok=True)
         (DATASET_DIR / "images").mkdir(exist_ok=True)
         (DATASET_DIR / "labels").mkdir(exist_ok=True)

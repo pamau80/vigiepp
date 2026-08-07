@@ -26,7 +26,8 @@ COPY backend /app/backend
 COPY frontend /app/frontend
 
 # Modelos: copiar si existen en build context; si no, se descargan al arrancar
-RUN mkdir -p /app/backend/models /app/backend/data/models /app/backend/data/faces
+# Datos mutables van a VIGIEPP_DATA_DIR (/data) cuando hay volumen Railway
+RUN mkdir -p /app/backend/models /app/backend/data/models /app/backend/data/faces /data
 
 # Descargar pesos EPP + rostros en build (mejor arranque en cloud)
 RUN curl -fsSL -o /app/backend/models/best_ppe.pt \

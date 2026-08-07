@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -23,6 +24,7 @@ from pydantic import BaseModel, Field
 from . import auth as auth_mod
 from . import exposure as exposure_mod
 from . import notifications as notif_mod
+from . import paths as paths_mod
 from . import reports as reports_mod
 from . import zones as zones_mod
 from .compliance import evaluate
@@ -37,6 +39,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelna
 logger = logging.getLogger("vigiepp")
 
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
+_last_scan_log: dict[str, tuple[float, bool]] = {}
+_SCAN_DEBOUNCE_S = float(os.getenv("VIGIEPP_SCAN_DEBOUNCE", "12"))
 
 
 @asynccontextmanager
@@ -229,27 +233,60 @@ def _identify_on_frame(frame: np.ndarray, threshold: float = 0.36) -> dict[str, 
 
 
 def _maybe_log(profile: str, compliance_block: dict, identity: dict | None) -> None:
-    if not identity:
-        return
+    """Registra escaneos con persona real y debounce (evita inflar KPIs)."""
     persons = compliance_block.get("persons") or []
-    missing: list[str] = []
-    for p in persons:
-        missing.extend(p.get("missing") or [])
-    log_scan(
-        ScanEvent(
-            ts=datetime.now(timezone.utc).isoformat(),
-            worker_name=identity.get("name"),
-            worker_rut=identity.get("rut"),
-            worker_id=identity.get("id"),
-            profile=profile,
-            compliant=bool(compliance_block.get("overall_compliant")),
-            summary=str(compliance_block.get("summary") or ""),
-            missing=missing,
-            detections=[],
-        )
+    known = bool(identity and identity.get("known"))
+    faces = int((identity or {}).get("faces_detected") or 0)
+    summary = str(compliance_block.get("summary") or "")
+    summary_l = summary.lower()
+
+    # No loguear standby / frames vacíos
+    if not persons and not known:
+        return
+    if "sin persona" in summary_l and not persons:
+        return
+    if not identity and not persons:
+        return
+
+    compliant = bool(compliance_block.get("overall_compliant"))
+    key = str(
+        (identity or {}).get("id")
+        or (identity or {}).get("rut")
+        or ("known" if known else f"anon-{faces}")
     )
+    now = time.time()
+    prev = _last_scan_log.get(key)
+    if prev and (now - prev[0]) < _SCAN_DEBOUNCE_S and prev[1] == compliant:
+        # Misma persona/estado reciente: solo intentar notify (tiene su propio cooldown)
+        try:
+            if identity:
+                notif_mod.maybe_notify_scan(identity, compliance_block, profile)
+        except Exception:  # noqa: BLE001
+            logger.exception("Notificación automática falló")
+        return
+
+    _last_scan_log[key] = (now, compliant)
+
+    if identity:
+        missing: list[str] = []
+        for p in persons:
+            missing.extend(p.get("missing") or [])
+        log_scan(
+            ScanEvent(
+                ts=datetime.now(timezone.utc).isoformat(),
+                worker_name=identity.get("name"),
+                worker_rut=identity.get("rut"),
+                worker_id=identity.get("id"),
+                profile=profile,
+                compliant=compliant,
+                summary=summary,
+                missing=missing,
+                detections=[],
+            )
+        )
     try:
-        notif_mod.maybe_notify_scan(identity, compliance_block, profile)
+        if identity:
+            notif_mod.maybe_notify_scan(identity, compliance_block, profile)
     except Exception:  # noqa: BLE001
         logger.exception("Notificación automática falló")
 
@@ -313,6 +350,8 @@ def health() -> dict[str, Any]:
         "model": det.model_name,
         "warning": det.error,
         "auth_enabled": auth_mod.auth_enabled(),
+        "data_dir": str(paths_mod.data_dir()),
+        "data_persistent": paths_mod.is_persistent(),
     }
 
 

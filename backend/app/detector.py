@@ -10,6 +10,8 @@ from typing import Any
 import cv2
 import numpy as np
 
+from .paths import custom_weights_path
+
 logger = logging.getLogger("vigiepp.detector")
 
 # Etiquetas amigables en español para la UI
@@ -78,9 +80,7 @@ class PPEDetector:
         """Activa un modelo entrenado por el cliente (teach)."""
         from ultralytics import YOLO
 
-        path = Path(weights) if weights else (
-            Path(__file__).resolve().parents[1] / "runs" / "custom_ppe" / "run" / "weights" / "best.pt"
-        )
+        path = Path(weights) if weights else custom_weights_path()
         if not path.exists():
             return {"ok": False, "error": f"No existe modelo personalizado en {path}"}
         self.model = YOLO(str(path))
