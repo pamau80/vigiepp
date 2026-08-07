@@ -136,9 +136,42 @@ def compute_stats(days: int = 30, profile: str | None = None) -> dict[str, Any]:
     ranking = sorted(by_worker.values(), key=lambda x: (x["bad"], x["total"]), reverse=True)
     for w in ranking:
         t = max(1, int(w["total"]))
-        w["safety_score"] = round((int(w["ok"]) / t) * 100, 1)
+        base = (int(w["ok"]) / t) * 100
+        # Recidiva: muchos fallos bajan más el score individual
+        recidiva = min(15.0, (int(w["bad"]) / t) * 20.0)
+        w["safety_score"] = round(max(0.0, base - recidiva * 0.25), 1)
     days_sorted = sorted(by_day.items(), key=lambda x: x[0], reverse=True)[:14]
     rate = round((ok / total) * 100, 1) if total else 0.0
+
+    # Safety Score global ponderado (no solo compliance_rate)
+    CRITICAL = {
+        "casco",
+        "hardhat",
+        "helmet",
+        "arnés",
+        "arnes",
+        "chaleco",
+        "safety vest",
+        "vest",
+        "lentes",
+        "goggles",
+    }
+    critical_hits = 0
+    for item, count in missing_counter.items():
+        low = str(item).lower()
+        if any(c in low for c in CRITICAL):
+            critical_hits += int(count)
+    unknown_ratio = (unknown / total) if total else 0.0
+    critical_ratio = (critical_hits / max(1, bad)) if bad else 0.0
+    penalty_unknown = min(20.0, unknown_ratio * 40.0)
+    penalty_critical = min(25.0, critical_ratio * 25.0)
+    # Promedio de scores por trabajador (si hay)
+    if ranking:
+        avg_worker = sum(float(w.get("safety_score") or 0) for w in ranking) / len(ranking)
+        blended = rate * 0.55 + avg_worker * 0.45
+    else:
+        blended = rate
+    safety_score = round(max(0.0, min(100.0, blended - penalty_unknown - penalty_critical)), 1)
 
     return {
         "ok": True,
@@ -150,7 +183,14 @@ def compute_stats(days: int = 30, profile: str | None = None) -> dict[str, Any]:
             "compliant": ok,
             "non_compliant": bad,
             "compliance_rate": rate,
-            "safety_score": rate,
+            "safety_score": safety_score,
+            "safety_breakdown": {
+                "compliance_rate": rate,
+                "penalty_unknown": round(penalty_unknown, 1),
+                "penalty_critical_missing": round(penalty_critical, 1),
+                "unknown_scans": unknown,
+                "critical_missing_events": critical_hits,
+            },
             "workers_enrolled": len(workers),
             "unknown_scans": unknown,
         },

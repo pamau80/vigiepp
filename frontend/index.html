@@ -344,6 +344,18 @@
           <li class="muted">Nadie enrolado</li>
         </ul>
         <p class="hint" id="workerListHint"></p>
+        <div class="worker-backup-actions">
+          <button type="button" class="btn secondary" id="btnBackupExport">Exportar backup</button>
+          <label class="btn secondary btn-file">
+            Restaurar
+            <input type="file" id="backupImportFile" accept=".zip,application/zip" hidden />
+          </label>
+          <select id="backupImportMode" title="Modo restore">
+            <option value="merge">Fusionar</option>
+            <option value="replace">Reemplazar todo</option>
+          </select>
+        </div>
+        <p class="card-meta">Backup = personas + fotos faciales (ZIP). Guardalo fuera del servidor.</p>
       </section>
 
       <section class="card panel-section" data-show="teach" id="teachBlock">

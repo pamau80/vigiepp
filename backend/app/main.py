@@ -6,6 +6,7 @@ import base64
 import logging
 import os
 import time
+import zipfile
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -165,6 +166,16 @@ def _build_response(
         live_score = max(0, live_score - 25)
     if exposure.get("active") and live_score is not None and int(exposure.get("seconds") or 0) > 30:
         live_score = max(0, live_score - 10)
+    if identity and not identity.get("known") and int(identity.get("faces_detected") or 0) > 0:
+        live_score = max(0, (live_score if live_score is not None else 55) - 15)
+    # Faltantes críticos pesan más en vivo
+    if persons and live_score is not None:
+        crit = {"casco", "hardhat", "helmet", "arnes", "chaleco", "safety vest", "vest"}
+        miss = []
+        for p in persons:
+            miss.extend(str(x).lower() for x in (p.get("missing") or []))
+        if any(any(c in m for c in crit) for m in miss):
+            live_score = max(0, live_score - 10)
 
     payload: dict[str, Any] = {
         "ok": True,
@@ -608,6 +619,41 @@ def rtsp_stop(body: RTSPStartRequest) -> dict[str, Any]:
 @app.get("/api/identity/workers")
 def identity_workers() -> list[dict[str, Any]]:
     return IdentityRegistry.get().list_workers()
+
+
+@app.get("/api/identity/backup")
+def identity_backup() -> Response:
+    """Descarga ZIP con workers.json + fotos/embeddings."""
+    from . import backup as backup_mod
+
+    data = backup_mod.build_backup_zip()
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="vigiepp-personas-{stamp}.zip"'},
+    )
+
+
+@app.post("/api/identity/backup/restore")
+async def identity_backup_restore(
+    file: UploadFile = File(...),
+    mode: str = Form("merge"),
+) -> dict[str, Any]:
+    """Restaura backup ZIP. mode=merge|replace."""
+    from . import backup as backup_mod
+
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "Archivo vacío")
+    try:
+        result = backup_mod.restore_backup_zip(raw, mode=mode.strip() or "merge")
+        backup_mod.reload_identity_registry()
+        return result
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(400, "ZIP inválido") from exc
 
 
 @app.delete("/api/identity/workers/{worker_id}")
