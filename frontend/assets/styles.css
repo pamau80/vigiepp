@@ -1316,6 +1316,13 @@ body.kiosk-mode .viewport {
 body.kiosk-mode .silhouette-guide {
   opacity: 0.35;
 }
+.worker-backup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+  margin-top: 0.75rem;
+}
 .worker-backup-actions select {
   font: inherit;
   font-size: 0.8rem;
