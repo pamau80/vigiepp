@@ -14,6 +14,7 @@ backend/data/scan_events.jsonl
 backend/data/notifications.json
 backend/data/notification_log.jsonl
 backend/data/zones.json
+backend/data/evidence/
 backend/datasets/
 backend/runs/
 

@@ -27,6 +27,7 @@ class ScanEvent:
     summary: str
     missing: list[str]
     detections: list[str]
+    evidence_id: str | None = None
 
 
 def log_scan(event: ScanEvent) -> None:

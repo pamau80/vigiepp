@@ -1242,6 +1242,80 @@ body.is-fullscreen .panel {
   gap: 0.4rem;
   margin-bottom: 0.65rem;
 }
+.evidence-link {
+  margin-left: 0.35rem;
+  color: #ffb070;
+  text-decoration: underline;
+  font-size: 0.78em;
+}
+#btnKiosk.active {
+  border-color: rgba(232, 93, 4, 0.55);
+  color: #ffd6a5;
+}
+.kiosk-overlay {
+  position: absolute;
+  inset: auto 0 0 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 1.1rem 1rem 1.35rem;
+  pointer-events: none;
+  background: rgba(8, 10, 9, 0.88);
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+.kiosk-overlay.hidden { display: none; }
+.kiosk-overlay > * { pointer-events: auto; }
+.kiosk-brand {
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 1.35rem;
+  letter-spacing: 0.08em;
+  margin: 0 0 0.35rem;
+  opacity: 0.85;
+}
+.kiosk-result {
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: clamp(2.8rem, 9vw, 5.5rem);
+  font-weight: 700;
+  line-height: 0.95;
+  margin: 0;
+  letter-spacing: 0.04em;
+}
+.kiosk-overlay[data-state="ok"] .kiosk-result { color: #7ddea0; }
+.kiosk-overlay[data-state="bad"] .kiosk-result { color: #ff8a7a; }
+.kiosk-overlay[data-state="idle"] .kiosk-result { color: rgba(238, 243, 239, 0.55); }
+.kiosk-name {
+  font-size: 1.35rem;
+  font-weight: 600;
+  margin: 0.35rem 0 0.15rem;
+}
+.kiosk-detail {
+  margin: 0 0 0.85rem;
+  color: var(--muted, #9aa49c);
+  text-align: center;
+  max-width: 28rem;
+}
+body.kiosk-mode .mode-nav,
+body.kiosk-mode .panel,
+body.kiosk-mode .top-status,
+body.kiosk-mode #offlineBadge,
+body.kiosk-mode .source-group,
+body.kiosk-mode .profile-field {
+  display: none !important;
+}
+body.kiosk-mode .layout {
+  grid-template-columns: 1fr;
+}
+body.kiosk-mode .stage {
+  min-height: calc(100vh - 4rem);
+}
+body.kiosk-mode .viewport {
+  min-height: 70vh;
+}
+body.kiosk-mode .silhouette-guide {
+  opacity: 0.35;
+}
 .worker-backup-actions select {
   font: inherit;
   font-size: 0.8rem;

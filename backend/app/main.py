@@ -243,8 +243,17 @@ def _identify_on_frame(frame: np.ndarray, threshold: float = 0.36) -> dict[str, 
         return None
 
 
-def _maybe_log(profile: str, compliance_block: dict, identity: dict | None) -> None:
-    """Registra escaneos con persona real y debounce (evita inflar KPIs)."""
+def _maybe_log(
+    profile: str,
+    compliance_block: dict,
+    identity: dict | None,
+    frame_bgr=None,
+) -> str | None:
+    """Registra escaneos con persona real y debounce (evita inflar KPIs).
+    Si no cumple, guarda evidencia JPEG y devuelve evidence_id."""
+    from . import evidence as evidence_mod
+    from .detector import encode_jpeg
+
     persons = compliance_block.get("persons") or []
     known = bool(identity and identity.get("known"))
     faces = int((identity or {}).get("faces_detected") or 0)
@@ -253,11 +262,11 @@ def _maybe_log(profile: str, compliance_block: dict, identity: dict | None) -> N
 
     # No loguear standby / frames vacíos
     if not persons and not known:
-        return
+        return None
     if "sin persona" in summary_l and not persons:
-        return
+        return None
     if not identity and not persons:
-        return
+        return None
 
     compliant = bool(compliance_block.get("overall_compliant"))
     key = str(
@@ -274,9 +283,17 @@ def _maybe_log(profile: str, compliance_block: dict, identity: dict | None) -> N
                 notif_mod.maybe_notify_scan(identity, compliance_block, profile)
         except Exception:  # noqa: BLE001
             logger.exception("Notificación automática falló")
-        return
+        return None
 
     _last_scan_log[key] = (now, compliant)
+
+    evidence_id = None
+    if identity and not compliant and frame_bgr is not None:
+        try:
+            jpeg = encode_jpeg(frame_bgr, quality=72)
+            evidence_id = evidence_mod.save_evidence_jpeg(jpeg)
+        except Exception:  # noqa: BLE001
+            logger.exception("No se pudo guardar evidencia")
 
     if identity:
         missing: list[str] = []
@@ -293,6 +310,7 @@ def _maybe_log(profile: str, compliance_block: dict, identity: dict | None) -> N
                 summary=summary,
                 missing=missing,
                 detections=[],
+                evidence_id=evidence_id,
             )
         )
     try:
@@ -300,7 +318,7 @@ def _maybe_log(profile: str, compliance_block: dict, identity: dict | None) -> N
             notif_mod.maybe_notify_scan(identity, compliance_block, profile)
     except Exception:  # noqa: BLE001
         logger.exception("Notificación automática falló")
-
+    return evidence_id
 
 def _maybe_notify_unknown(profile: str, identity: dict | None) -> None:
     if not identity:
@@ -445,7 +463,9 @@ async def detect_upload(
         detections, jpeg, profile, identity=identity, frame_wh=(frame.shape[1], frame.shape[0])
     )
     if identify and identity and identity.get("known"):
-        _maybe_log(profile, payload["compliance"], identity)
+        evid = _maybe_log(profile, payload["compliance"], identity, frame_bgr=annotated)
+        if evid:
+            payload["evidence_id"] = evid
     elif identify and identity and not identity.get("known"):
         _maybe_notify_unknown(profile, identity)
     try:
@@ -495,6 +515,16 @@ async def zones_save(request: Request) -> dict[str, Any]:
 @app.get("/api/scans/recent")
 def scans_recent(limit: int = 15) -> list[dict[str, Any]]:
     return recent_scans(limit=limit)
+
+
+@app.get("/api/evidence/{evidence_id}")
+def evidence_get(evidence_id: str) -> FileResponse:
+    from . import evidence as evidence_mod
+
+    path = evidence_mod.evidence_path(evidence_id)
+    if not path:
+        raise HTTPException(404, "Evidencia no encontrada")
+    return FileResponse(path, media_type="image/jpeg", filename=f"{evidence_id}.jpg")
 
 
 @app.get("/api/reports/stats")

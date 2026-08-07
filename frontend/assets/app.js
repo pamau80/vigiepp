@@ -186,6 +186,7 @@
     audioAlerts: true,
     anonymizeFaces: true,
     showZones: true,
+    kioskMode: false,
   });
   let settings = defaultSettings();
 
@@ -842,6 +843,7 @@
     applyMobileChrome();
     applyGuideMode();
     setAppMode("monitor");
+    if (settings.kioskMode) setKioskMode(true);
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/assets/sw.js").catch(() => {});
     }
@@ -1035,6 +1037,7 @@
       else if (!hasPeople) pill.textContent = "Standby";
       else pill.textContent = ok ? "OK" : "Alerta";
     }
+    updateKioskBanner(payload);
 
     if (els.safetyScoreLive) {
       els.safetyScoreLive.textContent =
@@ -1626,11 +1629,52 @@
             .map((s) => {
               const who = s.worker_name || "Sin nombre";
               const st = s.compliant ? "OK" : "Falta EPP";
-              return `<li><span>${who}</span><span class="conf">${st}</span></li>`;
+              const ev = s.evidence_id
+                ? ` <a class="evidence-link" href="/api/evidence/${encodeURIComponent(s.evidence_id)}" target="_blank" rel="noopener">foto</a>`
+                : "";
+              return `<li><span>${who}${ev}</span><span class="conf">${st}</span></li>`;
             })
             .join("")
         : `<li class="muted">Aún no hay escaneos con identidad</li>`;
     } catch (_) {}
+  }
+
+  function setKioskMode(on) {
+    settings.kioskMode = !!on;
+    saveSettings(true);
+    document.body.classList.toggle("kiosk-mode", settings.kioskMode);
+    $("#kioskOverlay")?.classList.toggle("hidden", !settings.kioskMode);
+    const btn = $("#btnKiosk");
+    if (btn) btn.classList.toggle("active", settings.kioskMode);
+    if (settings.kioskMode) {
+      setAppMode("monitor");
+      if (els.chkIdentify) {
+        els.chkIdentify.checked = true;
+        settings.identifyDefault = true;
+      }
+    }
+  }
+
+  function updateKioskBanner(payload) {
+    if (!settings.kioskMode) return;
+    const c = payload?.compliance || {};
+    const ok = !!c.overall_compliant;
+    const hasPeople = (c.persons || []).length > 0 || (payload?.detections || []).length > 0;
+    const id = payload?.identity || lastIdentity;
+    const res = $("#kioskResult");
+    const name = $("#kioskName");
+    const detail = $("#kioskDetail");
+    const overlay = $("#kioskOverlay");
+    if (!res || !overlay) return;
+    overlay.dataset.state = !hasPeople ? "idle" : ok ? "ok" : "bad";
+    res.textContent = !hasPeople ? "En espera" : ok ? "CUMPLE" : "NO CUMPLE";
+    if (name) {
+      name.textContent = id?.known && id?.name ? id.name : hasPeople ? "Sin identificar" : "Acercá a la cámara";
+    }
+    if (detail) {
+      const miss = (c.persons?.[0]?.missing || []).slice(0, 3).join(", ");
+      detail.textContent = !hasPeople ? "" : ok ? id?.rut || "EPP OK" : miss || c.summary || "Revisá EPP";
+    }
   }
 
   function setPoseUI(stepIndex, countdownText, okCount = 0) {
@@ -2503,6 +2547,12 @@
     const i = Number(btn.getAttribute("data-z-del"));
     zonesCache = readZonesFromEditor().filter((_, idx) => idx !== i);
     renderZonesEditor();
+  });
+
+  $("#btnKiosk")?.addEventListener("click", () => setKioskMode(!settings.kioskMode));
+  $("#btnKioskExit")?.addEventListener("click", () => setKioskMode(false));
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && settings.kioskMode) setKioskMode(false);
   });
 
   $("#btnLogout")?.addEventListener("click", async () => {

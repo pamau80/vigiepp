@@ -74,6 +74,15 @@
           <span>Perfil faena</span>
           <select id="profileSelect"></select>
         </label>
+        <button type="button" class="btn secondary" id="btnKiosk">Modo portería</button>
+      </div>
+
+      <div id="kioskOverlay" class="kiosk-overlay hidden" aria-live="polite">
+        <p class="kiosk-brand">VigiEPP</p>
+        <p class="kiosk-result" id="kioskResult">En espera</p>
+        <p class="kiosk-name" id="kioskName">Acercá a la cámara</p>
+        <p class="kiosk-detail" id="kioskDetail"></p>
+        <button type="button" class="btn ghost" id="btnKioskExit">Salir (Esc)</button>
       </div>
 
       <div class="viewport viewport-portrait">
