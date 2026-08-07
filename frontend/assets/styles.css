@@ -1313,8 +1313,8 @@ body.kiosk-mode .stage {
 body.kiosk-mode .viewport {
   min-height: 70vh;
 }
-body.kiosk-mode .silhouette-guide {
-  opacity: 0.35;
+body[data-role="operator"] .mode-btn:not([data-mode="monitor"]) {
+  display: none !important;
 }
 .worker-backup-actions {
   display: flex;

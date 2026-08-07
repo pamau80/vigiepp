@@ -393,12 +393,19 @@ def auth_status() -> dict[str, Any]:
 @app.post("/api/auth/login")
 def auth_login(body: AuthLoginRequest, response: Response) -> dict[str, Any]:
     if not auth_mod.auth_enabled():
-        return {"ok": True, "auth_enabled": False, "message": "Auth desactivada"}
-    if not auth_mod.credentials_ok(body.pin):
+        return {"ok": True, "auth_enabled": False, "role": "admin", "message": "Auth desactivada"}
+    role = auth_mod.resolve_pin_role(body.pin)
+    if not role:
         raise HTTPException(401, "PIN incorrecto")
-    token = auth_mod.create_session()
+    token = auth_mod.create_session(role)
     auth_mod.set_session_cookie(response, token)
-    return {"ok": True, "auth_enabled": True, "token": token, "expires_hours": auth_mod.SESSION_HOURS}
+    return {
+        "ok": True,
+        "auth_enabled": True,
+        "token": token,
+        "role": role,
+        "expires_hours": auth_mod.SESSION_HOURS,
+    }
 
 
 @app.post("/api/auth/logout")
@@ -412,12 +419,12 @@ def auth_logout(request: Request, response: Response) -> dict[str, Any]:
 @app.get("/api/auth/me")
 def auth_me(request: Request) -> dict[str, Any]:
     if not auth_mod.auth_enabled():
-        return {"ok": True, "authenticated": True, "auth_enabled": False}
+        return {"ok": True, "authenticated": True, "auth_enabled": False, "role": "admin"}
     token = auth_mod.extract_token(request)
-    ok = auth_mod.session_valid(token) or (bool(token) and auth_mod.credentials_ok(token))
-    if not ok:
+    role = auth_mod.session_role(token)
+    if not role:
         raise HTTPException(401, "No autorizado")
-    return {"ok": True, "authenticated": True, "auth_enabled": True}
+    return {"ok": True, "authenticated": True, "auth_enabled": True, "role": role}
 
 
 @app.get("/api/profiles")
@@ -554,6 +561,12 @@ def reports_export_csv(
 @app.get("/api/reports/print")
 def reports_print(days: int = 7, profile: Optional[str] = None) -> dict[str, Any]:
     return reports_mod.build_printable_report(days=max(1, min(days, 365)), profile=profile or None)
+
+
+@app.get("/api/reports/print.html", response_class=HTMLResponse)
+def reports_print_html(days: int = 7, profile: Optional[str] = None) -> HTMLResponse:
+    report = reports_mod.build_printable_report(days=max(1, min(days, 365)), profile=profile or None)
+    return HTMLResponse(report.get("html") or "<p>Sin informe</p>")
 
 
 @app.get("/api/reports/summary.txt")

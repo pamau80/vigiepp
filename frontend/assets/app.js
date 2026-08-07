@@ -415,12 +415,34 @@
     if (show) $("#authPin")?.focus();
   }
 
+  let userRole = "admin";
+
+  function applyRoleUI(role) {
+    userRole = role || "admin";
+    sessionStorage.setItem("vigiepp.role", userRole);
+    document.body.dataset.role = userRole;
+    const isOp = userRole === "operator";
+    $$(".mode-btn").forEach((b) => {
+      const mode = b.dataset.mode;
+      const allow = !isOp || mode === "monitor";
+      b.classList.toggle("hidden", !allow);
+      b.disabled = !allow;
+    });
+    if (isOp) {
+      setAppMode("monitor");
+      setKioskMode(true);
+    }
+    const tag = $(".brand-tag");
+    if (tag) tag.textContent = isOp ? "Portería · operador" : "EPP + identidad · Chile";
+  }
+
   async function ensureAuth(force = false) {
     try {
       const st = await fetch("/api/auth/status", { credentials: "include" }).then((r) => r.json());
       if (!st.auth_enabled) {
         showAuthGate(false);
         $("#btnLogout")?.classList.add("hidden");
+        applyRoleUI("admin");
         return true;
       }
       if (!force) {
@@ -431,8 +453,10 @@
             : {},
         });
         if (me.ok) {
+          const data = await me.json().catch(() => ({}));
           showAuthGate(false);
           $("#btnLogout")?.classList.remove("hidden");
+          applyRoleUI(data.role || sessionStorage.getItem("vigiepp.role") || "admin");
           return true;
         }
       }
@@ -441,7 +465,7 @@
     }
 
     return new Promise((resolve) => {
-      showAuthGate(true, "PIN requerido para continuar");
+      showAuthGate(true, "PIN admin o portería (operador)");
       const form = $("#authForm");
       const onSubmit = async (e) => {
         e.preventDefault();
@@ -460,6 +484,7 @@
             return;
           }
           if (data.token) sessionStorage.setItem("vigiepp.token", data.token);
+          applyRoleUI(data.role || "admin");
           showAuthGate(false);
           $("#btnLogout")?.classList.remove("hidden");
           form?.removeEventListener("submit", onSubmit);
@@ -2142,12 +2167,23 @@
           <h3 class="rep-section-title">${report.title || "Informe"}</h3>
           ${metricHtml(report.stats || stats)}
           <div class="rep-actions">
-            <button type="button" class="btn primary" id="btnPrintRep">Imprimir</button>
+            <button type="button" class="btn primary" id="btnPrintRep">Imprimir / PDF</button>
             <button type="button" class="btn secondary" id="btnCopyRep">Copiar texto</button>
             <button type="button" class="btn ghost" id="btnDlTxt">Descargar TXT</button>
           </div>
           <pre class="rep-pre" id="repPrintText">${(report.text || "").replace(/</g, "&lt;")}</pre>`;
-        $("#btnPrintRep")?.addEventListener("click", () => window.print());
+        $("#btnPrintRep")?.addEventListener("click", () => {
+          const q = repQuery().toString();
+          const w = window.open(`/api/reports/print.html?${q}`, "_blank");
+          if (w) {
+            w.addEventListener("load", () => {
+              try {
+                w.focus();
+                w.print();
+              } catch (_) {}
+            });
+          }
+        });
         $("#btnCopyRep")?.addEventListener("click", async () => {
           await navigator.clipboard.writeText(report.text || "");
           els.repSideSummary.textContent = "Informe copiado al portapapeles";
@@ -2560,6 +2596,7 @@
       await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
     } catch (_) {}
     sessionStorage.removeItem("vigiepp.token");
+    sessionStorage.removeItem("vigiepp.role");
     await ensureAuth(true);
   });
 

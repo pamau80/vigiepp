@@ -226,6 +226,7 @@ def export_csv(
             "cumple",
             "resumen",
             "faltantes",
+            "evidence_id",
         ]
     )
     for s in scans:
@@ -239,6 +240,7 @@ def export_csv(
                 "SI" if s.get("compliant") else "NO",
                 s.get("summary"),
                 ";".join(s.get("missing") or []),
+                s.get("evidence_id") or "",
             ]
         )
     return buf.getvalue()
@@ -252,6 +254,7 @@ def build_printable_report(
 ) -> dict[str, Any]:
     stats = compute_stats(days=days, profile=profile)
     t = stats["totals"]
+    br = t.get("safety_breakdown") or {}
     lines = [
         title or f"Informe VigiEPP — últimos {days} días",
         f"Generado: {stats['generated_at']}",
@@ -260,16 +263,48 @@ def build_printable_report(
         f"Cumple: {t['compliant']}",
         f"No cumple: {t['non_compliant']}",
         f"Tasa cumplimiento: {t['compliance_rate']}%",
+        f"Safety Score: {t.get('safety_score', t['compliance_rate'])}/100",
+        f"  - Penaliz. desconocidos: -{br.get('penalty_unknown', 0)}",
+        f"  - Penaliz. EPP crítico: -{br.get('penalty_critical_missing', 0)}",
         f"Personas enroladas: {t['workers_enrolled']}",
+        f"Escaneos sin identidad: {t.get('unknown_scans', 0)}",
         "",
         "EPP faltante más frecuente:",
     ]
     for m in stats["missing_epp"][:8]:
         lines.append(f"  - {m['item']}: {m['count']}")
     lines.append("")
-    lines.append("Trabajadores con más incumplimientos:")
+    lines.append("Trabajadores (score / fallas):")
     for w in stats["worker_ranking"][:10]:
-        lines.append(f"  - {w['name']} ({w.get('rut') or 's/RUT'}): {w['bad']}/{w['total']}")
+        lines.append(
+            f"  - {w['name']} ({w.get('rut') or 's/RUT'}): "
+            f"score {w.get('safety_score', '—')} · {w['bad']}/{w['total']} fallas"
+        )
+    lines.append("")
+    lines.append("Últimos incumplimientos con evidencia:")
+    bad_recent = [s for s in (stats.get("recent") or []) if not s.get("compliant")][:12]
+    if not bad_recent:
+        lines.append("  (sin incumplimientos en el rango)")
+    for s in bad_recent:
+        evid = s.get("evidence_id") or "—"
+        lines.append(
+            f"  - {s.get('ts', '')[:19]} · {s.get('worker_name') or 'Desconocido'} · "
+            f"{', '.join(s.get('missing') or []) or s.get('summary') or '—'} · evidencia {evid}"
+        )
+    lines.append("")
+    lines.append("— Fin del informe VigiEPP —")
+
+    html = _printable_html(
+        title=title or f"Informe VigiEPP — {days}d",
+        generated=stats["generated_at"],
+        totals=t,
+        breakdown=br,
+        missing=stats["missing_epp"][:8],
+        ranking=stats["worker_ranking"][:10],
+        bad_recent=bad_recent,
+        days=days,
+        profile=profile,
+    )
     return {
         "ok": True,
         "title": title or f"Informe VigiEPP — {days}d",
@@ -277,4 +312,76 @@ def build_printable_report(
         "profile": profile,
         "stats": stats,
         "text": "\n".join(lines),
+        "html": html,
     }
+
+
+def _printable_html(
+    *,
+    title: str,
+    generated: str,
+    totals: dict[str, Any],
+    breakdown: dict[str, Any],
+    missing: list[dict[str, Any]],
+    ranking: list[dict[str, Any]],
+    bad_recent: list[dict[str, Any]],
+    days: int,
+    profile: str | None,
+) -> str:
+    def esc(x: Any) -> str:
+        return (
+            str(x if x is not None else "")
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+        )
+
+    miss_rows = "".join(
+        f"<tr><td>{esc(m.get('item'))}</td><td>{esc(m.get('count'))}</td></tr>" for m in missing
+    ) or "<tr><td colspan='2'>Sin datos</td></tr>"
+    rank_rows = "".join(
+        f"<tr><td>{esc(w.get('name'))}</td><td>{esc(w.get('rut'))}</td>"
+        f"<td>{esc(w.get('safety_score'))}</td><td>{esc(w.get('bad'))}/{esc(w.get('total'))}</td></tr>"
+        for w in ranking
+    ) or "<tr><td colspan='4'>Sin datos</td></tr>"
+    evid_rows = "".join(
+        f"<tr><td>{esc(str(s.get('ts') or '')[:19])}</td><td>{esc(s.get('worker_name') or 'Desconocido')}</td>"
+        f"<td>{esc(', '.join(s.get('missing') or []) or s.get('summary'))}</td>"
+        f"<td>{('<a href=\"/api/evidence/' + esc(s.get('evidence_id')) + '\" target=\"_blank\">ver</a>') if s.get('evidence_id') else '—'}</td></tr>"
+        for s in bad_recent
+    ) or "<tr><td colspan='4'>Sin incumplimientos</td></tr>"
+
+    return f"""<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"/>
+<title>{esc(title)}</title>
+<style>
+  body {{ font-family: Georgia, serif; color: #111; margin: 28px; }}
+  h1 {{ font-size: 22px; margin: 0 0 6px; }}
+  .meta {{ color: #444; font-size: 13px; margin-bottom: 18px; }}
+  .grid {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 14px 0 22px; }}
+  .metric {{ border: 1px solid #ddd; padding: 10px; }}
+  .metric b {{ display: block; font-size: 22px; }}
+  table {{ width: 100%; border-collapse: collapse; margin: 8px 0 20px; font-size: 13px; }}
+  th, td {{ border: 1px solid #ddd; padding: 6px 8px; text-align: left; }}
+  th {{ background: #f4f4f4; }}
+  @media print {{ body {{ margin: 12mm; }} a {{ color: inherit; text-decoration: none; }} }}
+</style></head><body>
+<h1>{esc(title)}</h1>
+<p class="meta">Generado {esc(generated)} · rango {esc(days)}d{(' · perfil ' + esc(profile)) if profile else ''}</p>
+<div class="grid">
+  <div class="metric"><b>{esc(totals.get('scans'))}</b><span>Escaneos</span></div>
+  <div class="metric"><b>{esc(totals.get('compliance_rate'))}%</b><span>Cumplimiento</span></div>
+  <div class="metric"><b>{esc(totals.get('safety_score'))}</b><span>Safety Score</span></div>
+  <div class="metric"><b>{esc(totals.get('non_compliant'))}</b><span>Incumplimientos</span></div>
+</div>
+<p class="meta">Penalizaciones: desconocidos -{esc(breakdown.get('penalty_unknown', 0))} · EPP crítico -{esc(breakdown.get('penalty_critical_missing', 0))}</p>
+<h2>EPP faltante</h2>
+<table><thead><tr><th>Ítem</th><th>Cantidad</th></tr></thead><tbody>{miss_rows}</tbody></table>
+<h2>Ranking trabajadores</h2>
+<table><thead><tr><th>Nombre</th><th>RUT</th><th>Score</th><th>Fallas</th></tr></thead><tbody>{rank_rows}</tbody></table>
+<h2>Incumplimientos recientes</h2>
+<table><thead><tr><th>Fecha</th><th>Persona</th><th>Detalle</th><th>Evidencia</th></tr></thead><tbody>{evid_rows}</tbody></table>
+<p class="meta">Documento generado por VigiEPP · imprimir / Guardar como PDF desde el navegador.</p>
+</body></html>"""
+
