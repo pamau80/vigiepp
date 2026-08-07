@@ -102,6 +102,8 @@
     cfgShowBoxes: $("#cfgShowBoxes"),
     cfgFullscreenDefault: $("#cfgFullscreenDefault"),
     cfgAudioAlerts: $("#cfgAudioAlerts"),
+    cfgAudioRepeats: $("#cfgAudioRepeats"),
+    cfgAudioRepeatsVal: $("#cfgAudioRepeatsVal"),
     cfgAnonymize: $("#cfgAnonymize"),
     cfgShowZones: $("#cfgShowZones"),
     zonesList: $("#zonesList"),
@@ -167,6 +169,12 @@
           : "Android · podés instalar como app";
       }
     }
+    syncViewportHeight();
+  }
+
+  function syncViewportHeight() {
+    const h = window.visualViewport?.height || window.innerHeight;
+    document.documentElement.style.setProperty("--app-vh", `${Math.round(h)}px`);
   }
 
   const SETTINGS_KEY = "vigiepp.settings.v4";
@@ -184,6 +192,7 @@
     fullscreenDefault: true,
     identifyThreshold: 0.36,
     audioAlerts: true,
+    audioAlertRepeats: 0,
     anonymizeFaces: true,
     showZones: true,
     kioskMode: false,
@@ -198,6 +207,7 @@
       settings.bodyScale = Math.max(55, Math.min(130, Number(settings.bodyScale) || 100));
       settings.faceScale = Math.max(55, Math.min(140, Number(settings.faceScale) || 100));
       settings.guideOffsetY = Math.max(-20, Math.min(20, Number(settings.guideOffsetY) || 0));
+      settings.audioAlertRepeats = Math.max(0, Math.min(10, Number(settings.audioAlertRepeats) || 0));
     } catch (_) {
       settings = defaultSettings();
     }
@@ -233,6 +243,13 @@
     if (els.cfgShowBoxes) els.cfgShowBoxes.checked = !!settings.showPpeBoxes;
     if (els.cfgFullscreenDefault) els.cfgFullscreenDefault.checked = !!settings.fullscreenDefault;
     if (els.cfgAudioAlerts) els.cfgAudioAlerts.checked = !!settings.audioAlerts;
+    if (els.cfgAudioRepeats) {
+      els.cfgAudioRepeats.value = String(settings.audioAlertRepeats ?? 0);
+      if (els.cfgAudioRepeatsVal) {
+        const n = Number(settings.audioAlertRepeats) || 0;
+        els.cfgAudioRepeatsVal.textContent = n <= 0 ? "sin límite" : String(n);
+      }
+    }
     if (els.cfgAnonymize) els.cfgAnonymize.checked = !!settings.anonymizeFaces;
     if (els.cfgShowZones) els.cfgShowZones.checked = !!settings.showZones;
     if (els.chkIdentify) els.chkIdentify.checked = !!settings.identifyDefault;
@@ -256,6 +273,11 @@
     settings.showPpeBoxes = !!els.cfgShowBoxes?.checked;
     settings.fullscreenDefault = !!els.cfgFullscreenDefault?.checked;
     settings.audioAlerts = !!els.cfgAudioAlerts?.checked;
+    settings.audioAlertRepeats = Math.max(0, Math.min(10, Number(els.cfgAudioRepeats?.value) || 0));
+    if (els.cfgAudioRepeatsVal) {
+      els.cfgAudioRepeatsVal.textContent =
+        settings.audioAlertRepeats <= 0 ? "sin límite" : String(settings.audioAlertRepeats);
+    }
     settings.anonymizeFaces = !!els.cfgAnonymize?.checked;
     settings.showZones = !!els.cfgShowZones?.checked;
     if (els.cfgBodyScaleVal) els.cfgBodyScaleVal.textContent = `${settings.bodyScale}%`;
@@ -647,18 +669,36 @@
 
 
   let lastSpeakAt = 0;
+  let speakKey = "";
+  let speakCount = 0;
+  const SPEAK_GAP_MS = 5500;
   let zonesCache = [];
   let lastAccessAllow = null;
+
+  function resetSpeakIncident() {
+    speakKey = "";
+    speakCount = 0;
+  }
 
   function speakAlert(text) {
     if (!settings.audioAlerts) return;
     if (!window.speechSynthesis) return;
+    const key = String(text || "").slice(0, 140).trim();
+    if (!key) return;
     const now = Date.now();
-    if (now - lastSpeakAt < 4500) return;
+    if (key !== speakKey) {
+      speakKey = key;
+      speakCount = 0;
+    }
+    const maxRepeats = Math.max(0, Math.min(10, Number(settings.audioAlertRepeats) || 0));
+    // 0 = sin límite (se repite mientras dure el incumplimiento, con pausa entre avisos)
+    if (maxRepeats > 0 && speakCount >= maxRepeats) return;
+    if (speakCount > 0 && now - lastSpeakAt < SPEAK_GAP_MS) return;
+    speakCount += 1;
     lastSpeakAt = now;
     try {
       window.speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(String(text).slice(0, 140));
+      const u = new SpeechSynthesisUtterance(key);
       u.lang = "es-CL";
       u.rate = 1.05;
       window.speechSynthesis.speak(u);
@@ -883,11 +923,16 @@
     window.addEventListener("offline", syncOffline);
     window.addEventListener("orientationchange", () => {
       setTimeout(() => {
+        syncViewportHeight();
         syncCanvasSize();
         applyGuideMode();
       }, 250);
     });
-    window.visualViewport?.addEventListener("resize", () => syncCanvasSize());
+    window.visualViewport?.addEventListener("resize", () => {
+      syncViewportHeight();
+      syncCanvasSize();
+    });
+    window.addEventListener("resize", syncViewportHeight);
   }
 
   function renderProfile() {
@@ -903,6 +948,14 @@
 
   function setAppMode(mode) {
     appMode = mode;
+    document.body.classList.remove(
+      "mode-monitor",
+      "mode-identity",
+      "mode-teach",
+      "mode-config",
+      "mode-reports"
+    );
+    document.body.classList.add(`mode-${mode}`);
     $$(".mode-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === mode));
     els.monitorToolbar.classList.toggle("hidden", mode !== "monitor");
     const stage = $(".stage");
@@ -941,6 +994,7 @@
       fillRepProfiles();
       openReport(currentRep || "overview");
     }
+    requestAnimationFrame(() => syncCanvasSize());
   }
 
   function setSource(mode) {
@@ -1079,13 +1133,18 @@
       }
     }
 
-    // Audio en piso
+    // Audio en piso — máx. 2 veces por incumplimiento; se reinicia al cumplir / sin persona
     if (appMode === "monitor" && hasPeople && !ok) {
       const zoneAlert = (payload.zones?.alerts || [])[0];
       const miss = (c.persons?.[0]?.missing || []).slice(0, 2).join(" y ");
       if (zoneAlert) speakAlert(zoneAlert.replace("Near-miss:", "Cuidado.").replace("Zona restringida:", "Zona restringida."));
       else if (miss) speakAlert(`Falta ${miss}. Ponete el equipo de protección.`);
       else speakAlert("No cumple. Revisá tu EPP.");
+    } else if (ok || !hasPeople) {
+      resetSpeakIncident();
+      try {
+        if (window.speechSynthesis?.speaking) window.speechSynthesis.cancel();
+      } catch (_) {}
     }
     if (payload.access && payload.access.allow !== lastAccessAllow) {
       lastAccessAllow = payload.access.allow;
@@ -2228,15 +2287,46 @@
             <input type="email" id="nEmTo" placeholder="seguridad@empresa.cl" value="${ch.email?.to || ""}"/>
             <input type="email" id="nEmCc" placeholder="cc opcional" value="${ch.email?.cc || ""}"/>
           </label>
-          <p class="card-kicker">Abrir acceso (torniquete)</p>
-          <label><span>Control de acceso por webhook</span>
-            <input type="checkbox" id="nAcEn" ${ac.enabled ? "checked" : ""}/> Activar
-            <small class="card-meta">Solo permite si identidad conocida + EPP OK. Envía access_allow / access_deny.</small>
+          <p class="card-kicker">Alarma ESP32 (baliza + sirena)</p>
+          <label><span>Hardware VigiEPP Alarm</span>
+            <input type="checkbox" id="nHwEn" ${ac.hardware?.enabled ? "checked" : ""}/> Activar
+            <small class="card-meta">Llama a http://IP_ESP32/alarma (deny) y /ok (allow). El servidor VigiEPP debe estar en la misma red que el ESP32.</small>
+            <input type="url" id="nHwUrl" placeholder="http://192.168.1.50" value="${ac.hardware?.base_url || ""}"/>
+            <label class="check"><input type="checkbox" id="nHwBad" ${ac.hardware?.on_non_compliant !== false ? "checked" : ""}/> Alarma en incumplimiento EPP</label>
+            <label class="check"><input type="checkbox" id="nHwUnk" ${ac.hardware?.on_unknown_face !== false ? "checked" : ""}/> Alarma en rostro desconocido</label>
+            <label class="check"><input type="checkbox" id="nHwOk" ${ac.hardware?.auto_ok !== false ? "checked" : ""}/> /ok automático si EPP cumple</label>
+          </label>
+          <div class="rep-actions" style="margin:0.5rem 0 1rem">
+            <button type="button" class="btn secondary" id="btnHwAlarma">Probar /alarma</button>
+            <button type="button" class="btn secondary" id="btnHwOk">Probar /ok</button>
+          </div>
+          <pre class="rep-pre" id="hwTestOut" style="display:none">—</pre>
+          <p class="card-kicker">Abrir acceso (torniquete / gate)</p>
+          <label><span>Control de acceso</span>
+            <input type="checkbox" id="nAcEn" ${ac.enabled ? "checked" : ""}/> Activar gate
+            <small class="card-meta">Allow solo si identidad conocida + EPP OK. Con hardware activo: allow→/ok, deny→/alarma.</small>
             <label class="check"><input type="checkbox" id="nAcId" ${ac.require_identity !== false ? "checked" : ""}/> Exigir identidad</label>
             <label class="check"><input type="checkbox" id="nAcNf" ${ac.notify !== false ? "checked" : ""}/> Notificar decisión</label>
           </label>
           <button class="btn primary" type="submit">Guardar canales</button>
         </form>`;
+      const hwTest = async (action) => {
+        const out = $("#hwTestOut");
+        if (out) out.style.display = "block";
+        try {
+          const res = await api("/api/notifications/hardware/test", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action }),
+          });
+          if (out) out.textContent = JSON.stringify(res, null, 2);
+          els.repSideSummary.textContent = res.ok ? `Hardware ${action} OK` : `Hardware error: ${res.detail || ""}`;
+        } catch (err) {
+          if (out) out.textContent = String(err.message || err);
+        }
+      };
+      $("#btnHwAlarma")?.addEventListener("click", () => hwTest("alarma"));
+      $("#btnHwOk")?.addEventListener("click", () => hwTest("ok"));
       $("#notifChannelsForm")?.addEventListener("submit", async (e) => {
         e.preventDefault();
         const body = {
@@ -2253,6 +2343,16 @@
             enabled: $("#nAcEn").checked,
             require_identity: $("#nAcId").checked,
             notify: $("#nAcNf").checked,
+            hardware: {
+              enabled: $("#nHwEn").checked,
+              base_url: $("#nHwUrl").value.trim(),
+              alarma_path: "/alarma",
+              ok_path: "/ok",
+              method: "GET",
+              on_non_compliant: $("#nHwBad").checked,
+              on_unknown_face: $("#nHwUnk").checked,
+              auto_ok: $("#nHwOk").checked,
+            },
           },
         };
         const res = await api("/api/notifications/config", {
@@ -2326,10 +2426,12 @@
     if (key === "notif_test") {
       els.reportsContent.innerHTML = `
         <h3 class="rep-section-title">Probar / enviar ahora</h3>
-        <p>Envía una alerta de prueba por los canales activos.</p>
+        <p>Envía una alerta de prueba por los canales activos o dispara el ESP32.</p>
         <div class="rep-actions">
           <button type="button" class="btn primary" id="btnNotifTest">Enviar prueba</button>
           <button type="button" class="btn secondary" id="btnNotifManual">Enviar alerta manual</button>
+          <button type="button" class="btn secondary" id="btnHwAlarma2">ESP32 /alarma</button>
+          <button type="button" class="btn secondary" id="btnHwOk2">ESP32 /ok</button>
         </div>
         <pre class="rep-pre" id="notifTestOut">—</pre>`;
       $("#btnNotifTest")?.addEventListener("click", async () => {
@@ -2350,6 +2452,22 @@
         });
         $("#notifTestOut").textContent = JSON.stringify(res, null, 2);
         if (res.mailto) window.location.href = res.mailto;
+      });
+      $("#btnHwAlarma2")?.addEventListener("click", async () => {
+        const res = await api("/api/notifications/hardware/test", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "alarma" }),
+        });
+        $("#notifTestOut").textContent = JSON.stringify(res, null, 2);
+      });
+      $("#btnHwOk2")?.addEventListener("click", async () => {
+        const res = await api("/api/notifications/hardware/test", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "ok" }),
+        });
+        $("#notifTestOut").textContent = JSON.stringify(res, null, 2);
       });
       return;
     }
@@ -2509,10 +2627,16 @@
   ].forEach((el) => {
     if (el) el.addEventListener("change", readSettingsFromForm);
   });
-  [els.cfgBodyScale, els.cfgFaceScale, els.cfgGuideY, els.cfgIdThresh].forEach((el) => {
+  [els.cfgBodyScale, els.cfgFaceScale, els.cfgGuideY, els.cfgIdThresh, els.cfgAudioRepeats].forEach((el) => {
     if (!el) return;
-    el.addEventListener("input", readSettingsFromForm);
-    el.addEventListener("change", readSettingsFromForm);
+    el.addEventListener("input", () => {
+      readSettingsFromForm();
+      if (el === els.cfgAudioRepeats) resetSpeakIncident();
+    });
+    el.addEventListener("change", () => {
+      readSettingsFromForm();
+      if (el === els.cfgAudioRepeats) resetSpeakIncident();
+    });
   });
   if (els.cfgPoseAttempts) {
     els.cfgPoseAttempts.addEventListener("change", readSettingsFromForm);

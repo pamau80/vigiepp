@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+from . import hardware_alarm as hw_mod
 from .paths import data_dir
 
 DATA_DIR = data_dir()
@@ -33,6 +34,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "enabled": False,
         "require_identity": True,
         "notify": True,
+        "hardware": dict(hw_mod.DEFAULT_HARDWARE),
     },
     "channels": {
         "webhook": {"enabled": False, "url": ""},
@@ -68,7 +70,15 @@ def get_config() -> dict[str, Any]:
     cfg.update({k: v for k, v in raw.items() if k not in ("channels", "template", "access_control")})
     if isinstance(raw.get("access_control"), dict):
         cfg.setdefault("access_control", {})
-        cfg["access_control"].update(raw["access_control"])
+        ac_raw = raw["access_control"]
+        hw_raw = ac_raw.get("hardware") if isinstance(ac_raw.get("hardware"), dict) else {}
+        cfg["access_control"].update({k: v for k, v in ac_raw.items() if k != "hardware"})
+        cfg["access_control"]["hardware"] = hw_mod.merge_hardware(hw_raw)
+    else:
+        cfg.setdefault("access_control", {})
+        cfg["access_control"]["hardware"] = hw_mod.merge_hardware(
+            (cfg.get("access_control") or {}).get("hardware")
+        )
     if isinstance(raw.get("channels"), dict):
         for k, v in raw["channels"].items():
             cfg["channels"].setdefault(k, {})
@@ -95,7 +105,21 @@ def save_config(patch: dict[str, Any]) -> dict[str, Any]:
             cfg[key] = patch[key]
     if isinstance(patch.get("access_control"), dict):
         cfg.setdefault("access_control", {})
-        cfg["access_control"].update(patch["access_control"])
+        ac_patch = patch["access_control"]
+        hw_patch = ac_patch.get("hardware") if isinstance(ac_patch.get("hardware"), dict) else None
+        cfg["access_control"].update({k: v for k, v in ac_patch.items() if k != "hardware"})
+        if hw_patch is not None:
+            current_hw = hw_mod.merge_hardware(cfg["access_control"].get("hardware"))
+            current_hw.update(hw_patch)
+            base = str(current_hw.get("base_url") or "").strip()
+            if base:
+                ok_u, normalized = hw_mod.validate_base_url(base)
+                if not ok_u:
+                    raise ValueError(f"URL ESP32 inválida: {normalized}")
+                current_hw["base_url"] = normalized
+            else:
+                current_hw["base_url"] = ""
+            cfg["access_control"]["hardware"] = current_hw
     if isinstance(patch.get("channels"), dict):
         for name, ch in patch["channels"].items():
             cfg["channels"].setdefault(name, {})
@@ -409,6 +433,10 @@ def maybe_notify_scan(identity: dict[str, Any] | None, compliance: dict[str, Any
 
 def maybe_notify_unknown(identity: dict[str, Any] | None, profile: str) -> None:
     cfg = get_config()
+    access = cfg.get("access_control") or {}
+    hw = access.get("hardware") or {}
+    if hw.get("enabled"):
+        hw_mod.trigger_unknown(hw)
     if not cfg.get("enabled") or not cfg.get("on_unknown_face"):
         return
     send_notification(
@@ -435,9 +463,13 @@ def maybe_notify_zones(
     profile: str,
 ) -> None:
     cfg = get_config()
-    if not cfg.get("enabled") or not cfg.get("on_zone_alert"):
-        return
     if not zone_alerts:
+        return
+    access = cfg.get("access_control") or {}
+    hw = access.get("hardware") or {}
+    if hw.get("enabled"):
+        hw_mod.trigger_zone(hw)
+    if not cfg.get("enabled") or not cfg.get("on_zone_alert"):
         return
     summary = zone_alerts[0]
     send_notification(
@@ -464,13 +496,42 @@ def maybe_access_gate(
 ) -> dict[str, Any] | None:
     cfg = get_config()
     access = cfg.get("access_control") or {}
-    if not access.get("enabled"):
+    hw = access.get("hardware") or {}
+    hardware_result = hw_mod.sync_from_scan(
+        identity,
+        compliance,
+        hardware=hw,
+        access_enabled=bool(access.get("enabled")),
+        require_identity=bool(access.get("require_identity", True)),
+    )
+
+    if not access.get("enabled") and hardware_result is None:
         return None
+
     known = bool((identity or {}).get("known") and (identity or {}).get("id"))
     ok_epp = bool(compliance.get("overall_compliant"))
     allow = known and ok_epp
     if access.get("require_identity", True) and not known:
         allow = False
+
+    if not access.get("enabled"):
+        # Solo hardware (alarma visual/sonora) sin gate de torniquete
+        if hardware_result is None:
+            return None
+        return {
+            "allow": ok_epp,
+            "action": "hardware_ok" if hardware_result.get("action") == "ok" else "hardware_alarma",
+            "name": (identity or {}).get("name"),
+            "rut": (identity or {}).get("rut"),
+            "worker_id": (identity or {}).get("id"),
+            "profile": profile,
+            "summary": "Hardware sincronizado",
+            "missing": [],
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "compliant": ok_epp,
+            "hardware": hardware_result,
+        }
+
     payload = {
         "allow": allow,
         "action": "open" if allow else "deny",
@@ -479,10 +540,37 @@ def maybe_access_gate(
         "worker_id": (identity or {}).get("id"),
         "profile": profile,
         "summary": "Acceso permitido" if allow else "Acceso denegado (identidad o EPP)",
-        "missing": [] if allow else (["identidad"] if not known else []),
+        "missing": (
+            []
+            if allow
+            else (["identidad"] if not known else [
+                m
+                for p in (compliance.get("persons") or [])
+                for m in (p.get("missing") or [])
+            ])
+        ),
         "ts": datetime.now(timezone.utc).isoformat(),
         "compliant": ok_epp,
+        "hardware": hardware_result,
     }
     if cfg.get("enabled") and access.get("notify", True):
         send_notification(payload, force=True, kind="access_allow" if allow else "access_deny")
     return payload
+
+
+def test_hardware(action: str = "alarma") -> dict[str, Any]:
+    cfg = get_config()
+    hw = hw_mod.merge_hardware((cfg.get("access_control") or {}).get("hardware"))
+    if not hw.get("base_url"):
+        return {"ok": False, "detail": "Configurá la URL base del ESP32 (ej. http://192.168.1.50)"}
+    act = "ok" if str(action).lower().strip() in ("ok", "verde", "allow") else "alarma"
+    return hw_mod.trigger(
+        act,  # type: ignore[arg-type]
+        base_url=str(hw["base_url"]),
+        alarma_path=str(hw.get("alarma_path") or "/alarma"),
+        ok_path=str(hw.get("ok_path") or "/ok"),
+        method=str(hw.get("method") or "GET"),
+        timeout_seconds=float(hw.get("timeout_seconds") or 4),
+        cooldown_seconds=0,
+        reason="manual_test",
+    )

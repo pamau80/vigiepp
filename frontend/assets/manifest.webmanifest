@@ -5,10 +5,13 @@
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "orientation": "portrait-primary",
+  "orientation": "any",
+  "display_override": ["standalone", "fullscreen"],
   "background_color": "#101512",
   "theme_color": "#e85d04",
   "lang": "es-CL",
+  "categories": ["business", "productivity"],
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "/assets/favicon.png",

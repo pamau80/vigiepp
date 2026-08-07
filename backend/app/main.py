@@ -351,6 +351,7 @@ class NotifyConfigBody(BaseModel):
     enabled: Optional[bool] = None
     on_non_compliant: Optional[bool] = None
     on_unknown_face: Optional[bool] = None
+    on_zone_alert: Optional[bool] = None
     only_known_workers: Optional[bool] = None
     cooldown_seconds: Optional[int] = None
     access_control: Optional[dict[str, Any]] = None
@@ -367,6 +368,10 @@ class NotifySendBody(BaseModel):
     missing: list[str] = Field(default_factory=list)
     worker_id: Optional[str] = None
     force: bool = True
+
+
+class HardwareTestBody(BaseModel):
+    action: str = "alarma"
 
 
 @app.get("/api/health")
@@ -584,7 +589,10 @@ def notifications_config_get() -> dict[str, Any]:
 @app.post("/api/notifications/config")
 def notifications_config_set(body: NotifyConfigBody) -> dict[str, Any]:
     patch = body.model_dump(exclude_none=True)
-    return {"ok": True, "config": notif_mod.save_config(patch)}
+    try:
+        return {"ok": True, "config": notif_mod.save_config(patch)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/notifications/log")
@@ -624,6 +632,12 @@ def notifications_test() -> dict[str, Any]:
         force=True,
         kind="test",
     )
+
+
+@app.post("/api/notifications/hardware/test")
+def notifications_hardware_test(body: HardwareTestBody) -> dict[str, Any]:
+    """Dispara /alarma o /ok en el ESP32 (misma red que el servidor VigiEPP)."""
+    return notif_mod.test_hardware(body.action or "alarma")
 
 
 @app.post("/api/rtsp/start")

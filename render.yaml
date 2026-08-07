@@ -1,13 +1,33 @@
+# VigiEPP en Render (reemplazo de Railway)
+# Blueprint: https://dashboard.render.com/blueprints
+#
+# Primer build ~15–25 min (PyTorch + modelos). Plan Starter recomendado
+# (disco persistente no está en Free).
+
 services:
   - type: web
     name: vigiepp
     runtime: docker
     plan: starter
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     healthCheckPath: /api/health
+    autoDeploy: true
     envVars:
-      - key: PORT
-        value: 8000
+      - key: VIGIEPP_DATA_DIR
+        value: /data
+      - key: VIGIEPP_AUTH
+        value: "1"
+      - key: VIGIEPP_COOKIE_SECURE
+        value: "1"
+      - key: VIGIEPP_ADMIN_PIN
+        sync: false
+      - key: VIGIEPP_OPERATOR_PIN
+        value: porteria
+      - key: ULTRALYTICS_OFFLINE
+        value: "false"
     disk:
       name: vigiepp-data
-      mountPath: /app/backend/data
-      sizeGB: 1
+      mountPath: /data
+      sizeGB: 2

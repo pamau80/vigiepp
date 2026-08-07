@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta
     name="viewport"
-    content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no"
+    content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
   />
   <meta name="theme-color" content="#e85d04" />
   <meta name="color-scheme" content="dark" />
@@ -45,11 +45,21 @@
       </div>
     </div>
     <nav class="mode-nav" role="tablist" aria-label="Secciones">
-      <button class="mode-btn active" data-mode="monitor" type="button">1 · Monitoreo</button>
-      <button class="mode-btn" data-mode="identity" type="button">2 · Personas</button>
-      <button class="mode-btn" data-mode="teach" type="button">3 · Ropa / EPP</button>
-      <button class="mode-btn" data-mode="config" type="button">4 · Config</button>
-      <button class="mode-btn" data-mode="reports" type="button">5 · Informes</button>
+      <button class="mode-btn active" data-mode="monitor" type="button" title="Monitoreo">
+        <span class="mode-full">1 · Monitoreo</span><span class="mode-short" aria-hidden="true">1</span>
+      </button>
+      <button class="mode-btn" data-mode="identity" type="button" title="Personas">
+        <span class="mode-full">2 · Personas</span><span class="mode-short" aria-hidden="true">2</span>
+      </button>
+      <button class="mode-btn" data-mode="teach" type="button" title="Ropa / EPP">
+        <span class="mode-full">3 · Ropa / EPP</span><span class="mode-short" aria-hidden="true">3</span>
+      </button>
+      <button class="mode-btn" data-mode="config" type="button" title="Config">
+        <span class="mode-full">4 · Config</span><span class="mode-short" aria-hidden="true">4</span>
+      </button>
+      <button class="mode-btn" data-mode="reports" type="button" title="Informes">
+        <span class="mode-full">5 · Informes</span><span class="mode-short" aria-hidden="true">5</span>
+      </button>
     </nav>
     <div class="top-status" id="modelStatus">
       <span class="dot"></span>
@@ -431,6 +441,13 @@
             <small>Voz: avisa faltas / zona (Web Speech)</small>
           </span>
           <input type="checkbox" id="cfgAudioAlerts" checked />
+        </label>
+        <label class="cfg-row cfg-slider-row">
+          <span>
+            <strong>Nº de veces que se repiten las advertencias</strong>
+            <small>Por incumplimiento · <b id="cfgAudioRepeatsVal">sin límite</b> · 0 = sin límite</small>
+          </span>
+          <input type="range" id="cfgAudioRepeats" min="0" max="10" value="0" step="1" />
         </label>
         <label class="cfg-row">
           <span>
