@@ -54,11 +54,15 @@ async def lifespan(_: FastAPI):
     try:
         from . import cloud_persist as cloud_mod
 
-        result = cloud_mod.pull_and_restore_if_empty()
+        if cloud_mod.configured():
+            # Volumen durable: HF es la fuente de verdad tras cada cold start
+            result = cloud_mod.hydrate(force=True)
+        else:
+            result = cloud_mod.pull_and_restore_if_empty()
         if result.get("restored"):
-            logger.info("Identidad restaurada desde cloud: %s", result.get("workers"))
+            logger.info("Identidad restaurada desde volumen durable: %s", result.get("workers"))
     except Exception:  # noqa: BLE001
-        logger.exception("Cloud persist pull falló")
+        logger.exception("Durable persist pull falló")
     try:
         IdentityRegistry.get()
     except Exception:  # noqa: BLE001
@@ -392,14 +396,20 @@ def health() -> dict[str, Any]:
     from . import cloud_persist as cloud_mod
 
     cloud = cloud_mod.status()
-    ephemeral = cloud.get("ephemeral_host") or (
-        paths_mod.is_persistent() and not cloud.get("configured")
-        and os.getenv("RENDER", "").strip() != ""
+    on_render = bool(os.getenv("RENDER") or os.getenv("RENDER_SERVICE_ID"))
+    ephemeral_flag = os.getenv("VIGIEPP_EPHEMERAL", "").strip().lower() in ("1", "true", "yes")
+    durable = bool(cloud.get("configured"))
+    # Persistencia real = disco host O volumen durable HF
+    data_persistent = durable or (paths_mod.is_persistent() and not ephemeral_flag and not on_render) or (
+        paths_mod.is_persistent() and os.getenv("VIGIEPP_EPHEMERAL", "").strip() in ("0", "false", "no")
     )
-    # En Render Free /data existe pero se borra al sleep: marcar riesgo si no hay cloud.
-    if os.getenv("RENDER") or os.getenv("RENDER_SERVICE_ID"):
-        if not cloud.get("configured"):
-            ephemeral = True
+    if durable:
+        data_persistent = True
+    ephemeral_risk = on_render and not durable and ephemeral_flag
+    if on_render and not durable and os.getenv("VIGIEPP_EPHEMERAL", "1").strip() not in ("0", "false", "no"):
+        # Free sin HF = riesgo
+        ephemeral_risk = True
+        data_persistent = False
     return {
         "status": "ok",
         "product": "VigiEPP",
@@ -408,8 +418,8 @@ def health() -> dict[str, Any]:
         "warning": det.error,
         "auth_enabled": auth_mod.auth_enabled(),
         "data_dir": str(paths_mod.data_dir()),
-        "data_persistent": paths_mod.is_persistent() and not ephemeral,
-        "data_ephemeral_risk": bool(ephemeral),
+        "data_persistent": bool(data_persistent),
+        "data_ephemeral_risk": bool(ephemeral_risk and not durable),
         "cloud_backup": cloud,
         "email_transport": notif_mod.email_transport_status().get("mode"),
     }

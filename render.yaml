@@ -1,17 +1,12 @@
-# VigiEPP en Render (reemplazo de Railway)
-# Blueprint: https://dashboard.render.com/blueprints
-#
-# Primer build ~15–25 min (PyTorch + modelos).
-# Plan Starter + disco = datos permanentes (recomendado).
-# Plan Free: el disco se borra al sleep → configurá cloud backup:
-#   VIGIEPP_CLOUD_TOKEN + VIGIEPP_CLOUD_REPO (repo PRIVADO)
-#   y/o usá el auto-backup del navegador (IndexedDB).
+# VigiEPP en Render
+# Free + volumen durable HF (activate-free-durable.ps1) = sin pago extra.
+# Starter+disk opcional solo si querés disco nativo.
 
 services:
   - type: web
     name: vigiepp
     runtime: docker
-    plan: starter
+    plan: free
     region: oregon
     dockerfilePath: ./Dockerfile
     dockerContext: .
@@ -30,17 +25,13 @@ services:
         value: porteria
       - key: ULTRALYTICS_OFFLINE
         value: "false"
-      # En Free poné "1". En Starter+disco poné "0" o borrá la var.
+      - key: VIGIEPP_HF_TOKEN
+        sync: false
+      - key: VIGIEPP_HF_REPO
+        sync: false
+      - key: VIGIEPP_HF_FILE
+        value: identity-backup.zip
+      - key: HF_TOKEN
+        sync: false
       - key: VIGIEPP_EPHEMERAL
         value: "1"
-      # Repo PRIVADO solo para backups (ej. pamau80/vigiepp-data)
-      - key: VIGIEPP_CLOUD_REPO
-        sync: false
-      - key: VIGIEPP_CLOUD_TOKEN
-        sync: false
-      - key: VIGIEPP_CLOUD_PATH
-        value: vigiepp-identity-backup.zip
-    disk:
-      name: vigiepp-data
-      mountPath: /data
-      sizeGB: 2

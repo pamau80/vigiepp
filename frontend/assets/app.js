@@ -1676,24 +1676,16 @@
     const el = $("#persistBanner");
     if (!el) return;
     const cloud = health?.cloud_backup || {};
-    const risk = !!health?.data_ephemeral_risk;
-    if (!risk && cloud.configured) {
+    if (cloud.configured || (health?.data_persistent && !health?.data_ephemeral_risk)) {
       el.classList.add("hidden");
       el.textContent = "";
       return;
     }
-    if (!risk) {
-      el.classList.add("hidden");
-      return;
-    }
     el.classList.remove("hidden");
-    if (cloud.configured) {
-      el.innerHTML =
-        "<strong>Render Free:</strong> el disco se borra al dormir, pero hay respaldo cloud activo. Tras despertar se restauran solas las personas.";
-    } else {
-      el.innerHTML =
-        "<strong>Render Free:</strong> sin disco permanente. Este navegador guarda un respaldo automático de personas/fotos y lo restaura al volver. Para no depender del navegador: Starter+disco o cloud backup.";
-    }
+    el.innerHTML =
+      "<strong>Falta volumen durable:</strong> Render Free no guarda disco. " +
+      "Solución gratis: corré <code>activate-free-durable.ps1</code> (Hugging Face, sin pago). " +
+      "Las personas quedan en un dataset privado y sobreviven al sleep.";
   }
 
   function renderWorkerList() {
