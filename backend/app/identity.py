@@ -53,6 +53,15 @@ class Worker:
     quality: int = 0
 
 
+def normalize_person_name(name: str) -> str:
+    """Dr./Dra./Doctor → Especialista (expertos de faena, no título médico)."""
+    n = (name or "").strip()
+    if not n:
+        return n
+    n = re.sub(r"^(dra\.?|dr\.?|doctora|doctor)\b\.?\s*", "Especialista ", n, flags=re.IGNORECASE)
+    return re.sub(r"\s{2,}", " ", n).strip()
+
+
 def compute_quality(face_samples: int) -> int:
     """Score 0–100 según cantidad de muestras faciales de calidad."""
     n = int(face_samples or 0)
@@ -145,6 +154,7 @@ def worker_from_dict(item: dict[str, Any]) -> Worker:
 
 def worker_public(w: Worker) -> dict[str, Any]:
     d = asdict(w)
+    d["name"] = normalize_person_name(w.name)
     folder = FACES_DIR / w.id
     has_photo = False
     emb_count = 0
@@ -499,6 +509,7 @@ class IdentityService:
         rut_norm = normalize_rut(rut) if rut else ""
         if rut_norm and not validate_rut(rut_norm):
             return {"ok": False, "error": f"RUT inválido: {rut_norm}"}
+        name = normalize_person_name(name)
 
         faces = self.registry.detect_faces(frame_bgr)
         if not faces:

@@ -1194,7 +1194,7 @@
     els.alertList.innerHTML = alerts.length
       ? alerts
           .map((a) => {
-            const who = id?.known && id?.name ? `${id.name}: ` : "";
+            const who = id?.known && id?.name ? `${displayPersonName(id.name)}: ` : "";
             return `<li class="warn">${who}${a}</li>`;
           })
           .join("")
@@ -1220,6 +1220,19 @@
     els.fpsLabel.textContent = `${ms} ms UI`;
   }
 
+  /** Títulos médicos → término de faena (expertos SSO / EPP). */
+  function displayPersonName(name) {
+    let n = String(name || "").trim();
+    if (!n) return n;
+    n = n.replace(/^(dra\.?|dr\.?|doctora|doctor)\b\.?\s*/i, "Especialista ");
+    n = n.replace(/\s{2,}/g, " ").trim();
+    return n;
+  }
+
+  function normalizePersonNameForSave(name) {
+    return displayPersonName(name);
+  }
+
   function setIdentityCard(identity) {
     if (!identity) {
       els.identityName.textContent = "Sin identificar";
@@ -1229,7 +1242,8 @@
       return;
     }
     const known = !!identity.known;
-    els.identityName.textContent = identity.name || (known ? "—" : "Desconocido");
+    const displayName = displayPersonName(identity.name);
+    els.identityName.textContent = displayName || (known ? "—" : "Desconocido");
     els.identityRut.textContent =
       identity.rut && !String(identity.rut).startsWith("SIN-RUT")
         ? `RUT ${identity.rut}`
@@ -1734,7 +1748,7 @@
             return `<li data-worker-id="${w.id}" class="${active ? "" : "is-inactive"}">
               ${photo}
               <div class="worker-meta">
-                <strong>${escapeHtml(w.name || "Sin nombre")}${active ? "" : " · inactivo"}${ready ? "" : " · incompleto"}</strong>
+                <strong>${escapeHtml(displayPersonName(w.name) || "Sin nombre")}${active ? "" : " · inactivo"}${ready ? "" : " · incompleto"}</strong>
                 <span class="conf">${escapeHtml(w.rut || "—")}${w.group ? " · " + escapeHtml(w.group) : ""}</span>
                 <span class="conf">${w.face_samples || 0}/4 muestras · calidad ${qn}% (${qLabel}) · ${formatLastSeen(w.last_seen)}</span>
               </div>
@@ -1810,7 +1824,7 @@
   async function editWorker(id) {
     const w = workersCache.find((x) => x.id === id);
     if (!w) return;
-    const name = prompt("Nombre", w.name || "");
+    const name = prompt("Nombre (usá «Especialista …» en vez de Dr./Dra.)", displayPersonName(w.name || ""));
     if (name === null) return;
     const rutDefault = w.rut?.startsWith("SIN-RUT") ? "" : w.rut || "";
     const rut = prompt("RUT", rutDefault);
@@ -1821,11 +1835,17 @@
       const data = await api(`/api/identity/workers/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), rut: rut.trim(), group: group.trim() }),
+        body: JSON.stringify({
+          name: normalizePersonNameForSave(name.trim()),
+          rut: rut.trim(),
+          group: group.trim(),
+        }),
       });
-      if (els.enrollCoach) els.enrollCoach.textContent = `Actualizado: ${data.worker?.name || name}`;
+      if (els.enrollCoach) {
+        els.enrollCoach.textContent = `Actualizado: ${displayPersonName(data.worker?.name || name)}`;
+      }
       if (data.worker) {
-        els.workerName.value = data.worker.name || "";
+        els.workerName.value = displayPersonName(data.worker.name || "");
         els.workerRut.value = data.worker.rut?.startsWith("SIN-RUT") ? "" : data.worker.rut || "";
       }
       await refreshWorkers();
@@ -1899,7 +1919,7 @@
     overlay.dataset.state = !hasPeople ? "idle" : ok ? "ok" : "bad";
     res.textContent = !hasPeople ? "En espera" : ok ? "CUMPLE" : "NO CUMPLE";
     if (name) {
-      name.textContent = id?.known && id?.name ? id.name : hasPeople ? "Sin identificar" : "Acercá a la cámara";
+      name.textContent = id?.known && id?.name ? displayPersonName(id.name) : hasPeople ? "Sin identificar" : "Acercá a la cámara";
     }
     if (detail) {
       const miss = (c.persons?.[0]?.missing || []).slice(0, 3).join(", ");
@@ -1958,7 +1978,7 @@
       if (!mediaStream) await startCamera({ silentDetect: true });
       else stopDetectLoop();
       showLive();
-      const name = els.workerName.value.trim();
+      const name = normalizePersonNameForSave(els.workerName.value.trim());
       const rut = els.workerRut.value.trim();
       let okCount = 0;
 
@@ -2038,7 +2058,7 @@
   }
 
   async function uploadFacePhotos(fileList) {
-    const name = els.workerName.value.trim();
+    const name = normalizePersonNameForSave(els.workerName.value.trim());
     const rut = els.workerRut.value.trim();
     if (!name && !rut) {
       if (els.enrollCoach) els.enrollCoach.textContent = "Escribí nombre o RUT antes de adjuntar fotos";

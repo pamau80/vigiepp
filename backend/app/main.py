@@ -788,7 +788,7 @@ def identity_delete(worker_id: str) -> dict[str, Any]:
 @app.patch("/api/identity/workers/{worker_id}")
 async def identity_update(worker_id: str, request: Request) -> dict[str, Any]:
     """Actualiza ficha: nombre, RUT, activo, grupo, notas."""
-    from .identity import compute_quality, normalize_rut, validate_rut, worker_public
+    from .identity import compute_quality, normalize_person_name, normalize_rut, validate_rut, worker_public
 
     body = await request.json()
     reg = IdentityRegistry.get()
@@ -796,7 +796,7 @@ async def identity_update(worker_id: str, request: Request) -> dict[str, Any]:
     if not worker:
         raise HTTPException(404, "Trabajador no encontrado")
     if "name" in body:
-        name = str(body.get("name") or "").strip()
+        name = normalize_person_name(str(body.get("name") or "").strip())
         if name:
             worker.name = name
     if "rut" in body:
