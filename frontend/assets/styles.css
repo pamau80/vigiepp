@@ -556,6 +556,99 @@ body.is-scanning .person-chip {
   text-align: center;
 }
 .cfg-sep { margin-top: 0.85rem; }
+
+.cfg-nav {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.4rem;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 0.15rem;
+  scrollbar-width: thin;
+}
+.cfg-nav-panel {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--panel);
+  padding: 0.15rem 0 0.55rem;
+  margin: -0.15rem 0 0.55rem;
+  border-bottom: 1px solid var(--line);
+}
+.cfg-nav-btn {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  background: var(--elev);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 0.45rem 0.7rem;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cfg-nav-btn.active {
+  color: var(--text);
+  border-color: rgba(232, 93, 4, 0.55);
+  background: rgba(232, 93, 4, 0.16);
+}
+.cfg-section.hidden { display: none !important; }
+
+/* Config / Informes: panel usable sin achicar zoom */
+body.mode-config .layout {
+  grid-template-columns: minmax(0, 0.55fr) minmax(420px, 1.2fr);
+  max-width: 1600px;
+}
+body.mode-config .stage {
+  min-height: auto;
+}
+body.mode-config .stage .frame-wrap {
+  max-height: 42vh;
+}
+body.mode-config .panel {
+  max-height: calc(var(--app-vh, 100dvh) - 6.5rem);
+  position: sticky;
+  top: 4.5rem;
+}
+body.mode-identity .layout,
+body.mode-teach .layout {
+  grid-template-columns: minmax(0, 1.1fr) minmax(380px, 0.95fr);
+  max-width: 1600px;
+}
+body.mode-reports .layout {
+  grid-template-columns: 1fr;
+  max-width: 1600px;
+}
+body.mode-reports .panel { display: none; }
+
+.reports-menu-title {
+  cursor: pointer;
+  user-select: none;
+}
+.reports-menu-title::after {
+  content: " ▾";
+  opacity: 0.55;
+  font-size: 0.75em;
+}
+.reports-menu details.rep-group {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.reports-menu details.rep-group > summary {
+  list-style: none;
+  cursor: pointer;
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 700;
+  padding: 0.65rem 0.35rem 0.35rem;
+}
+.reports-menu details.rep-group > summary::-webkit-details-marker { display: none; }
+.reports-menu details.rep-group[open] > summary { color: var(--text); }
+
 .config-card .card-kicker:first-child { margin-top: 0; }
 .align-badge.is-off { display: none; }
 
@@ -1192,11 +1285,23 @@ body.is-fullscreen .panel {
   body.is-mobile:not(.mode-monitor) .panel {
     max-height: none;
   }
+  body.is-mobile.mode-config .layout {
+    grid-template-columns: 1fr;
+  }
+  body.is-mobile.mode-config .stage .frame-wrap {
+    display: none;
+  }
   body.is-mobile.mode-config .panel,
   body.is-mobile.mode-identity .panel,
   body.is-mobile.mode-teach .panel,
   body.is-mobile.mode-reports .panel {
     overflow: visible;
+    max-height: none;
+    position: static;
+  }
+  body.is-mobile .cfg-nav-panel {
+    position: sticky;
+    top: 0;
   }
   body.is-mobile.mode-config .cfg-row.cfg-slider-row {
     flex-direction: column;

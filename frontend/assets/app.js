@@ -953,7 +953,22 @@
     els.requiredChips.innerHTML = [...req, ...opt].join("") || "—";
   }
 
-  function setAppMode(mode) {
+  function setConfigSection(sec) {
+    const id = ["guides", "audio", "zones", "monitor"].includes(sec) ? sec : "guides";
+    try {
+      localStorage.setItem("vigiepp-cfg-sec", id);
+    } catch (_) {}
+    $$("[data-cfg-section]").forEach((el) => {
+      el.classList.toggle("hidden", el.getAttribute("data-cfg-section") !== id);
+    });
+    $$(".cfg-nav-btn").forEach((btn) => {
+      btn.classList.toggle("active", btn.getAttribute("data-cfg-sec") === id);
+    });
+    const panel = $("#sidePanel");
+    if (panel && appMode === "config") panel.scrollTop = 0;
+    const block = $("#configBlock");
+    if (block) block.scrollTop = 0;
+  }
     appMode = mode;
     document.body.classList.remove(
       "mode-monitor",
@@ -996,7 +1011,10 @@
     applyGuideMode();
     if (mode === "identity") refreshWorkers();
     if (mode === "teach") refreshTeach();
-    if (mode === "config") loadZones();
+    if (mode === "config") {
+      loadZones();
+      setConfigSection(localStorage.getItem("vigiepp-cfg-sec") || "guides");
+    }
     if (mode === "reports") {
       fillRepProfiles();
       openReport(currentRep || "overview");
@@ -2633,6 +2651,12 @@
 
   // Events
   $$(".mode-btn").forEach((b) => b.addEventListener("click", () => setAppMode(b.dataset.mode)));
+  document.addEventListener("click", (ev) => {
+    const btn = ev.target.closest(".cfg-nav-btn");
+    if (!btn) return;
+    const sec = btn.getAttribute("data-cfg-sec");
+    if (sec) setConfigSection(sec);
+  });
   $$(".rep-item").forEach((b) => b.addEventListener("click", () => openReport(b.dataset.rep)));
   if (els.btnRepRefresh) els.btnRepRefresh.addEventListener("click", () => openReport(currentRep || "overview"));
   if (els.repDays) els.repDays.addEventListener("change", () => openReport(currentRep || "overview"));

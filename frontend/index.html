@@ -237,35 +237,47 @@
       </div>
 
       <div class="controls control-bar hidden" id="configControls">
-        <p class="hint">Ajustá silueta, guía facial y reglas de enrolamiento en el panel derecho. Los cambios se aplican al instante.</p>
+        <nav class="cfg-nav" id="cfgNav" aria-label="Secciones de configuración">
+          <button type="button" class="cfg-nav-btn active" data-cfg-sec="guides">Guías</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="audio">Audio</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="zones">Zonas</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="monitor">Monitoreo</button>
+        </nav>
+        <p class="hint">Elegí una sección arriba o en el panel. Los cambios se aplican al instante.</p>
       </div>
 
       <div class="reports-desk hidden" id="reportsDesk">
         <aside class="reports-menu" aria-label="Menú de informes">
-          <p class="reports-menu-title">Estadísticas</p>
-          <button type="button" class="rep-item" data-rep="safety_score">Safety Score</button>
-          <button type="button" class="rep-item" data-rep="overview">Resumen general</button>
-          <button type="button" class="rep-item" data-rep="byday">Cumplimiento por día</button>
-          <button type="button" class="rep-item" data-rep="ranking">Ranking trabajadores</button>
-          <button type="button" class="rep-item" data-rep="missing">EPP faltante frecuente</button>
-          <button type="button" class="rep-item" data-rep="profiles">Por perfil de faena</button>
-          <button type="button" class="rep-item" data-rep="unknown">Sin identidad / desconocidos</button>
+          <details class="rep-group" open>
+            <summary>Estadísticas</summary>
+            <button type="button" class="rep-item" data-rep="safety_score">Safety Score</button>
+            <button type="button" class="rep-item" data-rep="overview">Resumen general</button>
+            <button type="button" class="rep-item" data-rep="byday">Cumplimiento por día</button>
+            <button type="button" class="rep-item" data-rep="ranking">Ranking trabajadores</button>
+            <button type="button" class="rep-item" data-rep="missing">EPP faltante frecuente</button>
+            <button type="button" class="rep-item" data-rep="profiles">Por perfil de faena</button>
+            <button type="button" class="rep-item" data-rep="unknown">Sin identidad / desconocidos</button>
+          </details>
 
-          <p class="reports-menu-title">Generación de informes</p>
-          <button type="button" class="rep-item" data-rep="daily">Informe diario</button>
-          <button type="button" class="rep-item" data-rep="weekly">Informe semanal</button>
-          <button type="button" class="rep-item" data-rep="monthly">Informe mensual</button>
-          <button type="button" class="rep-item" data-rep="csv_all">Exportar CSV completo</button>
-          <button type="button" class="rep-item" data-rep="csv_bad">Exportar solo incumplimientos</button>
-          <button type="button" class="rep-item" data-rep="print">Informe imprimible</button>
-          <button type="button" class="rep-item" data-rep="txt">Descargar resumen TXT</button>
+          <details class="rep-group">
+            <summary>Generación de informes</summary>
+            <button type="button" class="rep-item" data-rep="daily">Informe diario</button>
+            <button type="button" class="rep-item" data-rep="weekly">Informe semanal</button>
+            <button type="button" class="rep-item" data-rep="monthly">Informe mensual</button>
+            <button type="button" class="rep-item" data-rep="csv_all">Exportar CSV completo</button>
+            <button type="button" class="rep-item" data-rep="csv_bad">Exportar solo incumplimientos</button>
+            <button type="button" class="rep-item" data-rep="print">Informe imprimible</button>
+            <button type="button" class="rep-item" data-rep="txt">Descargar resumen TXT</button>
+          </details>
 
-          <p class="reports-menu-title">Notificaciones</p>
-          <button type="button" class="rep-item" data-rep="notif_setup">Configurar canales</button>
-          <button type="button" class="rep-item" data-rep="notif_rules">Reglas de alerta</button>
-          <button type="button" class="rep-item" data-rep="notif_template">Plantilla de mensaje</button>
-          <button type="button" class="rep-item" data-rep="notif_test">Probar / enviar ahora</button>
-          <button type="button" class="rep-item" data-rep="notif_log">Historial de envíos</button>
+          <details class="rep-group">
+            <summary>Notificaciones</summary>
+            <button type="button" class="rep-item" data-rep="notif_setup">Configurar canales</button>
+            <button type="button" class="rep-item" data-rep="notif_rules">Reglas de alerta</button>
+            <button type="button" class="rep-item" data-rep="notif_template">Plantilla de mensaje</button>
+            <button type="button" class="rep-item" data-rep="notif_test">Probar / enviar ahora</button>
+            <button type="button" class="rep-item" data-rep="notif_log">Historial de envíos</button>
+          </details>
         </aside>
 
         <div class="reports-main">
@@ -388,124 +400,139 @@
       </section>
 
       <section class="card panel-section config-card" data-show="config" id="configBlock">
-        <p class="card-kicker">Guías visuales</p>
-        <label class="cfg-row">
-          <span>
-            <strong>Silueta corporal</strong>
-            <small>Mostrar la guía predefinida de cuerpo completo</small>
-          </span>
-          <input type="checkbox" id="cfgSilhouette" checked />
-        </label>
-        <label class="cfg-row">
-          <span>
-            <strong>Validar silueta en monitoreo</strong>
-            <small>Exige encaje en la silueta antes de dar Cumple / No cumple</small>
-          </span>
-          <input type="checkbox" id="cfgSilhouetteGate" checked />
-        </label>
-        <label class="cfg-row">
-          <span>
-            <strong>Guía de rostro</strong>
-            <small>Al enrolar o identificar, cambiar a figura de cara</small>
-          </span>
-          <input type="checkbox" id="cfgFaceGuide" checked />
-        </label>
-        <label class="cfg-row cfg-slider-row">
-          <span>
-            <strong>Porte silueta corporal</strong>
-            <small>Tamaño de la figura de cuerpo completo · <b id="cfgBodyScaleVal">100%</b></small>
-          </span>
-          <input type="range" id="cfgBodyScale" min="55" max="130" value="100" step="5" />
-        </label>
-        <label class="cfg-row cfg-slider-row">
-          <span>
-            <strong>Porte guía facial</strong>
-            <small>Tamaño del óvalo de rostro · <b id="cfgFaceScaleVal">100%</b></small>
-          </span>
-          <input type="range" id="cfgFaceScale" min="55" max="140" value="100" step="5" />
-        </label>
-        <label class="cfg-row cfg-slider-row">
-          <span>
-            <strong>Posición vertical</strong>
-            <small>Subí o bajá la guía · <b id="cfgGuideYVal">0</b></small>
-          </span>
-          <input type="range" id="cfgGuideY" min="-20" max="20" value="0" step="1" />
-        </label>
+        <nav class="cfg-nav cfg-nav-panel" id="cfgNavPanel" aria-label="Menú Config">
+          <button type="button" class="cfg-nav-btn active" data-cfg-sec="guides">1 · Guías</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="audio">2 · Audio</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="zones">3 · Zonas</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="monitor">4 · Monitoreo</button>
+        </nav>
 
-        <p class="card-kicker cfg-sep">Enrolamiento</p>
-        <p class="card-meta">Las poses se capturan al pulsar «Tomar foto» (una por ángulo).</p>
-
-        <p class="card-kicker cfg-sep">Prevención profesional</p>
-        <label class="cfg-row">
-          <span>
-            <strong>Audio en piso</strong>
-            <small>Voz: avisa faltas / zona (Web Speech)</small>
-          </span>
-          <input type="checkbox" id="cfgAudioAlerts" checked />
-        </label>
-        <label class="cfg-row cfg-slider-row">
-          <span>
-            <strong>Nº de veces que se repiten las advertencias</strong>
-            <small>Por incumplimiento · <b id="cfgAudioRepeatsVal">sin límite</b> · 0 = sin límite</small>
-          </span>
-          <input type="range" id="cfgAudioRepeats" min="0" max="10" value="0" step="1" />
-        </label>
-        <label class="cfg-row">
-          <span>
-            <strong>Anonimizar rostros</strong>
-            <small>Difumina caras desconocidas (privacidad)</small>
-          </span>
-          <input type="checkbox" id="cfgAnonymize" checked />
-        </label>
-        <label class="cfg-row">
-          <span>
-            <strong>Mostrar zonas</strong>
-            <small>Dibuja zonas restringidas / vía vehículos</small>
-          </span>
-          <input type="checkbox" id="cfgShowZones" checked />
-        </label>
-        <div id="zonesEditor" class="zones-editor">
-          <p class="card-meta">Zonas (activá y ajustá). Tipo «vía» = near-miss peatón.</p>
-          <div class="zone-presets">
-            <button type="button" class="btn secondary" data-zone-preset="faena">Preset faena</button>
-            <button type="button" class="btn secondary" data-zone-preset="porteria">Preset portería</button>
-            <button type="button" class="btn secondary" data-zone-preset="bodega">Preset bodega</button>
-          </div>
-          <div id="zonesList"></div>
-          <button type="button" class="btn secondary" id="btnZoneAdd">+ Zona</button>
-          <button type="button" class="btn primary" id="btnZoneSave">Guardar zonas</button>
-          <p class="hint" id="zonesHint"></p>
+        <div class="cfg-section" data-cfg-section="guides">
+          <p class="card-kicker">Guías visuales</p>
+          <label class="cfg-row">
+            <span>
+              <strong>Silueta corporal</strong>
+              <small>Mostrar la guía predefinida de cuerpo completo</small>
+            </span>
+            <input type="checkbox" id="cfgSilhouette" checked />
+          </label>
+          <label class="cfg-row">
+            <span>
+              <strong>Validar silueta en monitoreo</strong>
+              <small>Exige encaje en la silueta antes de dar Cumple / No cumple</small>
+            </span>
+            <input type="checkbox" id="cfgSilhouetteGate" checked />
+          </label>
+          <label class="cfg-row">
+            <span>
+              <strong>Guía de rostro</strong>
+              <small>Al enrolar o identificar, cambiar a figura de cara</small>
+            </span>
+            <input type="checkbox" id="cfgFaceGuide" checked />
+          </label>
+          <label class="cfg-row cfg-slider-row">
+            <span>
+              <strong>Porte silueta corporal</strong>
+              <small>Tamaño de la figura de cuerpo completo · <b id="cfgBodyScaleVal">100%</b></small>
+            </span>
+            <input type="range" id="cfgBodyScale" min="55" max="130" value="100" step="5" />
+          </label>
+          <label class="cfg-row cfg-slider-row">
+            <span>
+              <strong>Porte guía facial</strong>
+              <small>Tamaño del óvalo de rostro · <b id="cfgFaceScaleVal">100%</b></small>
+            </span>
+            <input type="range" id="cfgFaceScale" min="55" max="140" value="100" step="5" />
+          </label>
+          <label class="cfg-row cfg-slider-row">
+            <span>
+              <strong>Posición vertical</strong>
+              <small>Subí o bajá la guía · <b id="cfgGuideYVal">0</b></small>
+            </span>
+            <input type="range" id="cfgGuideY" min="-20" max="20" value="0" step="1" />
+          </label>
+          <p class="card-meta">Enrolamiento: las poses se capturan al pulsar «Tomar foto» (una por ángulo).</p>
         </div>
 
-        <p class="card-kicker cfg-sep">Monitoreo</p>
-        <label class="cfg-row cfg-slider-row">
-          <span>
-            <strong>Umbral de match facial</strong>
-            <small>Modo precisión · más alto = más estricto · <b id="cfgIdThreshVal">42%</b></small>
-          </span>
-          <input type="range" id="cfgIdThresh" min="30" max="65" value="42" step="1" />
-        </label>
-        <label class="cfg-row">
-          <span>
-            <strong>Identificar rostro</strong>
-            <small>Reconocer trabajador durante el escaneo EPP</small>
-          </span>
-          <input type="checkbox" id="cfgIdentifyDefault" checked />
-        </label>
-        <label class="cfg-row">
-          <span>
-            <strong>Cajas EPP en vivo</strong>
-            <small>Opcional · por defecto apagado (las faltas van al panel)</small>
-          </span>
-          <input type="checkbox" id="cfgShowBoxes" />
-        </label>
-        <label class="cfg-row">
-          <span>
-            <strong>Pantalla completa al iniciar</strong>
-          </span>
-          <input type="checkbox" id="cfgFullscreenDefault" checked />
-        </label>
-        <p class="card-meta" id="cfgSavedHint">Los cambios se guardan en este navegador.</p>
+        <div class="cfg-section hidden" data-cfg-section="audio">
+          <p class="card-kicker">Prevención / audio</p>
+          <label class="cfg-row">
+            <span>
+              <strong>Audio en piso</strong>
+              <small>Voz: avisa faltas / zona (Web Speech)</small>
+            </span>
+            <input type="checkbox" id="cfgAudioAlerts" checked />
+          </label>
+          <label class="cfg-row cfg-slider-row">
+            <span>
+              <strong>Nº de veces que se repiten las advertencias</strong>
+              <small>Por incumplimiento · <b id="cfgAudioRepeatsVal">sin límite</b> · 0 = sin límite</small>
+            </span>
+            <input type="range" id="cfgAudioRepeats" min="0" max="10" value="0" step="1" />
+          </label>
+          <label class="cfg-row">
+            <span>
+              <strong>Anonimizar rostros</strong>
+              <small>Difumina caras desconocidas (privacidad)</small>
+            </span>
+            <input type="checkbox" id="cfgAnonymize" checked />
+          </label>
+        </div>
+
+        <div class="cfg-section hidden" data-cfg-section="zones">
+          <p class="card-kicker">Zonas</p>
+          <label class="cfg-row">
+            <span>
+              <strong>Mostrar zonas</strong>
+              <small>Dibuja zonas restringidas / vía vehículos</small>
+            </span>
+            <input type="checkbox" id="cfgShowZones" checked />
+          </label>
+          <div id="zonesEditor" class="zones-editor">
+            <p class="card-meta">Zonas (activá y ajustá). Tipo «vía» = near-miss peatón.</p>
+            <div class="zone-presets">
+              <button type="button" class="btn secondary" data-zone-preset="faena">Preset faena</button>
+              <button type="button" class="btn secondary" data-zone-preset="porteria">Preset portería</button>
+              <button type="button" class="btn secondary" data-zone-preset="bodega">Preset bodega</button>
+            </div>
+            <div id="zonesList"></div>
+            <button type="button" class="btn secondary" id="btnZoneAdd">+ Zona</button>
+            <button type="button" class="btn primary" id="btnZoneSave">Guardar zonas</button>
+            <p class="hint" id="zonesHint"></p>
+          </div>
+        </div>
+
+        <div class="cfg-section hidden" data-cfg-section="monitor">
+          <p class="card-kicker">Monitoreo / identidad</p>
+          <label class="cfg-row cfg-slider-row">
+            <span>
+              <strong>Umbral de match facial</strong>
+              <small>Modo precisión · más alto = más estricto · <b id="cfgIdThreshVal">42%</b></small>
+            </span>
+            <input type="range" id="cfgIdThresh" min="30" max="65" value="42" step="1" />
+          </label>
+          <label class="cfg-row">
+            <span>
+              <strong>Identificar rostro</strong>
+              <small>Reconocer trabajador durante el escaneo EPP</small>
+            </span>
+            <input type="checkbox" id="cfgIdentifyDefault" checked />
+          </label>
+          <label class="cfg-row">
+            <span>
+              <strong>Cajas EPP en vivo</strong>
+              <small>Opcional · por defecto apagado (las faltas van al panel)</small>
+            </span>
+            <input type="checkbox" id="cfgShowBoxes" />
+          </label>
+          <label class="cfg-row">
+            <span>
+              <strong>Pantalla completa al iniciar</strong>
+            </span>
+            <input type="checkbox" id="cfgFullscreenDefault" checked />
+          </label>
+          <p class="card-meta" id="cfgSavedHint">Los cambios se guardan en este navegador.</p>
+        </div>
       </section>
 
       <section class="card panel-section" data-show="reports" id="reportsSide">
