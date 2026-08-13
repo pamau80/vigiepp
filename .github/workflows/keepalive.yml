@@ -1,0 +1,16 @@
+# Mantiene VigiEPP despierto en Render Free (se duerme a los 15 min sin tráfico).
+# No cambia la app: solo pega /api/health desde GitHub cada 10 minutos.
+name: keepalive
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Ping health
+        run: |
+          curl -fsS -m 90 --retry 3 --retry-delay 10 \
+            "https://vigiepp.onrender.com/api/health"
