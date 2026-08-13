@@ -35,6 +35,12 @@ MIN_FACE_AREA_RATIO = 0.045  # cara ≥ ~4.5% del frame
 MIN_DETECT_SCORE = 0.65
 MIN_SHARPNESS = 35.0  # varianza Laplaciana del crop
 
+CONSENT_VERSION = "1"
+
+# Liveness: pose distinta entre muestras (anti-foto impresa / replay)
+MIN_LANDMARK_DELTA = 0.035
+SCREEN_FLAT_MAX = 12.0  # varianza de bordes muy baja = posible pantalla/papel
+
 RUT_RE = re.compile(r"\b(\d{1,2}\.?\d{3}\.?\d{3})\-?([0-9Kk])\b")
 
 
@@ -51,6 +57,8 @@ class Worker:
     group: str = ""
     last_seen: str = ""
     quality: int = 0
+    consent_at: str = ""
+    consent_version: str = ""
 
 
 def normalize_person_name(name: str) -> str:
@@ -136,6 +144,54 @@ def assess_face_quality(
     return True, "ok", meta
 
 
+def _landmarks(face_row: np.ndarray) -> list[float]:
+    if len(face_row) < 14:
+        return []
+    return [float(face_row[i]) for i in range(4, 14)]
+
+
+def _landmark_delta(a: list[float], b: list[float], face_w: float) -> float:
+    if not a or not b or len(a) != len(b) or face_w <= 1:
+        return 1.0
+    dist = float(np.linalg.norm(np.asarray(a) - np.asarray(b)))
+    return dist / face_w
+
+
+def assess_liveness(
+    frame_bgr: np.ndarray,
+    face_row: np.ndarray,
+    prev_lm: list[float] | None,
+) -> tuple[bool, str, dict[str, Any]]:
+    """Anti-spoof básico: no pantalla plana + pose distinta a la muestra anterior."""
+    h, w = frame_bgr.shape[:2]
+    fx, fy, fw, fh = [float(v) for v in face_row[:4]]
+    x1, y1 = max(0, int(fx)), max(0, int(fy))
+    x2, y2 = min(w, int(fx + fw)), min(h, int(fy + fh))
+    crop = frame_bgr[y1:y2, x1:x2]
+    meta: dict[str, Any] = {"liveness": "ok", "pose_delta": None}
+    if crop.size < 100:
+        return False, "Rostro inválido para liveness.", meta
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    # Recorte interno vs borde: una foto en celular suele tener borde más “plano”
+    gh, gw = gray.shape[:2]
+    if gh > 12 and gw > 12:
+        inner = gray[4 : gh - 4, 4 : gw - 4]
+        edge = np.concatenate([gray[0:3, :].ravel(), gray[-3:, :].ravel()])
+        edge_var = float(np.var(edge))
+        inner_var = float(cv2.Laplacian(inner, cv2.CV_64F).var())
+        meta["edge_var"] = round(edge_var, 1)
+        meta["inner_sharp"] = round(inner_var, 1)
+        if inner_var < SCREEN_FLAT_MAX and edge_var < 40:
+            return False, "Parece foto o pantalla. Enrolá con cara real, en vivo.", meta
+    lm = _landmarks(face_row)
+    if prev_lm:
+        delta = _landmark_delta(lm, prev_lm, max(fw, 1.0))
+        meta["pose_delta"] = round(delta, 4)
+        if delta < MIN_LANDMARK_DELTA:
+            return False, "Mové un poco la cabeza (otra pose). No uses la misma foto.", meta
+    return True, "ok", meta
+
+
 def worker_from_dict(item: dict[str, Any]) -> Worker:
     return Worker(
         id=str(item.get("id") or ""),
@@ -149,6 +205,8 @@ def worker_from_dict(item: dict[str, Any]) -> Worker:
         group=str(item.get("group") or ""),
         last_seen=str(item.get("last_seen") or ""),
         quality=int(item.get("quality") or compute_quality(item.get("face_samples") or 0)),
+        consent_at=str(item.get("consent_at") or ""),
+        consent_version=str(item.get("consent_version") or ""),
     )
 
 
@@ -168,6 +226,7 @@ def worker_public(w: Worker) -> dict[str, Any]:
     d["ready"] = is_identity_ready(samples) and (emb_count > 0 or samples > 0)
     d["embedding_count"] = emb_count or samples
     d["min_samples_ready"] = MIN_SAMPLES_READY
+    d["consent_ok"] = bool(w.consent_at)
     return d
 
 
@@ -199,6 +258,7 @@ class IdentityRegistry:
         MODELS_DIR.mkdir(parents=True, exist_ok=True)
         self._workers: dict[str, Worker] = {}
         self._embeddings: dict[str, list[np.ndarray]] = {}
+        self._enroll_lm: dict[str, list[float]] = {}
         self._qr = cv2.QRCodeDetector()
         self._detector: Any = None
         self._recognizer: Any = None
@@ -498,6 +558,7 @@ class IdentityService:
         rut: str = "",
         source: str = "manual",
         notes: str = "",
+        consent: bool = False,
     ) -> dict[str, Any]:
         if self.registry._backend != "sface":
             return {"ok": False, "error": "Motor facial no disponible (YuNet/SFace)"}
@@ -535,6 +596,43 @@ class IdentityService:
             return {
                 "ok": False,
                 "error": q_msg,
+                "quality_check": q_meta,
+                "face_enrolled": False,
+            }
+
+        # Resolver worker candidato para liveness vs muestra previa
+        existing_pre = None
+        if rut_norm:
+            existing_pre = next((w for w in self.registry._workers.values() if w.rut == rut_norm), None)
+        if not existing_pre and name.strip():
+            existing_pre = next(
+                (
+                    w
+                    for w in self.registry._workers.values()
+                    if w.name.lower() == name.strip().lower() and w.rut.startswith("SIN-RUT")
+                ),
+                None,
+            )
+        if existing_pre and not existing_pre.consent_at and not consent:
+            return {
+                "ok": False,
+                "error": "Falta consentimiento biométrico. Marcá la casilla antes de enrolar.",
+                "face_enrolled": False,
+            }
+        if not existing_pre and not consent:
+            return {
+                "ok": False,
+                "error": "Falta consentimiento biométrico para registrar el rostro (Ley 19.628 / DS 44).",
+                "face_enrolled": False,
+            }
+
+        prev_lm = self.registry._enroll_lm.get(existing_pre.id) if existing_pre else None
+        ok_l, l_msg, l_meta = assess_liveness(frame_bgr, face_row, prev_lm)
+        q_meta.update(l_meta)
+        if not ok_l:
+            return {
+                "ok": False,
+                "error": l_msg,
                 "quality_check": q_meta,
                 "face_enrolled": False,
             }
@@ -598,7 +696,11 @@ class IdentityService:
         cv2.imwrite(str(folder / f"face_{idx:03d}.jpg"), crop)
         worker.face_samples = idx
         worker.quality = compute_quality(idx)
+        if consent or not worker.consent_at:
+            worker.consent_at = datetime.now(timezone.utc).isoformat()
+            worker.consent_version = CONSENT_VERSION
         self.registry._embeddings.setdefault(worker.id, []).append(feat)
+        self.registry._enroll_lm[worker.id] = _landmarks(face_row)
         self.registry._workers[worker.id] = worker
         self.registry._save()
 

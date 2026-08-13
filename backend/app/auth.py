@@ -164,6 +164,8 @@ def is_admin_only(method: str, path: str) -> bool:
             return True
         if path.startswith("/api/teach/"):
             return True
+        if path.startswith("/api/audit"):
+            return True
         return False
 
     # Mutaciones / posts
@@ -181,6 +183,8 @@ def is_admin_only(method: str, path: str) -> bool:
     if path.startswith("/api/teach/"):
         return True
     if path.startswith("/api/notifications/"):
+        return True
+    if path.startswith("/api/cameras"):
         return True
     return False
 

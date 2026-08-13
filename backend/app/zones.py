@@ -78,9 +78,20 @@ PRESETS: dict[str, list[dict[str, Any]]] = {
             "enabled": True,
             "x": 0.02,
             "y": 0.55,
-            "w": 0.3,
+            "w": 0.32,
             "h": 0.4,
             "color": "#e85d04",
+        },
+        {
+            "id": "maquinaria-bodega",
+            "name": "Zona maquinaria",
+            "type": "machinery",
+            "enabled": True,
+            "x": 0.68,
+            "y": 0.1,
+            "w": 0.28,
+            "h": 0.4,
+            "color": "#9b2226",
         },
     ],
 }
@@ -205,6 +216,8 @@ def evaluate_zones(
             hits.append(hit)
             if z["type"] == "vehicle_lane":
                 alerts.append(f"Near-miss: peatón en vía «{z['name']}»")
+            elif z["type"] == "machinery":
+                alerts.append(f"Proximidad: persona junto a maquinaria «{z['name']}»")
             else:
                 alerts.append(f"Zona restringida: persona en «{z['name']}»")
 

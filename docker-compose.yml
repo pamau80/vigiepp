@@ -1,0 +1,29 @@
+# VigiEPP en faena (edge): disco persistente, sin Render Free.
+# Uso (Linux / NUC): docker compose up -d --build
+# Datos en volumen vigiepp-data → /data
+# Cámaras LAN: en Windows preferí start-edge.bat (Docker Desktop no ve bien RTSP local).
+
+services:
+  vigiepp:
+    build: .
+    image: vigiepp-edge
+    ports:
+      - "8000:8000"
+    environment:
+      VIGIEPP_DATA_DIR: /data
+      VIGIEPP_EPHEMERAL: "0"
+      VIGIEPP_AUTH: "1"
+      VIGIEPP_ADMIN_PIN: ${VIGIEPP_ADMIN_PIN:-vigiepp}
+      VIGIEPP_OPERATOR_PIN: ${VIGIEPP_OPERATOR_PIN:-porteria}
+      ULTRALYTICS_OFFLINE: "false"
+    volumes:
+      - vigiepp-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  vigiepp-data:

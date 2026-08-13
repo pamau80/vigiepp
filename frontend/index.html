@@ -162,8 +162,8 @@
         <button id="btnFlipCam" class="btn secondary" type="button" title="Cambiar cámara">Cámara</button>
         <button id="btnFullscreen" class="btn secondary" type="button" title="Pantalla completa">Pantalla completa</button>
         <label class="check">
-          <input type="checkbox" id="chkIdentify" checked />
-          Identificar rostro
+          <input type="checkbox" id="chkIdentify" />
+          Identificar rostro (portería)
         </label>
         <label class="check" id="lblFullscreen">
           <input type="checkbox" id="chkFullscreen" checked />
@@ -173,10 +173,22 @@
       </div>
 
       <div class="controls control-bar hidden" id="rtspControls">
+        <label class="field">
+          <span>Cámaras guardadas (máx. 4)</span>
+          <select id="cameraSelect">
+            <option value="">— Elegí o pegá URL —</option>
+          </select>
+        </label>
         <label class="field grow">
           <span>URL RTSP (cámara IP / NVR)</span>
           <input id="rtspUrl" type="text" placeholder="rtsp://usuario:clave@192.168.1.64:554/Streaming/Channels/101" />
         </label>
+        <label class="field">
+          <span>Nombre</span>
+          <input id="cameraName" type="text" placeholder="Portería" />
+        </label>
+        <button id="btnSaveCamera" class="btn secondary" type="button">Guardar</button>
+        <button id="btnDelCamera" class="btn ghost" type="button">Quitar</button>
         <button id="btnStartRtsp" class="btn primary" type="button">Conectar</button>
         <button id="btnStopRtsp" class="btn ghost" type="button" disabled>Detener</button>
       </div>
@@ -205,7 +217,11 @@
           <input id="faceTrainPhotos" type="file" accept="image/*" multiple hidden />
         </label>
         <button id="btnIdentify" class="btn secondary" type="button">Probar ID</button>
-        <p class="hint" id="enrollCoach">4 poses de calidad obligatorias · luz frontal · una persona</p>
+        <label class="check consent-row">
+          <input type="checkbox" id="chkBiometricConsent" />
+          Autorizo el tratamiento de mi imagen facial para control de acceso y EPP (Ley 19.628).
+        </label>
+        <p class="hint" id="enrollCoach">4 poses de calidad · consentimiento + liveness · una persona</p>
       </div>
 
       <div class="controls control-bar hidden" id="teachControls">
@@ -242,6 +258,7 @@
           <button type="button" class="cfg-nav-btn" data-cfg-sec="audio">Audio</button>
           <button type="button" class="cfg-nav-btn" data-cfg-sec="zones">Zonas</button>
           <button type="button" class="cfg-nav-btn" data-cfg-sec="monitor">Monitoreo</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="audit">Bitácora</button>
         </nav>
         <p class="hint">Elegí una sección arriba o en el panel. Los cambios se aplican al instante.</p>
       </div>
@@ -405,6 +422,7 @@
           <button type="button" class="cfg-nav-btn" data-cfg-sec="audio">2 · Audio</button>
           <button type="button" class="cfg-nav-btn" data-cfg-sec="zones">3 · Zonas</button>
           <button type="button" class="cfg-nav-btn" data-cfg-sec="monitor">4 · Monitoreo</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="audit">5 · Bitácora</button>
         </nav>
 
         <div class="cfg-section" data-cfg-section="guides">
@@ -513,10 +531,10 @@
           </label>
           <label class="cfg-row">
             <span>
-              <strong>Identificar rostro</strong>
-              <small>Reconocer trabajador durante el escaneo EPP</small>
+              <strong>Identificar rostro en piso</strong>
+              <small>Apagado = solo EPP (recomendado). Encendido = portería / kiosk</small>
             </span>
-            <input type="checkbox" id="cfgIdentifyDefault" checked />
+            <input type="checkbox" id="cfgIdentifyDefault" />
           </label>
           <label class="cfg-row">
             <span>
@@ -532,6 +550,15 @@
             <input type="checkbox" id="cfgFullscreenDefault" checked />
           </label>
           <p class="card-meta" id="cfgSavedHint">Los cambios se guardan en este navegador.</p>
+        </div>
+
+        <div class="cfg-section hidden" data-cfg-section="audit">
+          <p class="card-kicker">Bitácora administrativa</p>
+          <p class="card-meta">Altas, bajas, cámaras y enrolamientos. Retención local en el servidor.</p>
+          <button type="button" class="btn secondary" id="btnAuditRefresh">Actualizar</button>
+          <ul class="item-list" id="auditList">
+            <li class="muted">Sin eventos</li>
+          </ul>
         </div>
       </section>
 

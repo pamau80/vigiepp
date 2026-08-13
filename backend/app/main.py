@@ -106,6 +106,12 @@ class RTSPStartRequest(BaseModel):
     conf: float = 0.35
 
 
+class CameraBody(BaseModel):
+    name: str = ""
+    url: str
+    id: str | None = None
+
+
 class AuthLoginRequest(BaseModel):
     pin: str = Field(..., min_length=1, max_length=128)
 
@@ -728,6 +734,45 @@ def rtsp_stop(body: RTSPStartRequest) -> dict[str, Any]:
     return {"ok": True}
 
 
+@app.get("/api/cameras")
+def cameras_list() -> dict[str, Any]:
+    from . import cameras as cameras_mod
+
+    return {"ok": True, "cameras": cameras_mod.list_cameras(), "max": cameras_mod.MAX_CAMERAS}
+
+
+@app.post("/api/cameras")
+def cameras_upsert(body: CameraBody) -> dict[str, Any]:
+    from . import audit as audit_mod
+    from . import cameras as cameras_mod
+
+    try:
+        cam = cameras_mod.upsert(body.name, body.url, body.id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    audit_mod.log("camera_upsert", detail=cam.get("name") or cam.get("id"))
+    return {"ok": True, "camera": cam}
+
+
+@app.delete("/api/cameras/{camera_id}")
+def cameras_delete(camera_id: str) -> dict[str, Any]:
+    from . import audit as audit_mod
+    from . import cameras as cameras_mod
+
+    ok = cameras_mod.delete(camera_id)
+    if not ok:
+        raise HTTPException(404, "Cámara no encontrada")
+    audit_mod.log("camera_delete", detail=camera_id)
+    return {"ok": True, "deleted": camera_id}
+
+
+@app.get("/api/audit")
+def audit_recent(limit: int = 80) -> dict[str, Any]:
+    from . import audit as audit_mod
+
+    return {"ok": True, "events": audit_mod.recent(limit=limit)}
+
+
 # ── Identidad (QR cédula + rostro) ──────────────────────────────────────────
 
 
@@ -782,6 +827,9 @@ def identity_delete(worker_id: str) -> dict[str, Any]:
     ok = IdentityRegistry.get().delete_worker(worker_id)
     if not ok:
         raise HTTPException(404, "Trabajador no encontrado")
+    from . import audit as audit_mod
+
+    audit_mod.log("worker_delete", detail=worker_id)
     return {"ok": True, "deleted": worker_id}
 
 
@@ -866,15 +914,22 @@ async def identity_enroll(
     name: str = Form(""),
     rut: str = Form(""),
     notes: str = Form(""),
+    consent: str = Form("false"),
 ) -> JSONResponse:
     data = await file.read()
     try:
         frame = decode_image_bytes(data)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    result = IdentityService().enroll(frame, name=name, rut=rut, notes=notes)
+    agreed = str(consent).strip().lower() in ("1", "true", "yes", "on")
+    result = IdentityService().enroll(frame, name=name, rut=rut, notes=notes, consent=agreed)
     if not result.get("ok"):
         raise HTTPException(400, result.get("error", "No se pudo enrolar"))
+    if result.get("face_enrolled"):
+        from . import audit as audit_mod
+
+        w = result.get("worker") or {}
+        audit_mod.log("enroll_face", detail=str(w.get("name") or name), extra={"samples": result.get("samples")})
     return JSONResponse(result)
 
 
@@ -883,10 +938,14 @@ async def identity_enroll_photos(
     files: list[UploadFile] = File(...),
     name: str = Form(""),
     rut: str = Form(""),
+    consent: str = Form("false"),
 ) -> JSONResponse:
     """Entrena rostros adjuntando varias fotos (sin countdown de poses)."""
     if not name.strip() and not rut.strip():
         raise HTTPException(400, "Indicá nombre o RUT")
+    agreed = str(consent).strip().lower() in ("1", "true", "yes", "on")
+    if not agreed:
+        raise HTTPException(400, "Falta consentimiento biométrico para registrar el rostro.")
     saved = 0
     failed = 0
     last_worker = None
@@ -900,7 +959,9 @@ async def identity_enroll_photos(
         except ValueError:
             failed += 1
             continue
-        result = IdentityService().enroll(frame, name=name, rut=rut, notes="foto_adjunta")
+        result = IdentityService().enroll(
+            frame, name=name, rut=rut, notes="foto_adjunta", consent=agreed
+        )
         if result.get("face_enrolled"):
             saved += 1
             last_worker = result.get("worker")

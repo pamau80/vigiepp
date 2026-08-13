@@ -28,6 +28,10 @@
     btnStartRtsp: $("#btnStartRtsp"),
     btnStopRtsp: $("#btnStopRtsp"),
     rtspUrl: $("#rtspUrl"),
+    cameraSelect: $("#cameraSelect"),
+    cameraName: $("#cameraName"),
+    btnSaveCamera: $("#btnSaveCamera"),
+    btnDelCamera: $("#btnDelCamera"),
     fileInput: $("#fileInput"),
     cameraControls: $("#cameraControls"),
     rtspControls: $("#rtspControls"),
@@ -36,6 +40,7 @@
     teachControls: $("#teachControls"),
     monitorToolbar: $("#monitorToolbar"),
     chkIdentify: $("#chkIdentify"),
+    chkBiometricConsent: $("#chkBiometricConsent"),
     complianceBox: $("#complianceBox"),
     complianceValue: $("#complianceValue"),
     complianceSummary: $("#complianceSummary"),
@@ -177,7 +182,7 @@
     document.documentElement.style.setProperty("--app-vh", `${Math.round(h)}px`);
   }
 
-  const SETTINGS_KEY = "vigiepp.settings.v4";
+  const SETTINGS_KEY = "vigiepp.settings.v5";
   const defaultSettings = () => ({
     silhouetteEnabled: true,
     silhouetteGate: true,
@@ -187,7 +192,7 @@
     guideOffsetY: 0,
     autoAdvanceEnroll: true,
     poseAttempts: 8,
-    identifyDefault: true,
+    identifyDefault: false,
     showPpeBoxes: false,
     fullscreenDefault: true,
     identifyThreshold: 0.42,
@@ -749,7 +754,12 @@
       ctx.setLineDash([]);
       ctx.font = "600 11px Source Sans 3, sans-serif";
       ctx.fillStyle = "rgba(238,243,239,0.9)";
-      const label = z.type === "vehicle_lane" ? `Vía · ${z.name}` : `Zona · ${z.name}`;
+      const label =
+        z.type === "vehicle_lane"
+          ? `Vía · ${z.name}`
+          : z.type === "machinery"
+            ? `Máquina · ${z.name}`
+            : `Zona · ${z.name}`;
       ctx.fillText(label, rx + 6, ry + 14);
     }
   }
@@ -772,8 +782,9 @@
           <label class="check"><input type="checkbox" data-z="en" ${z.enabled ? "checked" : ""}/> On</label>
           <input data-z="name" value="${String(z.name || "").replace(/"/g, "&quot;")}" placeholder="Nombre"/>
           <select data-z="type">
-            <option value="restricted" ${z.type !== "vehicle_lane" ? "selected" : ""}>Restringida</option>
+            <option value="restricted" ${z.type === "restricted" || !z.type ? "selected" : ""}>Restringida</option>
             <option value="vehicle_lane" ${z.type === "vehicle_lane" ? "selected" : ""}>Vía vehículos</option>
+            <option value="machinery" ${z.type === "machinery" ? "selected" : ""}>Maquinaria</option>
           </select>
           <span class="zone-sliders">
             x<input data-z="x" type="range" min="0" max="90" value="${Math.round((z.x || 0) * 100)}"/>
@@ -906,6 +917,7 @@
     await refreshWorkers();
     await refreshTeach();
     await refreshScans();
+    await refreshCameras();
     await loadZones();
     loadSettings();
     if (isMobile()) {
@@ -954,7 +966,7 @@
   }
 
   function setConfigSection(sec) {
-    const id = ["guides", "audio", "zones", "monitor"].includes(sec) ? sec : "guides";
+    const id = ["guides", "audio", "zones", "monitor", "audit"].includes(sec) ? sec : "guides";
     try {
       localStorage.setItem("vigiepp-cfg-sec", id);
     } catch (_) {}
@@ -968,7 +980,10 @@
     if (panel && appMode === "config") panel.scrollTop = 0;
     const block = $("#configBlock");
     if (block) block.scrollTop = 0;
+    if (id === "audit") refreshAudit();
   }
+
+  function setAppMode(mode) {
     appMode = mode;
     document.body.classList.remove(
       "mode-monitor",
@@ -1531,6 +1546,70 @@
     setAlignment("idle", "Posicionate");
   }
 
+  async function refreshCameras() {
+    if (!els.cameraSelect) return;
+    try {
+      const data = await api("/api/cameras");
+      const cams = data.cameras || [];
+      const cur = els.cameraSelect.value;
+      els.cameraSelect.innerHTML =
+        `<option value="">— Elegí o pegá URL —</option>` +
+        cams
+          .map(
+            (c) =>
+              `<option value="${c.id}" data-url="${encodeURIComponent(c.url)}">${escapeHtml(c.name)}</option>`
+          )
+          .join("");
+      if (cur && [...els.cameraSelect.options].some((o) => o.value === cur)) {
+        els.cameraSelect.value = cur;
+      }
+    } catch (_) {}
+  }
+
+  async function saveCurrentCamera() {
+    const url = els.rtspUrl?.value.trim();
+    if (!url) {
+      alert("Pegá una URL rtsp://");
+      return;
+    }
+    const name = els.cameraName?.value.trim() || "";
+    const id = els.cameraSelect?.value || undefined;
+    await api("/api/cameras", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, url, id: id || null }),
+    });
+    await refreshCameras();
+  }
+
+  async function deleteSelectedCamera() {
+    const id = els.cameraSelect?.value;
+    if (!id) return;
+    await api(`/api/cameras/${id}`, { method: "DELETE" });
+    if (els.rtspUrl) els.rtspUrl.value = "";
+    if (els.cameraName) els.cameraName.value = "";
+    await refreshCameras();
+  }
+
+  async function refreshAudit() {
+    const list = $("#auditList");
+    if (!list) return;
+    try {
+      const data = await api("/api/audit?limit=60");
+      const ev = data.events || [];
+      list.innerHTML = ev.length
+        ? ev
+            .map((e) => {
+              const ts = (e.ts || "").replace("T", " ").slice(0, 19);
+              return `<li><span>${escapeHtml(e.action)}</span><span class="conf">${escapeHtml(ts)} · ${escapeHtml(e.detail || "")}</span></li>`;
+            })
+            .join("")
+        : `<li class="muted">Sin eventos</li>`;
+    } catch (err) {
+      list.innerHTML = `<li class="muted">${escapeHtml(err.message || "No se pudo cargar")}</li>`;
+    }
+  }
+
   async function startRtsp() {
     const url = els.rtspUrl.value.trim();
     if (!url) return;
@@ -1966,6 +2045,12 @@
       if (els.enrollCoach) els.enrollCoach.textContent = "Escribí al menos el nombre";
       return;
     }
+    if (!els.chkBiometricConsent?.checked) {
+      if (els.enrollCoach) {
+        els.enrollCoach.textContent = "Marcá el consentimiento biométrico antes de enrolar.";
+      }
+      return;
+    }
     enrolling = true;
     enrollAbort = false;
     document.body.classList.add("is-enrolling");
@@ -2006,6 +2091,7 @@
           fd.append("file", blob, `pose_${i}.jpg`);
           fd.append("name", name);
           fd.append("rut", rut);
+          fd.append("consent", "true");
           try {
             const last = await api("/api/identity/enroll", { method: "POST", body: fd }, 20000);
             if (last.face_box) {
@@ -2064,12 +2150,17 @@
       if (els.enrollCoach) els.enrollCoach.textContent = "Escribí nombre o RUT antes de adjuntar fotos";
       return;
     }
+    if (!els.chkBiometricConsent?.checked) {
+      if (els.enrollCoach) els.enrollCoach.textContent = "Marcá el consentimiento biométrico antes de adjuntar fotos.";
+      return;
+    }
     const files = [...(fileList || [])].slice(0, 40);
     if (!files.length) return;
     if (els.enrollCoach) els.enrollCoach.textContent = `Cargando ${files.length} fotos de rostro…`;
     const fd = new FormData();
     fd.append("name", name);
     fd.append("rut", rut);
+    fd.append("consent", "true");
     for (const f of files) fd.append("files", f, f.name);
     try {
       const data = await api("/api/identity/enroll-photos", { method: "POST", body: fd }, 120000);
@@ -2708,6 +2799,19 @@
   });
   els.btnStartRtsp.addEventListener("click", startRtsp);
   els.btnStopRtsp.addEventListener("click", stopRtsp);
+  els.cameraSelect?.addEventListener("change", () => {
+    const opt = els.cameraSelect.selectedOptions[0];
+    if (!opt?.value) return;
+    try {
+      els.rtspUrl.value = decodeURIComponent(opt.dataset.url || "");
+    } catch (_) {
+      els.rtspUrl.value = "";
+    }
+    if (els.cameraName) els.cameraName.value = opt.textContent || "";
+  });
+  els.btnSaveCamera?.addEventListener("click", () => saveCurrentCamera().catch((e) => alert(e.message)));
+  els.btnDelCamera?.addEventListener("click", () => deleteSelectedCamera().catch((e) => alert(e.message)));
+  $("#btnAuditRefresh")?.addEventListener("click", () => refreshAudit());
   els.fileInput.addEventListener("change", async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
