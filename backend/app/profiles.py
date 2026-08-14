@@ -15,6 +15,16 @@ class IndustryProfile(TypedDict):
 
 
 # Claves internas alineadas al detector (casco, chaleco, lentes, guantes, arnes, persona)
+VALID_PPE_KEYS = frozenset({"casco", "chaleco", "lentes", "guantes", "arnes"})
+
+PPE_CATALOG: list[dict[str, str]] = [
+    {"id": "casco", "label": "Casco"},
+    {"id": "chaleco", "label": "Chaleco / flúor"},
+    {"id": "lentes", "label": "Lentes"},
+    {"id": "guantes", "label": "Guantes"},
+    {"id": "arnes", "label": "Arnés"},
+]
+
 PROFILES: dict[str, IndustryProfile] = {
     "portuario": {
         "id": "portuario",
@@ -65,3 +75,23 @@ def list_profiles() -> list[IndustryProfile]:
 
 def get_profile(profile_id: str) -> IndustryProfile:
     return PROFILES.get(profile_id, PROFILES["general"])
+
+
+def parse_required_list(raw: str | None) -> list[str] | None:
+    """Lista JSON o CSV de EPP obligatorio; None = usar perfil."""
+    if not raw or not str(raw).strip():
+        return None
+    import json
+
+    text = str(raw).strip()
+    try:
+        if text.startswith("["):
+            items = json.loads(text)
+        else:
+            items = [x.strip() for x in text.split(",") if x.strip()]
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(items, list):
+        return None
+    out = [str(x).lower() for x in items if str(x).lower() in VALID_PPE_KEYS]
+    return out

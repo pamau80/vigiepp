@@ -125,8 +125,13 @@ def normalize_detections(raw: list[dict]) -> list[Detection]:
     return out
 
 
-def evaluate(raw_detections: list[dict], profile_id: str = "general") -> ComplianceResult:
+def evaluate(
+    raw_detections: list[dict],
+    profile_id: str = "general",
+    required_override: list[str] | None = None,
+) -> ComplianceResult:
     profile: IndustryProfile = get_profile(profile_id)
+    required = list(required_override) if required_override is not None else list(profile["required"])
     detections = normalize_detections(raw_detections)
 
     persons_boxes = [d for d in detections if d.category == "persona"]
@@ -167,7 +172,6 @@ def evaluate(raw_detections: list[dict], profile_id: str = "general") -> Complia
             elif item.category == "caida":
                 violations.append("caida")
 
-        required = list(profile["required"])
         missing = [r for r in required if r not in present]
         # violaciones explícitas del modelo cuentan como faltantes
         for v in violations:

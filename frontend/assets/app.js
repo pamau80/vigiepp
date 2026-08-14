@@ -118,6 +118,9 @@
     safetyScoreLive: $("#safetyScoreLive"),
     exposureLive: $("#exposureLive"),
     cfgSavedHint: $("#cfgSavedHint"),
+    cfgPpeChips: $("#cfgPpeChips"),
+    btnResetPpe: $("#btnResetPpe"),
+    btnCfgResetPpe: $("#btnCfgResetPpe"),
     reportsDesk: $("#reportsDesk"),
     reportsContent: $("#reportsContent"),
     repDays: $("#repDays"),
@@ -127,9 +130,10 @@
     repSideList: $("#repSideList"),
   };
 
-  const APP_BUILD = "v32";
+  const APP_BUILD = "v33";
 
   let profiles = [];
+  let ppeCatalog = [];
   let scanPhase = "epp"; // alterna EPP ↔ ID cuando ambos activos
   let mediaStream = null;
   let camTimer = null;
@@ -206,6 +210,7 @@
     anonymizeFaces: true,
     showZones: true,
     kioskMode: false,
+    ppeByProfile: {},
   });
   let settings = defaultSettings();
 
@@ -229,6 +234,9 @@
         try {
           localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
         } catch (_) {}
+      }
+      if (!settings.ppeByProfile || typeof settings.ppeByProfile !== "object") {
+        settings.ppeByProfile = {};
       }
     } catch (_) {
       settings = defaultSettings();
@@ -414,6 +422,72 @@
     guantes: "Guantes",
     arnes: "Arnés",
   };
+
+  function ppeLabel(id) {
+    return PPE_LABEL[id] || ppeCatalog.find((x) => x.id === id)?.label || id;
+  }
+
+  function catalogItems() {
+    if (ppeCatalog.length) return ppeCatalog;
+    return Object.entries(PPE_LABEL).map(([id, label]) => ({ id, label }));
+  }
+
+  function getProfileDefaults(profileId) {
+    const p = profiles.find((x) => x.id === profileId);
+    return p ? [...(p.required || [])] : [];
+  }
+
+  function getEffectiveRequired(profileId) {
+    const pid = profileId || els.profileSelect?.value || "general";
+    if (settings.ppeByProfile && Object.prototype.hasOwnProperty.call(settings.ppeByProfile, pid)) {
+      return [...(settings.ppeByProfile[pid] || [])];
+    }
+    return getProfileDefaults(pid);
+  }
+
+  function setProfileRequired(profileId, list) {
+    if (!settings.ppeByProfile) settings.ppeByProfile = {};
+    settings.ppeByProfile[profileId] = [...list];
+    saveSettings(true);
+  }
+
+  function resetProfileRequired(profileId) {
+    if (!settings.ppeByProfile) return;
+    delete settings.ppeByProfile[profileId];
+    saveSettings(true);
+  }
+
+  function renderPpeSelector(container, profileId) {
+    if (!container) return;
+    const pid = profileId || els.profileSelect?.value || "general";
+    const required = new Set(getEffectiveRequired(pid));
+    container.innerHTML = catalogItems()
+      .map((item) => {
+        const on = required.has(item.id);
+        return `<button type="button" class="chip ppe-toggle" data-ppe="${escapeHtml(item.id)}" aria-pressed="${on ? "true" : "false"}">${escapeHtml(item.label)}</button>`;
+      })
+      .join("");
+  }
+
+  function bindPpeChipContainer(container) {
+    if (!container || container._ppeBound) return;
+    container._ppeBound = true;
+    container.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-ppe]");
+      if (!btn) return;
+      const key = btn.getAttribute("data-ppe");
+      const pid = els.profileSelect?.value || "general";
+      const req = new Set(getEffectiveRequired(pid));
+      if (req.has(key)) req.delete(key);
+      else req.add(key);
+      setProfileRequired(pid, [...req]);
+      renderProfile();
+    });
+  }
+
+  function requiredQueryValue(profileId) {
+    return JSON.stringify(getEffectiveRequired(profileId || els.profileSelect?.value || "general"));
+  }
 
   async function api(path, options = {}, timeoutMs = 20000) {
     const ctrl = new AbortController();
@@ -1036,10 +1110,20 @@
         .map((p) => `<option value="${p.id}">${p.name}</option>`)
         .join("");
       els.profileSelect.value = "portuario";
-      renderProfile();
     } catch (err) {
       console.error(err);
     }
+
+    try {
+      const cat = await api("/api/ppe/catalog");
+      ppeCatalog = cat.items || [];
+    } catch (_) {
+      ppeCatalog = catalogItems();
+    }
+
+    bindPpeChipContainer(els.requiredChips);
+    bindPpeChipContainer(els.cfgPpeChips);
+    renderProfile();
 
     await refreshWorkers();
     await refreshTeach();
@@ -1061,7 +1145,7 @@
         regs.forEach((r) => r.unregister().catch(() => {}));
       });
       setTimeout(() => {
-        navigator.serviceWorker.register("/assets/sw.js?v=32").catch(() => {});
+        navigator.serviceWorker.register("/assets/sw.js?v=33").catch(() => {});
       }, 400);
     }
     const offlineBadge = $("#offlineBadge");
@@ -1090,12 +1174,17 @@
   function renderProfile() {
     const p = profiles.find((x) => x.id === els.profileSelect.value);
     if (!p) return;
-    els.profileDesc.textContent = p.name;
-    const req = (p.required || []).map((k) => `<span class="chip">${PPE_LABEL[k] || k}</span>`);
-    const opt = (p.optional || []).map(
-      (k) => `<span class="chip optional">${PPE_LABEL[k] || k}</span>`
-    );
-    els.requiredChips.innerHTML = [...req, ...opt].join("") || "—";
+    els.profileDesc.textContent = p.description || p.name;
+    const req = getEffectiveRequired(p.id);
+    const custom = settings.ppeByProfile && Object.prototype.hasOwnProperty.call(settings.ppeByProfile, p.id);
+    const hint = $("#ppeSelectHint");
+    if (hint) {
+      hint.textContent = custom
+        ? `Personalizado (${req.length} obligatorio${req.length === 1 ? "" : "s"}). Tocá para cambiar.`
+        : "Tocá cada ítem para marcarlo obligatorio u opcional.";
+    }
+    renderPpeSelector(els.requiredChips, p.id);
+    renderPpeSelector(els.cfgPpeChips, p.id);
   }
 
   function setConfigSection(sec) {
@@ -1490,6 +1579,7 @@
       fd.append("return_image", returnImage ? "true" : "false");
       fd.append("imgsz", "320");
       fd.append("threshold", String(settings.identifyThreshold || 0.33));
+      fd.append("required", requiredQueryValue());
       const data = await api("/api/detect", { method: "POST", body: fd }, 25000);
       if (data?.down || data?._http === 502) {
         detectBackoffMs = Math.min(25000, Math.max(12000, (detectBackoffMs || 6000) * 1.4));
@@ -1965,6 +2055,7 @@
         profile: els.profileSelect.value,
         conf: "0.35",
         identify: String(wantId),
+        required: requiredQueryValue(),
       });
       try {
         const data = await api(`/api/rtsp/frame?${q}`);
@@ -3116,6 +3207,14 @@
     if (t.dataset.source) t.addEventListener("click", () => setSource(t.dataset.source));
   });
   els.profileSelect.addEventListener("change", renderProfile);
+  els.btnResetPpe?.addEventListener("click", () => {
+    resetProfileRequired(els.profileSelect.value);
+    renderProfile();
+  });
+  els.btnCfgResetPpe?.addEventListener("click", () => {
+    resetProfileRequired(els.profileSelect.value);
+    renderProfile();
+  });
   els.btnStartCam.addEventListener("click", () => startCamera());
   $("#btnOverlayStart")?.addEventListener("click", () => startCamera());
   els.btnStopCam.addEventListener("click", stopCamera);

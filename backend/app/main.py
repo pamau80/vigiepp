@@ -32,7 +32,7 @@ from . import zones as zones_mod
 from .compliance import evaluate
 from .detector import PPEDetector, decode_image_bytes, encode_jpeg
 from .identity import IdentityRegistry, IdentityService
-from .profiles import list_profiles
+from .profiles import get_profile, list_profiles, parse_required_list, PPE_CATALOG
 from .scanlog import ScanEvent, log_scan, recent_scans
 from .stream_rtsp import get_or_create_stream, stop_all, stop_stream
 from .teach import TeachStore
@@ -48,7 +48,7 @@ _detect_lock = threading.Lock()
 _DETECT_IMGSZ_MAX = int(os.getenv("VIGIEPP_IMGSZ_MAX", "320"))
 
 
-BUILD_VERSION = "v32"
+BUILD_VERSION = "v33"
 
 
 @asynccontextmanager
@@ -171,8 +171,9 @@ def _build_response(
     profile: str,
     identity: dict[str, Any] | None = None,
     frame_wh: tuple[int, int] | None = None,
+    required: list[str] | None = None,
 ) -> dict[str, Any]:
-    compliance = evaluate(detections, profile)
+    compliance = evaluate(detections, profile, required_override=required)
     fw = frame_wh[0] if frame_wh else 0
     fh = frame_wh[1] if frame_wh else 0
     zone_eval = zones_mod.evaluate_zones(detections, fw, fh) if fw and fh else {"alerts": [], "hits": [], "zones": []}
@@ -223,6 +224,7 @@ def _build_response(
             else f"{compliance.summary} · alerta de zona",
             "alerts": alerts,
             "persons": persons,
+            "required": required if required is not None else list(get_profile(profile)["required"]),
         },
         "identity": identity,
         "zones": {
@@ -515,6 +517,11 @@ def profiles() -> list[dict[str, Any]]:
     return list_profiles()
 
 
+@app.get("/api/ppe/catalog")
+def ppe_catalog() -> dict[str, Any]:
+    return {"items": PPE_CATALOG}
+
+
 @app.post("/api/detect")
 async def detect_upload(
     file: UploadFile = File(...),
@@ -524,6 +531,7 @@ async def detect_upload(
     return_image: bool = Form(False),
     imgsz: int = Form(416),
     threshold: float = Form(0.33),
+    required: str = Form(""),
 ) -> JSONResponse:
     data = await file.read()
     if not data:
@@ -542,6 +550,7 @@ async def detect_upload(
             return_image=return_image,
             imgsz=imgsz,
             threshold=threshold,
+            required=parse_required_list(required),
         )
     finally:
         _detect_lock.release()
@@ -556,6 +565,7 @@ def _detect_frame(
     return_image: bool,
     imgsz: int,
     threshold: float,
+    required: list[str] | None = None,
 ) -> JSONResponse:
     try:
         frame = decode_image_bytes(data)
@@ -623,7 +633,12 @@ def _detect_frame(
 
     jpeg = encode_jpeg(annotated, quality=70) if return_image else None
     payload = _build_response(
-        detections, jpeg, profile, identity=identity, frame_wh=(frame.shape[1], frame.shape[0])
+        detections,
+        jpeg,
+        profile,
+        identity=identity,
+        frame_wh=(frame.shape[1], frame.shape[0]),
+        required=required,
     )
     if identify and identity and identity.get("known"):
         evid = _maybe_log(profile, payload["compliance"], identity, frame_bgr=annotated)
@@ -810,6 +825,7 @@ def rtsp_frame(
     profile: str = "general",
     conf: float = 0.35,
     identify: bool = False,
+    required: str = "",
 ) -> JSONResponse:
     url = _validate_rtsp_url(url)
     stream = get_or_create_stream(url)
@@ -833,7 +849,12 @@ def rtsp_frame(
     detections, _annotated = det.predict(frame, conf=conf, imgsz=416)
     identity = _identify_on_frame(frame) if identify else None
     payload = _build_response(
-        detections, None, profile, identity=identity, frame_wh=(frame.shape[1], frame.shape[0])
+        detections,
+        None,
+        profile,
+        identity=identity,
+        frame_wh=(frame.shape[1], frame.shape[0]),
+        required=parse_required_list(required),
     )
     return JSONResponse(payload)
 

@@ -357,7 +357,9 @@
           <p class="card-kicker">EPP requerido</p>
           <p class="card-meta" id="profileDesc">—</p>
         </div>
-        <div class="chips" id="requiredChips"></div>
+        <p class="card-meta" id="ppeSelectHint">Tocá cada ítem para marcarlo obligatorio u opcional.</p>
+        <div class="chips ppe-chips" id="requiredChips" role="group" aria-label="EPP obligatorio"></div>
+        <button type="button" class="btn ghost btn-sm" id="btnResetPpe">Restaurar defaults del perfil</button>
         <p class="card-kicker list-label">Detectado ahora</p>
         <ul class="item-list" id="detList">
           <li class="muted">Sin detecciones</li>
@@ -528,6 +530,10 @@
 
         <div class="cfg-section hidden" data-cfg-section="monitor">
           <p class="card-kicker">Monitoreo / identidad</p>
+          <p class="card-kicker">EPP obligatorio</p>
+          <p class="card-meta">Aplica al perfil de faena seleccionado en Monitoreo. Se guarda en este navegador.</p>
+          <div class="chips ppe-chips" id="cfgPpeChips" role="group" aria-label="EPP obligatorio config"></div>
+          <button type="button" class="btn ghost btn-sm" id="btnCfgResetPpe">Restaurar defaults del perfil</button>
           <label class="cfg-row cfg-slider-row">
             <span>
               <strong>Umbral de match facial</strong>
@@ -583,6 +589,6 @@
     <span id="fpsLabel">— ms</span>
   </footer>
 
-  <script src="/assets/app.js?v=32"></script>
+  <script src="/assets/app.js?v=33"></script>
 </body>
 </html>

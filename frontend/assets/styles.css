@@ -841,6 +841,28 @@ body.is-enrolling .sil-zoom {
   border-color: var(--line);
   color: var(--muted);
 }
+.chip.ppe-toggle {
+  cursor: pointer;
+  font: inherit;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+}
+.chip.ppe-toggle:hover { transform: translateY(-1px); }
+.chip.ppe-toggle[aria-pressed="true"] {
+  background: rgba(232, 93, 4, 0.22);
+  border-color: rgba(232, 93, 4, 0.55);
+  color: #ffd6a5;
+}
+.chip.ppe-toggle[aria-pressed="false"] {
+  background: rgba(147, 163, 153, 0.08);
+  border-color: var(--line);
+  color: var(--muted);
+}
+.btn-sm {
+  font-size: 0.78rem;
+  padding: 0.35rem 0.65rem;
+  margin-top: 0.35rem;
+}
+.ppe-chips { margin-bottom: 0.25rem; }
 
 .item-list {
   list-style: none;
