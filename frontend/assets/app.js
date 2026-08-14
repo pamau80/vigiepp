@@ -998,7 +998,7 @@
     hideLiveVideo();
     await refreshCameraPermissionHint();
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/assets/sw.js?v=25").catch(() => {});
+      navigator.serviceWorker.register("/assets/sw.js?v=26").catch(() => {});
     }
     const offlineBadge = $("#offlineBadge");
     const syncOffline = () => {
@@ -1052,7 +1052,24 @@
     if (id === "audit") refreshAudit();
   }
 
+  function enableIdentifyForPorteria(reason = "") {
+    if (els.chkIdentify) els.chkIdentify.checked = true;
+    settings.identifyDefault = true;
+    if (els.cfgIdentifyDefault) els.cfgIdentifyDefault.checked = true;
+    saveSettings(true);
+    if (els.speedHint && reason) els.speedHint.textContent = reason;
+  }
+
+  function hasReadyWorkers() {
+    return (workersCache || []).some(
+      (w) =>
+        w.active !== false &&
+        (w.ready === true || (w.face_samples || 0) >= (w.min_samples_ready || 4))
+    );
+  }
+
   function setAppMode(mode) {
+    const prevMode = appMode;
     appMode = mode;
     document.body.classList.remove(
       "mode-monitor",
@@ -1082,13 +1099,17 @@
                 ? "Estadísticas, informes y notificaciones"
                 : "Ajustes de silueta, rostro y monitoreo";
     }
-    if (mode === "monitor")
+    if (mode === "monitor") {
       setSource(
         sourceMode === "identity" || sourceMode === "teach" || sourceMode === "config" || sourceMode === "reports"
           ? "camera"
           : sourceMode
       );
-    else if (mode === "identity") setSource("identity");
+      // Tras enrolar en Personas, activar ID al volver a Monitoreo
+      if (prevMode === "identity" && hasReadyWorkers()) {
+        enableIdentifyForPorteria("Identificación ON · volviste de Personas");
+      }
+    } else if (mode === "identity") setSource("identity");
     else if (mode === "teach") setSource("teach");
     else if (mode === "reports") setSource("reports");
     else setSource("config");
@@ -1159,6 +1180,23 @@
       stopDetectLoop();
     } else if (mode === "camera") {
       stopRtsp();
+      // Volver de Personas/Teach: restaurar panel de monitoreo y reanudar EPP
+      if (els.complianceBox) els.complianceBox.dataset.state = "idle";
+      if (els.complianceValue) els.complianceValue.textContent = "En espera";
+      if (els.complianceSummary) {
+        els.complianceSummary.textContent = els.chkIdentify?.checked
+          ? "Iniciá el monitoreo para evaluar EPP e identidad."
+          : "Marcá «Identificar rostro» abajo para reconocer personas enroladas.";
+      }
+      if (els.statusPill) els.statusPill.textContent = "Standby";
+      if (els.detList) els.detList.innerHTML = `<li class="muted">Sin detecciones</li>`;
+      if (els.alertList) els.alertList.innerHTML = `<li class="muted">Sin alertas</li>`;
+      if (appMode === "monitor" && mediaStream && !camTimer) {
+        document.body.classList.add("is-scanning");
+        applyGuideMode();
+        camTimer = setInterval(tickDetect, isMobile() ? 1100 : 900);
+        tickDetect();
+      }
     } else if (mode === "rtsp") {
       stopCamera();
     } else {
@@ -1298,6 +1336,10 @@
           }
         }, 2800);
       }
+    } else if (appMode === "monitor" && !els.chkIdentify?.checked) {
+      els.identityName.textContent = "ID apagada";
+      els.identityRut.textContent = "Marcá «Identificar rostro» abajo";
+      if (els.identityMethod) els.identityMethod.textContent = "";
     }
 
     const ms = Math.round(performance.now() - t0);
@@ -1390,7 +1432,12 @@
       els.fpsLabel.textContent = `${Math.round(performance.now() - t0)} ms IA`;
     } catch (err) {
       console.error(err);
-      els.fpsLabel.textContent = "error";
+      const msg = String(err?.message || err || "");
+      els.fpsLabel.textContent = /401|autoriz/i.test(msg)
+        ? "sesión"
+        : /timeout|network|fetch/i.test(msg)
+          ? "red"
+          : "error IA";
     } finally {
       busy = false;
     }
@@ -2243,9 +2290,12 @@
       await refreshWorkers();
       const done =
         okCount >= 4
-          ? `Listo ${okCount}/4. Identificación estricta activa en Monitoreo.`
+          ? `Listo ${okCount}/4. Andá a Monitoreo: la identificación ya quedó activa.`
           : `Incompleto ${okCount}/4. Rehacé poses con luz frontal (calidad obligatoria).`;
       if (els.enrollCoach) els.enrollCoach.textContent = done;
+      if (okCount >= 4) {
+        enableIdentifyForPorteria("Identificación ON tras enrolar");
+      }
     } catch (err) {
       if (els.enrollCoach) els.enrollCoach.textContent = err.message;
       endPoseUI();
