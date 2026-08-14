@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import logging
 import os
+import threading
 import time
 import zipfile
 from contextlib import asynccontextmanager
@@ -46,27 +47,30 @@ _SCAN_DEBOUNCE_S = float(os.getenv("VIGIEPP_SCAN_DEBOUNCE", "12"))
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    # Precargar modelos en background al arrancar
-    try:
-        PPEDetector.get()
-    except Exception:  # noqa: BLE001
-        logger.exception("Precarga de modelo EPP falló")
-    try:
-        from . import cloud_persist as cloud_mod
+    # Precarga en background: Render Free mata el health check a los 5s si
+    # bloqueamos el arranque cargando YOLO / HF / YuNet.
+    def _warm() -> None:
+        try:
+            PPEDetector.get()
+        except Exception:  # noqa: BLE001
+            logger.exception("Precarga de modelo EPP falló")
+        try:
+            from . import cloud_persist as cloud_mod
 
-        if cloud_mod.configured():
-            # Volumen durable: HF es la fuente de verdad tras cada cold start
-            result = cloud_mod.hydrate(force=True)
-        else:
-            result = cloud_mod.pull_and_restore_if_empty()
-        if result.get("restored"):
-            logger.info("Identidad restaurada desde volumen durable: %s", result.get("workers"))
-    except Exception:  # noqa: BLE001
-        logger.exception("Durable persist pull falló")
-    try:
-        IdentityRegistry.get()
-    except Exception:  # noqa: BLE001
-        logger.exception("Precarga de identidad facial falló")
+            if cloud_mod.configured():
+                result = cloud_mod.hydrate(force=True)
+            else:
+                result = cloud_mod.pull_and_restore_if_empty()
+            if result.get("restored"):
+                logger.info("Identidad restaurada desde volumen durable: %s", result.get("workers"))
+        except Exception:  # noqa: BLE001
+            logger.exception("Durable persist pull falló")
+        try:
+            IdentityRegistry.get()
+        except Exception:  # noqa: BLE001
+            logger.exception("Precarga de identidad facial falló")
+
+    threading.Thread(target=_warm, name="vigiepp-warm", daemon=True).start()
     yield
     stop_all()
 
@@ -398,14 +402,14 @@ class HardwareTestBody(BaseModel):
 
 @app.get("/api/health")
 def health() -> dict[str, Any]:
-    det = PPEDetector.get()
+    # No llamar PPEDetector.get(): en cold start bloquearía >5s y Render marca 502.
+    det = PPEDetector.peek()
     from . import cloud_persist as cloud_mod
 
     cloud = cloud_mod.status()
     on_render = bool(os.getenv("RENDER") or os.getenv("RENDER_SERVICE_ID"))
     ephemeral_flag = os.getenv("VIGIEPP_EPHEMERAL", "").strip().lower() in ("1", "true", "yes")
     durable = bool(cloud.get("configured"))
-    # Persistencia real = disco host O volumen durable HF
     data_persistent = durable or (paths_mod.is_persistent() and not ephemeral_flag and not on_render) or (
         paths_mod.is_persistent() and os.getenv("VIGIEPP_EPHEMERAL", "").strip() in ("0", "false", "no")
     )
@@ -413,15 +417,15 @@ def health() -> dict[str, Any]:
         data_persistent = True
     ephemeral_risk = on_render and not durable and ephemeral_flag
     if on_render and not durable and os.getenv("VIGIEPP_EPHEMERAL", "1").strip() not in ("0", "false", "no"):
-        # Free sin HF = riesgo
         ephemeral_risk = True
         data_persistent = False
     return {
         "status": "ok",
         "product": "VigiEPP",
-        "model_ready": det.ready,
-        "model": det.model_name,
-        "warning": det.error,
+        "model_ready": bool(det and det.ready),
+        "model": (det.model_name if det else "") or "",
+        "warning": (det.error if det else None) or ("Cargando modelo…" if not det else None),
+        "booting": det is None or not det.ready,
         "auth_enabled": auth_mod.auth_enabled(),
         "data_dir": str(paths_mod.data_dir()),
         "data_persistent": bool(data_persistent),

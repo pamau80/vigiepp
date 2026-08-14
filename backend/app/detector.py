@@ -76,6 +76,17 @@ class PPEDetector:
                 cls._instance = cls()
             return cls._instance
 
+    @classmethod
+    def peek(cls) -> PPEDetector | None:
+        """No bloquea: None si el modelo aún no terminó de cargar."""
+        return cls._instance
+
+    @classmethod
+    def try_get(cls) -> PPEDetector | None:
+        """Como get(), pero no inicia la carga si otro hilo ya la tiene."""
+        with cls._lock:
+            return cls._instance
+
     def load_custom_model(self, weights: Path | str | None = None) -> dict[str, Any]:
         """Activa un modelo entrenado por el cliente (teach)."""
         from ultralytics import YOLO
