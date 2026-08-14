@@ -26,6 +26,12 @@ def log(action: str, *, actor: str = "admin", detail: str = "", extra: dict[str,
         AUDIT_FILE.parent.mkdir(parents=True, exist_ok=True)
         with AUDIT_FILE.open("a", encoding="utf-8") as fh:
             fh.write(line)
+    try:
+        from . import cloud_persist as cloud_mod
+
+        cloud_mod.schedule_push(8.0)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def recent(limit: int = 80) -> list[dict[str, Any]]:

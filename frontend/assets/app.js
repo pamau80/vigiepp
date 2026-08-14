@@ -1824,12 +1824,16 @@
               w.ready === true ||
               ((w.face_samples || 0) >= (w.min_samples_ready || 4) && (w.embedding_count || w.face_samples || 0) >= 3);
             const qLabel = qualityLabel(qn, ready);
+            const consentLabel = w.consent_ok
+              ? `consentimiento ${formatLastSeen(w.consent_at)}`
+              : "sin consentimiento";
             return `<li data-worker-id="${w.id}" class="${active ? "" : "is-inactive"}">
               ${photo}
               <div class="worker-meta">
                 <strong>${escapeHtml(displayPersonName(w.name) || "Sin nombre")}${active ? "" : " · inactivo"}${ready ? "" : " · incompleto"}</strong>
                 <span class="conf">${escapeHtml(w.rut || "—")}${w.group ? " · " + escapeHtml(w.group) : ""}</span>
                 <span class="conf">${w.face_samples || 0}/4 muestras · calidad ${qn}% (${qLabel}) · ${formatLastSeen(w.last_seen)}</span>
+                <span class="conf">${consentLabel}</span>
               </div>
               <div class="worker-actions">
                 <button type="button" class="btn-mini" data-toggle-active="${w.id}">${active ? "Desactivar" : "Activar"}</button>
@@ -1982,6 +1986,41 @@
         settings.identifyDefault = true;
       }
     }
+  }
+
+  async function requestAdminPinToExitKiosk() {
+    const pin = window.prompt("Salir de portería requiere PIN de administrador:");
+    if (pin == null) return false;
+    if (!String(pin).trim()) return false;
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin: String(pin).trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        window.alert(data.detail || "PIN incorrecto");
+        return false;
+      }
+      if ((data.role || "") !== "admin") {
+        window.alert("Solo el PIN de administrador puede salir del modo portería.");
+        return false;
+      }
+      if (data.token) sessionStorage.setItem("vigiepp.token", data.token);
+      applyRoleUI("admin");
+      return true;
+    } catch (err) {
+      window.alert(err.message || "Error de red");
+      return false;
+    }
+  }
+
+  async function exitKioskSafe() {
+    if (!settings.kioskMode) return;
+    const ok = await requestAdminPinToExitKiosk();
+    if (ok) setKioskMode(false);
   }
 
   function updateKioskBanner(payload) {
@@ -2998,10 +3037,21 @@
     renderZonesEditor();
   });
 
-  $("#btnKiosk")?.addEventListener("click", () => setKioskMode(!settings.kioskMode));
-  $("#btnKioskExit")?.addEventListener("click", () => setKioskMode(false));
+  $("#btnKiosk")?.addEventListener("click", () => {
+    if (settings.kioskMode) {
+      exitKioskSafe();
+    } else {
+      setKioskMode(true);
+    }
+  });
+  $("#btnKioskExit")?.addEventListener("click", () => {
+    exitKioskSafe();
+  });
   window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && settings.kioskMode) setKioskMode(false);
+    if (e.key === "Escape" && settings.kioskMode) {
+      e.preventDefault();
+      exitKioskSafe();
+    }
   });
 
   $("#btnLogout")?.addEventListener("click", async () => {
@@ -3043,6 +3093,10 @@
     } catch (err) {
       if (els.workerListHint) els.workerListHint.textContent = err.message || "No se pudo exportar";
     }
+  });
+
+  $("#btnConsentExport")?.addEventListener("click", () => {
+    downloadUrl("/api/identity/consent.csv");
   });
 
   $("#backupImportFile")?.addEventListener("change", async (e) => {

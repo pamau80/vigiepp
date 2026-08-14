@@ -18,10 +18,14 @@ HEADER_NAME = "X-VigiEPP-Key"
 SESSION_HOURS = 12
 ROLE_ADMIN = "admin"
 ROLE_OPERATOR = "operator"
+LOGIN_WINDOW_S = 300
+LOGIN_MAX_ATTEMPTS = 8
 
 _lock = threading.Lock()
 # token -> {expires_at, role}
 _sessions: dict[str, dict[str, Any]] = {}
+# ip -> [timestamps]
+_login_attempts: dict[str, list[float]] = {}
 
 
 def auth_enabled() -> bool:
@@ -33,13 +37,24 @@ def docs_enabled() -> bool:
 
 
 def admin_pin() -> str:
-    pin = os.getenv("VIGIEPP_ADMIN_PIN", "vigiepp").strip()
-    return pin or "vigiepp"
+    pin = os.getenv("VIGIEPP_ADMIN_PIN", "").strip()
+    if pin:
+        return pin
+    # Solo local/dev si no hay env; nunca en producción sin rotar
+    return "vigiepp"
 
 
 def operator_pin() -> str:
-    pin = os.getenv("VIGIEPP_OPERATOR_PIN", "porteria").strip()
-    return pin or "porteria"
+    pin = os.getenv("VIGIEPP_OPERATOR_PIN", "").strip()
+    if pin:
+        return pin
+    return "porteria"
+
+
+def using_default_pins() -> bool:
+    admin_set = bool(os.getenv("VIGIEPP_ADMIN_PIN", "").strip())
+    op_set = bool(os.getenv("VIGIEPP_OPERATOR_PIN", "").strip())
+    return not admin_set or not op_set
 
 
 def api_key() -> str | None:
@@ -84,9 +99,6 @@ def session_meta(token: str | None) -> dict[str, Any] | None:
         meta = _sessions.get(token)
         if not meta:
             return None
-        if float(meta.get("expires_at") or 0) <= time.time():
-            _sessions.pop(token, None)
-            return None
         return dict(meta)
 
 
@@ -94,11 +106,12 @@ def session_role(token: str | None) -> str | None:
     meta = session_meta(token)
     if meta:
         return str(meta.get("role") or ROLE_ADMIN)
-    if token and credentials_ok(token):
-        # PIN/API key en header: admin salvo que coincida solo operador
-        if resolve_pin_role(token) == ROLE_OPERATOR:
-            return ROLE_OPERATOR
+    if token and api_key() and hmac.compare_digest(token, api_key() or ""):
         return ROLE_ADMIN
+    if token:
+        role = resolve_pin_role(token)
+        if role:
+            return role
     return None
 
 
@@ -111,7 +124,6 @@ def resolve_pin_role(pin_or_key: str) -> str | None:
     key = api_key()
     if key and hmac.compare_digest(candidate, key):
         return ROLE_ADMIN
-    # operador: solo si es distinto del admin
     op = operator_pin()
     if op and not hmac.compare_digest(op, admin_pin()) and hmac.compare_digest(candidate, op):
         return ROLE_OPERATOR
@@ -120,6 +132,35 @@ def resolve_pin_role(pin_or_key: str) -> str | None:
 
 def credentials_ok(pin_or_key: str) -> bool:
     return resolve_pin_role(pin_or_key) is not None
+
+
+def client_ip(request: Request) -> str:
+    forwarded = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    if forwarded:
+        return forwarded[:64]
+    if request.client and request.client.host:
+        return request.client.host[:64]
+    return "unknown"
+
+
+def check_login_rate(ip: str) -> None:
+    """Bloquea fuerza bruta: máx. LOGIN_MAX_ATTEMPTS en LOGIN_WINDOW_S."""
+    now = time.time()
+    with _lock:
+        stamps = [t for t in _login_attempts.get(ip, []) if now - t < LOGIN_WINDOW_S]
+        if len(stamps) >= LOGIN_MAX_ATTEMPTS:
+            _login_attempts[ip] = stamps
+            raise HTTPException(
+                429,
+                f"Demasiados intentos. Esperá {LOGIN_WINDOW_S // 60} minutos.",
+            )
+        stamps.append(now)
+        _login_attempts[ip] = stamps
+
+
+def clear_login_rate(ip: str) -> None:
+    with _lock:
+        _login_attempts.pop(ip, None)
 
 
 def extract_token(request: Request) -> str | None:
@@ -152,9 +193,10 @@ def is_public_path(path: str) -> bool:
 def is_admin_only(method: str, path: str) -> bool:
     """Rutas que el operador (portería) no puede usar."""
     m = method.upper()
-    # Lecturas permitidas al operador
     if m in ("GET", "HEAD", "OPTIONS"):
         if path.startswith("/api/identity/backup"):
+            return True
+        if path.startswith("/api/identity/consent"):
             return True
         if path.startswith("/api/identity/workers") and path.endswith("/photo"):
             return True
@@ -166,9 +208,12 @@ def is_admin_only(method: str, path: str) -> bool:
             return True
         if path.startswith("/api/audit"):
             return True
+        if path.startswith("/api/reports/"):
+            return True
+        if path.startswith("/api/evidence/"):
+            return True
         return False
 
-    # Mutaciones / posts
     if path in ("/api/detect", "/api/identity/identify"):
         return False
     if path.startswith("/api/rtsp/"):
@@ -259,5 +304,6 @@ def auth_status() -> dict[str, Any]:
         "auth_enabled": auth_enabled(),
         "docs_enabled": docs_enabled(),
         "roles": [ROLE_ADMIN, ROLE_OPERATOR],
+        "default_pins": using_default_pins(),
         "hint": "PIN admin (VIGIEPP_ADMIN_PIN) o PIN operador/portería (VIGIEPP_OPERATOR_PIN).",
     }

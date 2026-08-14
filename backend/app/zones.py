@@ -136,6 +136,14 @@ def get_zones() -> dict[str, Any]:
         return json.loads(ZONES_FILE.read_text(encoding="utf-8"))
 
 
+_ZONE_TYPES = ("restricted", "vehicle_lane", "machinery")
+
+
+def _normalize_zone_type(raw: Any) -> str:
+    t = str(raw or "restricted").strip().lower()
+    return t if t in _ZONE_TYPES else "restricted"
+
+
 def save_zones(zones: list[dict[str, Any]]) -> dict[str, Any]:
     cleaned: list[dict[str, Any]] = []
     for z in zones:
@@ -143,7 +151,7 @@ def save_zones(zones: list[dict[str, Any]]) -> dict[str, Any]:
             {
                 "id": str(z.get("id") or uuid.uuid4().hex[:10]),
                 "name": str(z.get("name") or "Zona")[:60],
-                "type": "vehicle_lane" if z.get("type") == "vehicle_lane" else "restricted",
+                "type": _normalize_zone_type(z.get("type")),
                 "enabled": bool(z.get("enabled", True)),
                 "x": float(max(0, min(0.95, z.get("x", 0)))),
                 "y": float(max(0, min(0.95, z.get("y", 0)))),
@@ -155,6 +163,12 @@ def save_zones(zones: list[dict[str, Any]]) -> dict[str, Any]:
     payload = {"zones": cleaned, "updated_at": datetime.now(timezone.utc).isoformat()}
     with _lock:
         ZONES_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        from . import cloud_persist as cloud_mod
+
+        cloud_mod.schedule_push()
+    except Exception:  # noqa: BLE001
+        pass
     return payload
 
 

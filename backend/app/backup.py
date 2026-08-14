@@ -1,4 +1,4 @@
-"""Backup / restore de personas + embeddings faciales."""
+"""Backup / restore de identidad + configuración operativa."""
 
 from __future__ import annotations
 
@@ -17,6 +17,13 @@ from .paths import data_dir
 logger = logging.getLogger("vigiepp.backup")
 
 MANIFEST = "vigiepp-backup.json"
+# Archivos de configuración / operación que deben sobrevivir sleep en Free
+SITE_FILES = (
+    "zones.json",
+    "cameras.json",
+    "notifications.json",
+    "audit.jsonl",
+)
 
 
 def _workers_file() -> Path:
@@ -28,15 +35,17 @@ def _faces_dir() -> Path:
 
 
 def build_backup_zip() -> bytes:
-    """Empaqueta workers.json + carpeta faces/ en un zip en memoria."""
+    """Empaqueta workers + faces + config operativa en un zip en memoria."""
     buf = io.BytesIO()
     workers = _workers_file()
     faces = _faces_dir()
+    root = data_dir()
     manifest = {
         "product": "VigiEPP",
-        "kind": "identity-backup",
-        "version": 1,
+        "kind": "site-backup",
+        "version": 2,
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "includes": ["workers.json", "faces/", *SITE_FILES],
     }
     with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(MANIFEST, json.dumps(manifest, ensure_ascii=False, indent=2))
@@ -48,14 +57,37 @@ def build_backup_zip() -> bytes:
             for path in faces.rglob("*"):
                 if path.is_file():
                     zf.write(path, arcname=str(Path("faces") / path.relative_to(faces)).replace("\\", "/"))
+        for name in SITE_FILES:
+            path = root / name
+            if path.is_file():
+                zf.write(path, arcname=name)
     return buf.getvalue()
+
+
+def _restore_site_files(tmp_path: Path, *, mode: str) -> list[str]:
+    """Copia archivos de sitio presentes en el zip. En merge no pisa si local ya tiene contenido."""
+    restored: list[str] = []
+    root = data_dir()
+    root.mkdir(parents=True, exist_ok=True)
+    for name in SITE_FILES:
+        src = tmp_path / name
+        if not src.is_file():
+            continue
+        dest = root / name
+        if mode == "merge" and dest.exists() and dest.stat().st_size > 2:
+            # Conservar local si ya hay datos; hydrate force=replace sí pisa
+            continue
+        shutil.copy2(src, dest)
+        restored.append(name)
+    return restored
 
 
 def restore_backup_zip(data: bytes, *, mode: str = "merge") -> dict[str, Any]:
     """
     Restaura backup.
     mode=merge: agrega/actualiza workers por id (no borra los que no vienen).
-    mode=replace: reemplaza workers.json y faces/ completos.
+    mode=replace: reemplaza workers.json y faces/ completos + archivos de sitio.
+    Compatible con zips v1 (solo identidad).
     """
     if mode not in ("merge", "replace"):
         raise ValueError("mode debe ser merge o replace")
@@ -84,6 +116,8 @@ def restore_backup_zip(data: bytes, *, mode: str = "merge") -> dict[str, Any]:
         dest_faces = _faces_dir()
         dest_faces.mkdir(parents=True, exist_ok=True)
 
+        site_restored = _restore_site_files(tmp_path, mode="replace" if mode == "replace" else "merge")
+
         if mode == "replace":
             if dest_faces.exists():
                 shutil.rmtree(dest_faces)
@@ -106,6 +140,7 @@ def restore_backup_zip(data: bytes, *, mode: str = "merge") -> dict[str, Any]:
                 "mode": mode,
                 "workers": len(incoming),
                 "faces_copied": sum(1 for _ in dest_faces.rglob("face_*.jpg")),
+                "site_files": site_restored,
             }
 
         # merge
@@ -131,7 +166,6 @@ def restore_backup_zip(data: bytes, *, mode: str = "merge") -> dict[str, Any]:
             else:
                 by_id[wid] = w
                 added += 1
-            # copiar cara del worker
             src_folder = faces_src / wid
             if src_folder.exists():
                 dst_folder = dest_faces / wid
@@ -153,6 +187,7 @@ def restore_backup_zip(data: bytes, *, mode: str = "merge") -> dict[str, Any]:
             "added": added,
             "updated": updated,
             "faces_copied": sum(1 for _ in dest_faces.rglob("face_*.jpg")),
+            "site_files": site_restored,
         }
 
 

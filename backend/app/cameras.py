@@ -32,6 +32,12 @@ def _save(payload: dict[str, Any]) -> None:
     payload["updated_at"] = datetime.now(timezone.utc).isoformat()
     CAMERAS_FILE.parent.mkdir(parents=True, exist_ok=True)
     CAMERAS_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        from . import cloud_persist as cloud_mod
+
+        cloud_mod.schedule_push()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def validate_rtsp(url: str) -> str:

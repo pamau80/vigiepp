@@ -13,10 +13,14 @@ echo [1/2] Local (puerto 8000)...
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr :8000 ^| findstr LISTENING') do (
   taskkill /F /PID %%a >nul 2>&1
 )
-set VIGIEPP_ADMIN_PIN=VigiEPP-sadgYGr0
-set VIGIEPP_OPERATOR_PIN=porteria
+set VIGIEPP_ADMIN_PIN=%VIGIEPP_ADMIN_PIN%
+if "%VIGIEPP_ADMIN_PIN%"=="" set VIGIEPP_ADMIN_PIN=changeme-admin
+set VIGIEPP_OPERATOR_PIN=%VIGIEPP_OPERATOR_PIN%
+if "%VIGIEPP_OPERATOR_PIN%"=="" set VIGIEPP_OPERATOR_PIN=changeme-porteria
 set VIGIEPP_AUTH=1
 set VIGIEPP_COOKIE_SECURE=0
+echo   PIN admin/operador: usá env VIGIEPP_ADMIN_PIN / VIGIEPP_OPERATOR_PIN (defaults temporales changeme-*).
+echo.
 start "VigiEPP-local" /MIN backend\.venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --app-dir backend
 timeout /t 3 /nobreak >nul
 curl.exe -sS -m 8 http://127.0.0.1:8000/api/health

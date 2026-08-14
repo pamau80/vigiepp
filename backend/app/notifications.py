@@ -131,6 +131,12 @@ def save_config(patch: dict[str, Any]) -> dict[str, Any]:
         cfg["recipients_extra"] = patch["recipients_extra"]
     with _lock:
         CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        from . import cloud_persist as cloud_mod
+
+        cloud_mod.schedule_push()
+    except Exception:  # noqa: BLE001
+        pass
     return cfg
 
 

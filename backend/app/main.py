@@ -427,6 +427,7 @@ def health() -> dict[str, Any]:
         "data_persistent": bool(data_persistent),
         "data_ephemeral_risk": bool(ephemeral_risk and not durable),
         "cloud_backup": cloud,
+        "default_pins": auth_mod.using_default_pins(),
         "email_transport": notif_mod.email_transport_status().get("mode"),
     }
 
@@ -437,12 +438,15 @@ def auth_status() -> dict[str, Any]:
 
 
 @app.post("/api/auth/login")
-def auth_login(body: AuthLoginRequest, response: Response) -> dict[str, Any]:
+def auth_login(body: AuthLoginRequest, request: Request, response: Response) -> dict[str, Any]:
     if not auth_mod.auth_enabled():
         return {"ok": True, "auth_enabled": False, "role": "admin", "message": "Auth desactivada"}
+    ip = auth_mod.client_ip(request)
+    auth_mod.check_login_rate(ip)
     role = auth_mod.resolve_pin_role(body.pin)
     if not role:
         raise HTTPException(401, "PIN incorrecto")
+    auth_mod.clear_login_rate(ip)
     token = auth_mod.create_session(role)
     auth_mod.set_session_cookie(response, token)
     return {
@@ -781,9 +785,55 @@ def identity_workers() -> list[dict[str, Any]]:
     return IdentityRegistry.get().list_workers()
 
 
+@app.get("/api/identity/consent.csv")
+def identity_consent_csv() -> Response:
+    """Export CSV de consentimiento biométrico (Ley 19.628 / DS 44)."""
+    import csv
+    import io
+
+    workers = IdentityRegistry.get().list_workers()
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(
+        [
+            "id",
+            "nombre",
+            "rut",
+            "grupo",
+            "activo",
+            "consentimiento_ok",
+            "consentimiento_fecha",
+            "consentimiento_version",
+            "enrolado_en",
+            "muestras_rostro",
+        ]
+    )
+    for w in workers:
+        writer.writerow(
+            [
+                w.get("id") or "",
+                w.get("name") or "",
+                w.get("rut") or "",
+                w.get("group") or "",
+                "si" if w.get("active", True) else "no",
+                "si" if w.get("consent_ok") else "no",
+                w.get("consent_at") or "",
+                w.get("consent_version") or "",
+                w.get("enrolled_at") or "",
+                w.get("face_samples") or 0,
+            ]
+        )
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
+    return Response(
+        content=buf.getvalue().encode("utf-8-sig"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="vigiepp-consentimiento-{stamp}.csv"'},
+    )
+
+
 @app.get("/api/identity/backup")
 def identity_backup() -> Response:
-    """Descarga ZIP con workers.json + fotos/embeddings."""
+    """Descarga ZIP con workers.json + fotos/embeddings + config operativa."""
     from . import backup as backup_mod
 
     data = backup_mod.build_backup_zip()

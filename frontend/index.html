@@ -93,7 +93,7 @@
         <p class="kiosk-result" id="kioskResult">En espera</p>
         <p class="kiosk-name" id="kioskName">Acercá a la cámara</p>
         <p class="kiosk-detail" id="kioskDetail"></p>
-        <button type="button" class="btn ghost" id="btnKioskExit">Salir (Esc)</button>
+        <button type="button" class="btn ghost" id="btnKioskExit">Salir (PIN admin)</button>
       </div>
 
       <div class="viewport viewport-portrait">
@@ -219,7 +219,8 @@
         <button id="btnIdentify" class="btn secondary" type="button">Probar ID</button>
         <label class="check consent-row">
           <input type="checkbox" id="chkBiometricConsent" />
-          Autorizo el tratamiento de mi imagen facial para control de acceso y EPP (Ley 19.628).
+          Autorizo el tratamiento de mi imagen facial para control de acceso y EPP
+          (Ley 19.628 y DS 44). El consentimiento queda registrado con fecha.
         </label>
         <p class="hint" id="enrollCoach">4 poses de calidad · consentimiento + liveness · una persona</p>
       </div>
@@ -394,6 +395,7 @@
         </ul>
         <p class="hint" id="workerListHint"></p>
         <div class="worker-backup-actions">
+          <button type="button" class="btn secondary" id="btnConsentExport">Exportar consentimiento</button>
           <button type="button" class="btn secondary" id="btnBackupExport">Exportar backup</button>
           <label class="btn secondary btn-file">
             Restaurar
@@ -404,7 +406,7 @@
             <option value="replace">Reemplazar todo</option>
           </select>
         </div>
-        <p class="card-meta">Backup = personas + fotos faciales (ZIP). Guardalo fuera del servidor.</p>
+        <p class="card-meta">Backup = personas + fotos + zonas/cámaras/notif. Consentimiento CSV para auditoría.</p>
       </section>
 
       <section class="card panel-section" data-show="teach" id="teachBlock">

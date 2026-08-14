@@ -1,12 +1,12 @@
 """Volumen durable gratuito (fuente de verdad) vía Hugging Face Hub.
 
 Render Free / cualquier host sin disco: /data local es solo caché.
-El zip de identidad vive en un dataset PRIVADO de HF (cuenta gratis).
+El zip (identidad + zonas/cámaras/notif/bitácora) vive en un dataset PRIVADO de HF.
 
 Env:
   HF_TOKEN o VIGIEPP_HF_TOKEN  — token write de https://huggingface.co/settings/tokens
   VIGIEPP_HF_REPO              — ej. tuusuario/vigiepp-data (se crea solo si falta)
-  VIGIEPP_HF_FILE              — default identity-backup.zip
+  VIGIEPP_HF_FILE              — default identity-backup.zip (nombre histórico)
 """
 
 from __future__ import annotations
@@ -161,7 +161,7 @@ def push_now() -> dict[str, Any]:
                 path_in_repo=_file_name(),
                 repo_id=_repo_id(),
                 repo_type="dataset",
-                commit_message="VigiEPP identity durable snapshot",
+                commit_message="VigiEPP site durable snapshot",
             )
         finally:
             try:
