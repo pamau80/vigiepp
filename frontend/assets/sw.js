@@ -1,6 +1,6 @@
 /* Service worker: shell cache + fallback offline (sin API) */
-const CACHE = "vigiepp-shell-v28";
-const SHELL = ["/", "/assets/styles.css?v=28", "/assets/app.js?v=28", "/assets/favicon.png", "/assets/manifest.webmanifest"];
+const CACHE = "vigiepp-shell-v29";
+const SHELL = ["/", "/assets/styles.css?v=29", "/assets/app.js?v=29", "/assets/favicon.png", "/assets/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

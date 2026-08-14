@@ -971,16 +971,23 @@
     return { w: srcW * scale, h: srcH * scale };
   }
 
+  function applyHealth(health) {
+    if (!health) return;
+    const ready = !!health.model_ready && !health.booting;
+    els.modelStatus.classList.toggle("ready", ready);
+    els.modelStatus.classList.toggle("error", !health.model_ready && !!health.warning);
+    els.modelStatusText.textContent = ready
+      ? `IA lista · ${health.model || "EPP"}`
+      : health.warning || "Cargando IA…";
+    showPersistBanner(health);
+    return ready;
+  }
+
   async function boot() {
     await ensureAuth();
     try {
       const health = await api("/api/health");
-      els.modelStatus.classList.toggle("ready", !!health.model_ready);
-      els.modelStatus.classList.toggle("error", !health.model_ready);
-      els.modelStatusText.textContent = health.model_ready
-        ? `IA lista · ${health.model || "EPP"}`
-        : health.warning || "Cargando";
-      showPersistBanner(health);
+      applyHealth(health);
     } catch {
       els.modelStatus.classList.add("error");
       els.modelStatusText.textContent = "Backend no disponible";
@@ -1013,7 +1020,7 @@
     hideLiveVideo();
     await refreshCameraPermissionHint();
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/assets/sw.js?v=28").catch(() => {});
+      navigator.serviceWorker.register("/assets/sw.js?v=29").catch(() => {});
     }
     const offlineBadge = $("#offlineBadge");
     const syncOffline = () => {
@@ -1440,10 +1447,23 @@
       fd.append("threshold", String(settings.identifyThreshold || 0.42));
       const data = await api("/api/detect", { method: "POST", body: fd }, 25000);
       if (data?.booting || data?._http === 503) {
-        detectBackoffMs = 4000;
-        els.fpsLabel.textContent = "cargando IA…";
-        if (els.complianceSummary) {
-          els.complianceSummary.textContent = data.error || "Modelo cargando…";
+        let ready = false;
+        try {
+          const h = await fetch("/api/health", { credentials: "include" }).then((r) => r.json());
+          ready = !!applyHealth(h);
+        } catch (_) {}
+        if (ready) {
+          detectBackoffMs = 700;
+          els.fpsLabel.textContent = "reintentando…";
+          if (els.complianceSummary) {
+            els.complianceSummary.textContent = "IA lista. Escaneando el siguiente frame…";
+          }
+        } else {
+          detectBackoffMs = 4000;
+          els.fpsLabel.textContent = "cargando IA…";
+          if (els.complianceSummary) {
+            els.complianceSummary.textContent = data.error || "Modelo cargando…";
+          }
         }
         return;
       }
