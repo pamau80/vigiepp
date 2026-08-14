@@ -43,6 +43,9 @@ logger = logging.getLogger("vigiepp")
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 _last_scan_log: dict[str, tuple[float, bool]] = {}
 _SCAN_DEBOUNCE_S = float(os.getenv("VIGIEPP_SCAN_DEBOUNCE", "12"))
+_detect_lock = threading.Lock()
+# Render Free: YOLO+SFace en paralelo tumba el proceso (502). Una inferencia a la vez.
+_DETECT_IMGSZ_MAX = int(os.getenv("VIGIEPP_IMGSZ_MAX", "320"))
 
 
 @asynccontextmanager
@@ -499,14 +502,42 @@ async def detect_upload(
     data = await file.read()
     if not data:
         raise HTTPException(400, "Archivo vacío")
+    if not _detect_lock.acquire(blocking=False):
+        return JSONResponse(
+            {"ok": False, "busy": True, "error": "IA ocupada, esperá un momento."},
+            status_code=429,
+        )
+    try:
+        return _detect_frame(
+            data,
+            profile=profile,
+            conf=conf,
+            identify=identify,
+            return_image=return_image,
+            imgsz=imgsz,
+            threshold=threshold,
+        )
+    finally:
+        _detect_lock.release()
+
+
+def _detect_frame(
+    data: bytes,
+    *,
+    profile: str,
+    conf: float,
+    identify: bool,
+    return_image: bool,
+    imgsz: int,
+    threshold: float,
+) -> JSONResponse:
     try:
         frame = decode_image_bytes(data)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
-    # Reducir resolución de entrada si viene muy grande (acelera)
     h, w = frame.shape[:2]
-    max_side = 720
+    max_side = 480
     if max(h, w) > max_side:
         scale = max_side / max(h, w)
         frame = cv2.resize(frame, (int(w * scale), int(h * scale)))
@@ -526,7 +557,20 @@ async def detect_upload(
             status_code=503,
         )
 
-    detections, annotated = det.predict(frame, conf=conf, imgsz=imgsz)
+    imgsz_use = max(256, min(int(imgsz or _DETECT_IMGSZ_MAX), _DETECT_IMGSZ_MAX))
+    try:
+        detections, annotated = det.predict(frame, conf=conf, imgsz=imgsz_use)
+    except Exception:  # noqa: BLE001
+        logger.exception("Inferencia EPP falló")
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": "La IA falló en este frame. Reintentá.",
+                "detections": [],
+                "compliance": {"overall_compliant": False, "persons": [], "summary": "Error de inferencia"},
+            },
+            status_code=503,
+        )
 
     thr = max(0.28, min(0.7, float(threshold or 0.42)))
     identity = None

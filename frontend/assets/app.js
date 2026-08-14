@@ -130,6 +130,8 @@
   let profiles = [];
   let mediaStream = null;
   let camTimer = null;
+  let detectLoopOn = false;
+  let detectBackoffMs = 0;
   let rtspTimer = null;
   let busy = false;
   let sourceMode = "camera";
@@ -431,6 +433,12 @@
         return { ...data, ok: false, _http: 503 };
       }
       if (!res.ok && res.status !== 202) {
+        if (res.status === 429) {
+          return { ok: false, busy: true, error: data.error || "IA ocupada", _http: 429 };
+        }
+        if (res.status === 502 || res.status === 503) {
+          throw new Error(res.status === 502 ? "Servidor caído (502). Esperá 15 s." : (data.error || "Servidor no listo"));
+        }
         const detail = data.detail || data.error || `HTTP ${res.status}`;
         throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
       }
@@ -1005,7 +1013,7 @@
     hideLiveVideo();
     await refreshCameraPermissionHint();
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/assets/sw.js?v=27").catch(() => {});
+      navigator.serviceWorker.register("/assets/sw.js?v=28").catch(() => {});
     }
     const offlineBadge = $("#offlineBadge");
     const syncOffline = () => {
@@ -1198,11 +1206,8 @@
       if (els.statusPill) els.statusPill.textContent = "Standby";
       if (els.detList) els.detList.innerHTML = `<li class="muted">Sin detecciones</li>`;
       if (els.alertList) els.alertList.innerHTML = `<li class="muted">Sin alertas</li>`;
-      if (appMode === "monitor" && mediaStream && !camTimer) {
-        document.body.classList.add("is-scanning");
-        applyGuideMode();
-        camTimer = setInterval(tickDetect, isMobile() ? 1100 : 900);
-        tickDetect();
+      if (appMode === "monitor" && mediaStream && !detectLoopOn) {
+        startDetectLoop();
       }
     } else if (mode === "rtsp") {
       stopCamera();
@@ -1431,15 +1436,20 @@
       fd.append("conf", "0.35");
       fd.append("identify", identify ? "true" : "false");
       fd.append("return_image", returnImage ? "true" : "false");
-      fd.append("imgsz", "416");
+      fd.append("imgsz", "320");
       fd.append("threshold", String(settings.identifyThreshold || 0.42));
-      // Render Free + identify puede tardar; 45s evita falsos timeouts
-      const data = await api("/api/detect", { method: "POST", body: fd }, 45000);
+      const data = await api("/api/detect", { method: "POST", body: fd }, 25000);
       if (data?.booting || data?._http === 503) {
+        detectBackoffMs = 4000;
         els.fpsLabel.textContent = "cargando IA…";
         if (els.complianceSummary) {
           els.complianceSummary.textContent = data.error || "Modelo cargando…";
         }
+        return;
+      }
+      if (data?._http === 429 || data?.busy) {
+        detectBackoffMs = 1500;
+        els.fpsLabel.textContent = "IA ocupada";
         return;
       }
       if (!data?.ok) {
@@ -1452,20 +1462,21 @@
         els.identityName.textContent = "ID cargando…";
         els.identityRut.textContent = "El reconocimiento facial aún inicia";
       }
+      detectBackoffMs = 0;
       els.fpsLabel.textContent = `${Math.round(performance.now() - t0)} ms IA`;
     } catch (err) {
       console.error(err);
       const msg = String(err?.message || err || "");
+      const down = /502|caído|agotado|timeout|HTTP2|protocol/i.test(msg);
+      if (down) detectBackoffMs = Math.min(20000, Math.max(8000, (detectBackoffMs || 4000) * 1.5));
       els.fpsLabel.textContent = /401|sesión|PIN/i.test(msg)
         ? "sesión"
-        : /agotado|timeout|cargando/i.test(msg)
-          ? "lento"
+        : down
+          ? "servidor lento"
           : /red|network|fetch/i.test(msg)
             ? "red"
             : "error IA";
-      if (/agotado|cargando|lento/i.test(msg) && els.complianceSummary) {
-        els.complianceSummary.textContent = msg;
-      }
+      if (els.complianceSummary) els.complianceSummary.textContent = msg;
     } finally {
       busy = false;
     }
@@ -1509,20 +1520,35 @@
 
   async function tickDetect() {
     if (appMode !== "monitor" || sourceMode !== "camera") return;
-    const blob = await captureBlob(isMobile() ? 0.58 : 0.65, isMobile() ? 480 : 640);
+    const blob = await captureBlob(0.55, 400);
     if (!blob) return;
     const wantId = !!els.chkIdentify?.checked;
     const now = Date.now();
-    // Identificar cada ~2.2s para no frenar el EPP (móvil un poco más lento)
-    const idGap = isMobile() ? 2800 : 2200;
+    const idGap = 3500;
     const identify = wantId && now - lastIdentifyAt > idGap;
     if (identify) lastIdentifyAt = now;
     await detectBlob(blob, { identify, returnImage: false });
   }
 
+  function startDetectLoop() {
+    if (detectLoopOn) return;
+    detectLoopOn = true;
+    document.body.classList.add("is-scanning");
+    applyGuideMode();
+    const loop = async () => {
+      if (!detectLoopOn) return;
+      await tickDetect();
+      if (!detectLoopOn) return;
+      const delay = detectBackoffMs || 1600;
+      camTimer = setTimeout(loop, delay);
+    };
+    loop();
+  }
+
   function stopDetectLoop() {
+    detectLoopOn = false;
     if (camTimer) {
-      clearInterval(camTimer);
+      clearTimeout(camTimer);
       camTimer = null;
     }
   }
@@ -1586,10 +1612,7 @@
       if (els.btnFlipCam) els.btnFlipCam.disabled = false;
       stopDetectLoop();
       if (!opts.silentDetect && appMode === "monitor" && sourceMode === "camera") {
-        document.body.classList.add("is-scanning");
-        applyGuideMode();
-        camTimer = setInterval(tickDetect, isMobile() ? 1100 : 900);
-        tickDetect();
+        startDetectLoop();
       }
     } catch (err) {
       console.error(err);
@@ -1659,7 +1682,7 @@
       mediaStream = null;
       els.liveVideo.srcObject = null;
     }
-    const wasScanning = !!camTimer;
+    const wasScanning = detectLoopOn;
     stopDetectLoop();
     try {
       mediaStream = await openCameraStream(preferredFacing);
@@ -1669,10 +1692,7 @@
       els.btnStartCam.disabled = true;
       els.btnStopCam.disabled = false;
       if (wasScanning && appMode === "monitor" && sourceMode === "camera") {
-        document.body.classList.add("is-scanning");
-        applyGuideMode();
-        camTimer = setInterval(tickDetect, isMobile() ? 1100 : 900);
-        tickDetect();
+        startDetectLoop();
       }
       const hint = $("#speedHint");
       if (hint) {
