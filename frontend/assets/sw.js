@@ -1,6 +1,6 @@
-/* Service worker v31: no cachear HTML (siempre versión nueva del servidor) */
-const CACHE = "vigiepp-shell-v31";
-const ASSETS = ["/assets/styles.css?v=31", "/assets/app.js?v=31", "/assets/favicon.png", "/assets/manifest.webmanifest"];
+/* Service worker v32: ID+EPP alternado */
+const CACHE = "vigiepp-shell-v32";
+const ASSETS = ["/assets/styles.css?v=32", "/assets/app.js?v=32", "/assets/favicon.png", "/assets/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
@@ -19,7 +19,6 @@ self.addEventListener("fetch", (event) => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.pathname.startsWith("/api/")) return;
-  // HTML siempre red (evita quedar pegado en v28/v30)
   if (url.pathname === "/" || url.pathname.endsWith(".html")) {
     event.respondWith(fetch(req));
     return;

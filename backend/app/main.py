@@ -48,12 +48,12 @@ _detect_lock = threading.Lock()
 _DETECT_IMGSZ_MAX = int(os.getenv("VIGIEPP_IMGSZ_MAX", "320"))
 
 
-BUILD_VERSION = "v31"
+BUILD_VERSION = "v32"
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    # Render Free: identidad primero (portería). YOLO solo bajo demanda (ahorra RAM / 502).
+    # Render Free: identidad primero; YOLO lazy ~10s después (ID+EPP sin OOM).
     def _warm() -> None:
         try:
             from . import cloud_persist as cloud_mod
@@ -71,7 +71,16 @@ async def lifespan(_: FastAPI):
             logger.info("Identidad facial precargada")
         except Exception:  # noqa: BLE001
             logger.exception("Precarga de identidad facial falló")
-        # YOLO NO se precarga: en 512 MB compite con SFace y tumba el proceso (502).
+
+        def _lazy_yolo() -> None:
+            time.sleep(10)
+            try:
+                PPEDetector.get()
+                logger.info("Modelo EPP precargado (lazy, post-identidad)")
+            except Exception:  # noqa: BLE001
+                logger.exception("Precarga lazy EPP falló")
+
+        threading.Thread(target=_lazy_yolo, name="epp-lazy", daemon=True).start()
 
     threading.Thread(target=_warm, name="vigiepp-warm", daemon=True).start()
     yield

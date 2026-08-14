@@ -127,9 +127,10 @@
     repSideList: $("#repSideList"),
   };
 
-  const APP_BUILD = "v31";
+  const APP_BUILD = "v32";
 
   let profiles = [];
+  let scanPhase = "epp"; // alterna EPP ↔ ID cuando ambos activos
   let mediaStream = null;
   let camTimer = null;
   let detectLoopOn = false;
@@ -994,19 +995,26 @@
     const idOn = !!els.chkIdentify?.checked;
     const idReady = !!health.identity_ready;
     const eppReady = !!health.model_ready;
-    const ready = idOn ? idReady : eppReady || idReady;
+    const ready = idOn ? idReady && eppReady : eppReady || idReady;
     els.modelStatus.classList.toggle("ready", ready);
     els.modelStatus.classList.toggle("error", !ready && !!health.warning);
-    if (ready) {
-      const tag = idOn
-        ? `ID lista · ${health.workers_ready || 0} persona(s) · ${health.gallery_size || 0} plantillas`
-        : `IA lista · ${health.model || "EPP"}`;
-      els.modelStatusText.textContent = tag;
+    if (idOn) {
+      if (idReady && eppReady) {
+        els.modelStatusText.textContent = `ID+EPP listos · ${health.workers_ready || 0} persona(s)`;
+      } else if (idReady) {
+        els.modelStatusText.textContent = "ID lista · EPP cargando (10–30 s)…";
+      } else if (eppReady) {
+        els.modelStatusText.textContent = "EPP lista · ID cargando…";
+      } else {
+        els.modelStatusText.textContent = health.warning || "Cargando ID+EPP…";
+      }
+    } else if (ready) {
+      els.modelStatusText.textContent = `IA lista · ${health.model || "EPP"}`;
     } else {
-      els.modelStatusText.textContent = health.warning || (idOn ? "Cargando identidad…" : "Cargando IA…");
+      els.modelStatusText.textContent = health.warning || "Cargando IA…";
     }
     if (els.fpsLabel && health.build) {
-      els.fpsLabel.textContent = `${health.build} · ${idOn ? "modo ID" : "modo EPP"}`;
+      els.fpsLabel.textContent = `${health.build} · ${idOn ? "ID+EPP" : "EPP"}`;
     }
     showPersistBanner(health);
     return ready;
@@ -1053,7 +1061,7 @@
         regs.forEach((r) => r.unregister().catch(() => {}));
       });
       setTimeout(() => {
-        navigator.serviceWorker.register("/assets/sw.js?v=31").catch(() => {});
+        navigator.serviceWorker.register("/assets/sw.js?v=32").catch(() => {});
       }, 400);
     }
     const offlineBadge = $("#offlineBadge");
@@ -1497,9 +1505,10 @@
         } catch (_) {}
         if (ready) {
           detectBackoffMs = 700;
-          els.fpsLabel.textContent = "reintentando…";
+          els.fpsLabel.textContent = "EPP cargando…";
           if (els.complianceSummary) {
-            els.complianceSummary.textContent = "IA lista. Escaneando el siguiente frame…";
+            els.complianceSummary.textContent =
+              "YOLO cargando (~15 s tras arranque). El escaneo EPP sigue en cola…";
           }
         } else {
           detectBackoffMs = 4000;
@@ -1644,9 +1653,17 @@
     if (appMode !== "monitor" || sourceMode !== "camera") return;
     const wantId = !!els.chkIdentify?.checked;
     const now = Date.now();
-    // Con ID activa: SOLO reconocimiento facial, sin YOLO (evita 502 en Render Free)
+
+    // ID+EPP: alternar requests (nunca juntos → evita 502 en Render Free)
     if (wantId) {
-      const idGap = Math.max(5000, detectBackoffMs || 5000);
+      if (scanPhase === "epp") {
+        const blob = await captureBlob(0.52, 380);
+        if (!blob) return;
+        await detectBlob(blob, { identify: false, returnImage: false });
+        scanPhase = "id";
+        return;
+      }
+      const idGap = Math.max(4000, detectBackoffMs || 4000);
       if (now - lastIdentifyAt < idGap) return;
       lastIdentifyAt = now;
       try {
@@ -1659,9 +1676,12 @@
         }
         if (els.identityMethod) els.identityMethod.textContent = "Identificando…";
       }
+      scanPhase = "epp";
       return;
     }
-    const blob = await captureBlob(0.5, 360);
+
+    scanPhase = "epp";
+    const blob = await captureBlob(0.52, 380);
     if (!blob) return;
     await detectBlob(blob, { identify: false, returnImage: false });
   }
@@ -1675,7 +1695,7 @@
       if (!detectLoopOn) return;
       await tickDetect();
       if (!detectLoopOn) return;
-      const delay = detectBackoffMs || (els.chkIdentify?.checked ? 5000 : 2500);
+      const delay = detectBackoffMs || (els.chkIdentify?.checked ? 3200 : 2500);
       camTimer = setTimeout(loop, delay);
     };
     loop();
