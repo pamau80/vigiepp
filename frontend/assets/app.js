@@ -421,17 +421,24 @@
       });
       if (res.status === 401 && !path.startsWith("/api/auth/")) {
         sessionStorage.removeItem("vigiepp.token");
+        sessionStorage.removeItem("vigiepp.role");
         await ensureAuth(true);
-        throw new Error("Sesión expirada. Volvé a entrar.");
+        throw new Error("Sesión expirada. Ingresá el PIN de nuevo.");
       }
       const data = await res.json().catch(() => ({}));
+      // 503 booting: devolver payload para que el loop reintente sin “error”
+      if (res.status === 503 && data && (data.booting || data.error)) {
+        return { ...data, ok: false, _http: 503 };
+      }
       if (!res.ok && res.status !== 202) {
         const detail = data.detail || data.error || `HTTP ${res.status}`;
         throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
       }
       return data;
     } catch (err) {
-      if (err.name === "AbortError") throw new Error("Tiempo agotado. Reintentá.");
+      if (err.name === "AbortError") {
+        throw new Error("Tiempo agotado (servidor lento o IA cargando). Esperá 10 s y reintentá.");
+      }
       throw err;
     } finally {
       clearTimeout(timer);
@@ -998,7 +1005,7 @@
     hideLiveVideo();
     await refreshCameraPermissionHint();
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/assets/sw.js?v=26").catch(() => {});
+      navigator.serviceWorker.register("/assets/sw.js?v=27").catch(() => {});
     }
     const offlineBadge = $("#offlineBadge");
     const syncOffline = () => {
@@ -1426,18 +1433,39 @@
       fd.append("return_image", returnImage ? "true" : "false");
       fd.append("imgsz", "416");
       fd.append("threshold", String(settings.identifyThreshold || 0.42));
-      const data = await api("/api/detect", { method: "POST", body: fd }, 15000);
+      // Render Free + identify puede tardar; 45s evita falsos timeouts
+      const data = await api("/api/detect", { method: "POST", body: fd }, 45000);
+      if (data?.booting || data?._http === 503) {
+        els.fpsLabel.textContent = "cargando IA…";
+        if (els.complianceSummary) {
+          els.complianceSummary.textContent = data.error || "Modelo cargando…";
+        }
+        return;
+      }
+      if (!data?.ok) {
+        els.fpsLabel.textContent = "sin frame";
+        return;
+      }
       updateUi(data);
       if (identify && data.identity?.known) refreshScans();
+      if (identify && data.identity?.booting) {
+        els.identityName.textContent = "ID cargando…";
+        els.identityRut.textContent = "El reconocimiento facial aún inicia";
+      }
       els.fpsLabel.textContent = `${Math.round(performance.now() - t0)} ms IA`;
     } catch (err) {
       console.error(err);
       const msg = String(err?.message || err || "");
-      els.fpsLabel.textContent = /401|autoriz/i.test(msg)
+      els.fpsLabel.textContent = /401|sesión|PIN/i.test(msg)
         ? "sesión"
-        : /timeout|network|fetch/i.test(msg)
-          ? "red"
-          : "error IA";
+        : /agotado|timeout|cargando/i.test(msg)
+          ? "lento"
+          : /red|network|fetch/i.test(msg)
+            ? "red"
+            : "error IA";
+      if (/agotado|cargando|lento/i.test(msg) && els.complianceSummary) {
+        els.complianceSummary.textContent = msg;
+      }
     } finally {
       busy = false;
     }

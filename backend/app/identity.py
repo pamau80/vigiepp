@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import threading
+import time
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -244,6 +245,7 @@ class IdentityRegistry:
 
     _instance: IdentityRegistry | None = None
     _lock = threading.Lock()
+    _load_started = False
 
     def __init__(self) -> None:
         global DATA_DIR, WORKERS_FILE, FACES_DIR, MODELS_DIR, YUNET_PATH, SFACE_PATH
@@ -263,9 +265,11 @@ class IdentityRegistry:
         self._detector: Any = None
         self._recognizer: Any = None
         self._backend = "none"
+        self._ready = False
         self._init_face_models()
         self._load()
         self._migrate_embeddings()
+        self._ready = True
 
     def _init_face_models(self) -> None:
         try:
@@ -291,10 +295,34 @@ class IdentityRegistry:
 
     @classmethod
     def get(cls) -> IdentityRegistry:
-        with cls._lock:
-            if cls._instance is None:
-                cls._instance = cls()
+        if cls._instance is not None and getattr(cls._instance, "_ready", False):
             return cls._instance
+        should_load = False
+        with cls._lock:
+            if cls._instance is not None and getattr(cls._instance, "_ready", False):
+                return cls._instance
+            if not cls._load_started:
+                cls._load_started = True
+                should_load = True
+        if should_load:
+            inst = cls.__new__(cls)
+            inst.__init__()
+            with cls._lock:
+                cls._instance = inst
+            return inst
+        # Otro hilo está cargando: esperar sin retener lock
+        for _ in range(200):  # ~20s
+            time.sleep(0.1)
+            if cls._instance is not None and getattr(cls._instance, "_ready", False):
+                return cls._instance
+        raise RuntimeError("Timeout cargando identidad facial")
+
+    @classmethod
+    def peek(cls) -> IdentityRegistry | None:
+        inst = cls._instance
+        if inst is None or not getattr(inst, "_ready", False):
+            return None
+        return inst
 
     def _load(self) -> None:
         if not WORKERS_FILE.exists():

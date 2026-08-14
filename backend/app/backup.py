@@ -23,6 +23,7 @@ SITE_FILES = (
     "cameras.json",
     "notifications.json",
     "audit.jsonl",
+    "sessions.json",
 )
 
 
@@ -197,4 +198,5 @@ def reload_identity_registry() -> None:
 
     with IdentityRegistry._lock:
         IdentityRegistry._instance = None
+        IdentityRegistry._load_started = False
     IdentityRegistry.get()

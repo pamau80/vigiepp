@@ -222,7 +222,7 @@ def _build_response(
         "safety_score": live_score,
         "model": PPEDetector.get().model_name,
         "model_ready": PPEDetector.get().ready,
-        "model_warning": PPEDetector.get().error,
+        "model_warning": (PPEDetector.peek().error if PPEDetector.peek() else None),
     }
     if frame_wh:
         payload["frame_width"] = frame_wh[0]
@@ -511,11 +511,40 @@ async def detect_upload(
         scale = max_side / max(h, w)
         frame = cv2.resize(frame, (int(w * scale), int(h * scale)))
 
-    det = PPEDetector.get()
+    det = PPEDetector.peek()
+    if det is None or not det.ready:
+        # No bloquear: el warm thread carga el modelo; el cliente reintenta.
+        threading.Thread(target=PPEDetector.get, name="epp-load", daemon=True).start()
+        return JSONResponse(
+            {
+                "ok": False,
+                "booting": True,
+                "error": "Modelo IA cargando… reintentá en unos segundos.",
+                "detections": [],
+                "compliance": {"overall_compliant": False, "persons": [], "summary": "Cargando IA"},
+            },
+            status_code=503,
+        )
+
     detections, annotated = det.predict(frame, conf=conf, imgsz=imgsz)
 
     thr = max(0.28, min(0.7, float(threshold or 0.42)))
-    identity = _identify_on_frame(frame, threshold=thr) if identify else None
+    identity = None
+    if identify:
+        reg = IdentityRegistry.peek()
+        if reg is None:
+            threading.Thread(target=IdentityRegistry.get, name="id-load", daemon=True).start()
+            identity = {
+                "known": False,
+                "booting": True,
+                "name": None,
+                "rut": None,
+                "method": None,
+                "faces_detected": 0,
+                "reject_reason": "identity_loading",
+            }
+        else:
+            identity = _identify_on_frame(frame, threshold=thr)
     if identity and return_image:
         annotated = _draw_identity(annotated, identity)
 

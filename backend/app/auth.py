@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import hmac
+import json
+import logging
 import os
 import secrets
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException, Request, Response
@@ -21,11 +24,53 @@ ROLE_OPERATOR = "operator"
 LOGIN_WINDOW_S = 300
 LOGIN_MAX_ATTEMPTS = 8
 
+logger = logging.getLogger("vigiepp.auth")
+
 _lock = threading.Lock()
 # token -> {expires_at, role}
 _sessions: dict[str, dict[str, Any]] = {}
 # ip -> [timestamps]
 _login_attempts: dict[str, list[float]] = {}
+_sessions_loaded = False
+
+
+def _sessions_path() -> Path:
+    try:
+        from .paths import data_dir
+
+        return data_dir() / "sessions.json"
+    except Exception:  # noqa: BLE001
+        return Path("sessions.json")
+
+
+def _load_sessions() -> None:
+    global _sessions_loaded
+    if _sessions_loaded:
+        return
+    path = _sessions_path()
+    try:
+        if path.is_file():
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                now = time.time()
+                for tok, meta in raw.items():
+                    if isinstance(meta, dict) and float(meta.get("expires_at") or 0) > now:
+                        _sessions[str(tok)] = {
+                            "expires_at": float(meta["expires_at"]),
+                            "role": meta.get("role") or ROLE_ADMIN,
+                        }
+    except Exception:  # noqa: BLE001
+        logger.warning("No se pudieron cargar sesiones persistidas", exc_info=True)
+    _sessions_loaded = True
+
+
+def _persist_sessions() -> None:
+    path = _sessions_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(_sessions, ensure_ascii=False), encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        logger.warning("No se pudieron guardar sesiones", exc_info=True)
 
 
 def auth_enabled() -> bool:
@@ -72,11 +117,13 @@ def _purge_expired() -> None:
 def create_session(role: str = ROLE_ADMIN) -> str:
     token = secrets.token_urlsafe(32)
     with _lock:
+        _load_sessions()
         _purge_expired()
         _sessions[token] = {
             "expires_at": time.time() + SESSION_HOURS * 3600,
             "role": role if role in (ROLE_ADMIN, ROLE_OPERATOR) else ROLE_ADMIN,
         }
+        _persist_sessions()
     return token
 
 
@@ -84,7 +131,9 @@ def revoke_session(token: str | None) -> None:
     if not token:
         return
     with _lock:
+        _load_sessions()
         _sessions.pop(token, None)
+        _persist_sessions()
 
 
 def session_valid(token: str | None) -> bool:
@@ -95,6 +144,7 @@ def session_meta(token: str | None) -> dict[str, Any] | None:
     if not token:
         return None
     with _lock:
+        _load_sessions()
         _purge_expired()
         meta = _sessions.get(token)
         if not meta:

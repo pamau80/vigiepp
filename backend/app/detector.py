@@ -60,32 +60,40 @@ class PPEDetector:
 
     _instance: PPEDetector | None = None
     _lock = threading.Lock()
+    _load_started = False
 
     def __init__(self) -> None:
         self.model = None
-        self.model_name = ""
+        self.model_name = "Cargando…"
         self.ready = False
         self.error: str | None = None
         self.using_custom = False
-        self._load()
 
     @classmethod
     def get(cls) -> PPEDetector:
+        """Devuelve el singleton. La carga pesada NO retiene el lock (evita timeouts en Render)."""
+        if cls._instance is not None and cls._instance.ready:
+            return cls._instance
+        should_load = False
         with cls._lock:
             if cls._instance is None:
                 cls._instance = cls()
-            return cls._instance
+            if not cls._load_started:
+                cls._load_started = True
+                should_load = True
+            inst = cls._instance
+        if should_load:
+            inst._load()
+        return inst
 
     @classmethod
     def peek(cls) -> PPEDetector | None:
-        """No bloquea: None si el modelo aún no terminó de cargar."""
+        """No bloquea ni inicia carga."""
         return cls._instance
 
     @classmethod
     def try_get(cls) -> PPEDetector | None:
-        """Como get(), pero no inicia la carga si otro hilo ya la tiene."""
-        with cls._lock:
-            return cls._instance
+        return cls._instance
 
     def load_custom_model(self, weights: Path | str | None = None) -> dict[str, Any]:
         """Activa un modelo entrenado por el cliente (teach)."""
