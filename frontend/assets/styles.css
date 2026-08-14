@@ -303,6 +303,7 @@ input, select, textarea, button {
 #overlayCanvas { pointer-events: none; z-index: 2; }
 #annotatedImg { z-index: 1; }
 #liveVideo { z-index: 1; background: #0a0e0c; }
+#liveVideo[hidden] { display: none !important; }
 
 .silhouette-guide {
   position: absolute;

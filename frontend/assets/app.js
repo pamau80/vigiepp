@@ -543,13 +543,50 @@
     if (btn) btn.classList.toggle("hidden", !showStart);
   }
 
+  function hideLiveVideo() {
+    if (els.liveVideo) {
+      els.liveVideo.hidden = true;
+      els.liveVideo.removeAttribute("src");
+      try {
+        els.liveVideo.srcObject = null;
+      } catch (_) {}
+    }
+    if (els.liveBadge) els.liveBadge.hidden = true;
+  }
+
   function showLive() {
     els.overlayHint.hidden = true;
     els.annotatedImg.hidden = true;
-    els.liveVideo.hidden = false;
+    const hasFrames = !!(els.liveVideo?.videoWidth && mediaStream);
+    // Nunca mostrar el <video> vacío: Chrome dibuja un teléfono con candado
+    els.liveVideo.hidden = !hasFrames;
     els.overlayCanvas.hidden = false;
-    const hasFrames = !!(els.liveVideo.videoWidth && mediaStream);
     if (els.liveBadge) els.liveBadge.hidden = !hasFrames;
+  }
+
+  async function cameraPermissionState() {
+    try {
+      if (!navigator.permissions?.query) return "unknown";
+      const st = await navigator.permissions.query({ name: "camera" });
+      return st.state || "unknown";
+    } catch (_) {
+      return "unknown";
+    }
+  }
+
+  async function refreshCameraPermissionHint() {
+    const state = await cameraPermissionState();
+    if (state === "denied") {
+      setOverlayHint(
+        "Chrome bloqueó la cámara en este sitio (ícono con X roja en la barra). Tocá ese ícono → Cámara → Permitir → Recargar, y después Iniciar.",
+        { showStart: true }
+      );
+      return "denied";
+    }
+    if (!mediaStream) {
+      setOverlayHint("Tocá Iniciar y permití la cámara para evaluar EPP", { showStart: true });
+    }
+    return state;
   }
 
   async function waitForVideoFrames(timeoutMs = 4000) {
@@ -958,8 +995,10 @@
     applyGuideMode();
     setAppMode("monitor");
     if (settings.kioskMode) setKioskMode(true);
+    hideLiveVideo();
+    await refreshCameraPermissionHint();
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/assets/sw.js").catch(() => {});
+      navigator.serviceWorker.register("/assets/sw.js?v=25").catch(() => {});
     }
     const offlineBadge = $("#offlineBadge");
     const syncOffline = () => {
@@ -1457,6 +1496,7 @@
         els.liveVideo.setAttribute("webkit-playsinline", "");
         els.liveVideo.muted = true;
         els.liveVideo.srcObject = mediaStream;
+        els.liveVideo.hidden = false;
         try {
           await els.liveVideo.play();
         } catch (_) {}
@@ -1481,19 +1521,21 @@
       if (mediaStream) {
         mediaStream.getTracks().forEach((t) => t.stop());
         mediaStream = null;
-        els.liveVideo.srcObject = null;
       }
+      hideLiveVideo();
       els.btnStartCam.disabled = false;
       els.btnStopCam.disabled = true;
-      if (els.liveBadge) els.liveBadge.hidden = true;
       const msg = String(err?.name || err?.message || err || "");
+      const perm = await cameraPermissionState();
       let tip = "No se pudo acceder a la cámara. Tocá Iniciar y permití el acceso.";
-      if (/NotAllowed|Permission|denied|NotReadable/i.test(msg)) {
+      if (perm === "denied" || /NotAllowed|Permission|denied/i.test(msg)) {
         tip = isIOS()
           ? "Cámara bloqueada. En Ajustes → Safari → Cámara, permití acceso y recargá."
-          : "Cámara bloqueada. Tocá el candado de la barra de dirección → Permisos → Cámara → Permitir, y volvé a Iniciar.";
+          : "Chrome bloqueó la cámara (ícono con X roja junto a la URL). Tocá ese ícono → Cámara → Permitir → Recargar → Iniciar.";
+      } else if (/NotReadable|TrackStart|AbortError/i.test(msg)) {
+        tip = "La cámara está ocupada por otra app (Zoom, Teams, Meet…). Cerrala y tocá Iniciar.";
       } else if (/NoImage/i.test(msg)) {
-        tip = "La cámara no entrega imagen. Cerrá Zoom/Meet u otra app que la use y tocá Iniciar.";
+        tip = "La cámara no entrega imagen. Cerrá otras apps que la usen y tocá Iniciar.";
       } else if (/NotFound|DevicesNotFound/i.test(msg)) {
         tip = "No hay cámara disponible en este dispositivo.";
       } else if (/secure|HTTPS/i.test(msg)) {
@@ -1577,10 +1619,9 @@
       mediaStream.getTracks().forEach((t) => t.stop());
       mediaStream = null;
     }
-    els.liveVideo.srcObject = null;
+    hideLiveVideo();
     els.btnStartCam.disabled = false;
     els.btnStopCam.disabled = true;
-    if (els.liveBadge) els.liveBadge.hidden = true;
     clearOverlay();
     els.personChip.classList.add("hidden");
     setOverlayHint("Tocá Iniciar y permití la cámara para evaluar EPP", { showStart: true });

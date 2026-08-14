@@ -21,7 +21,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/styles.css" />
+  <link rel="stylesheet" href="/assets/styles.css?v=25" />
 </head>
 <body>
   <div id="authGate" class="auth-gate hidden" aria-modal="true" role="dialog">
@@ -98,7 +98,7 @@
 
       <div class="viewport viewport-portrait">
         <div class="scan-frame">
-          <video id="liveVideo" playsinline webkit-playsinline muted preload="none"></video>
+          <video id="liveVideo" playsinline webkit-playsinline muted preload="none" hidden></video>
           <canvas id="overlayCanvas"></canvas>
           <img id="annotatedImg" alt="Resultado" hidden />
           <div class="silhouette-guide" id="silhouetteGuide" data-guide="body" aria-hidden="true">
@@ -135,6 +135,9 @@
           <div class="viewport-overlay" id="overlayHint">
             <p id="overlayHintText">Tocá Iniciar y permití la cámara para evaluar EPP</p>
             <button type="button" class="btn primary" id="btnOverlayStart">Iniciar cámara</button>
+            <p class="hint" id="overlayHintSub" style="max-width:20rem;margin:0;font-size:0.85rem">
+              Si ves un ícono de cámara con X roja junto a la URL, Chrome la tiene bloqueada: tocá ese ícono → Permitir → Recargar.
+            </p>
           </div>
           <div class="live-badge" id="liveBadge" hidden><span class="pulse"></span> EN VIVO</div>
           <div class="align-badge" id="alignBadge" data-state="idle">Posicionate</div>
@@ -580,6 +583,6 @@
     <span id="fpsLabel">— ms</span>
   </footer>
 
-  <script src="/assets/app.js"></script>
+  <script src="/assets/app.js?v=25"></script>
 </body>
 </html>
