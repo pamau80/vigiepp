@@ -1,4 +1,4 @@
-# VigiEPP — imagen cloud (CPU)
+# VigiEPP — imagen cloud (CPU) — build v31
 FROM python:3.12-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

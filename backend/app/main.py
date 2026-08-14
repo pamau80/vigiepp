@@ -48,15 +48,13 @@ _detect_lock = threading.Lock()
 _DETECT_IMGSZ_MAX = int(os.getenv("VIGIEPP_IMGSZ_MAX", "320"))
 
 
+BUILD_VERSION = "v31"
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    # Precarga en background: Render Free mata el health check a los 5s si
-    # bloqueamos el arranque cargando YOLO / HF / YuNet.
+    # Render Free: identidad primero (portería). YOLO solo bajo demanda (ahorra RAM / 502).
     def _warm() -> None:
-        try:
-            PPEDetector.get()
-        except Exception:  # noqa: BLE001
-            logger.exception("Precarga de modelo EPP falló")
         try:
             from . import cloud_persist as cloud_mod
 
@@ -70,8 +68,10 @@ async def lifespan(_: FastAPI):
             logger.exception("Durable persist pull falló")
         try:
             IdentityRegistry.get()
+            logger.info("Identidad facial precargada")
         except Exception:  # noqa: BLE001
             logger.exception("Precarga de identidad facial falló")
+        # YOLO NO se precarga: en 512 MB compite con SFace y tumba el proceso (502).
 
     threading.Thread(target=_warm, name="vigiepp-warm", daemon=True).start()
     yield
@@ -409,6 +409,7 @@ class HardwareTestBody(BaseModel):
 def health() -> dict[str, Any]:
     # No llamar PPEDetector.get(): en cold start bloquearía >5s y Render marca 502.
     det = PPEDetector.peek()
+    reg = IdentityRegistry.peek()
     from . import cloud_persist as cloud_mod
 
     cloud = cloud_mod.status()
@@ -424,13 +425,27 @@ def health() -> dict[str, Any]:
     if on_render and not durable and os.getenv("VIGIEPP_EPHEMERAL", "1").strip() not in ("0", "false", "no"):
         ephemeral_risk = True
         data_persistent = False
+    gallery_size = 0
+    workers_ready = 0
+    if reg is not None:
+        for w in reg.list_workers():
+            ec = int(w.get("embedding_count") or 0)
+            gallery_size += ec
+            if w.get("ready"):
+                workers_ready += 1
+    identity_ready = reg is not None
+    epp_ready = bool(det and det.ready)
     return {
         "status": "ok",
         "product": "VigiEPP",
-        "model_ready": bool(det and det.ready),
-        "model": (det.model_name if det else "") or "",
-        "warning": (det.error if det else None) or ("Cargando modelo…" if not det else None),
-        "booting": det is None or not det.ready,
+        "build": BUILD_VERSION,
+        "model_ready": epp_ready,
+        "identity_ready": identity_ready,
+        "gallery_size": gallery_size,
+        "workers_ready": workers_ready,
+        "model": (det.model_name if det else "") or ("EPP bajo demanda" if not epp_ready else ""),
+        "warning": (det.error if det else None) or (None if identity_ready else "Cargando identidad…"),
+        "booting": not identity_ready and not epp_ready,
         "auth_enabled": auth_mod.auth_enabled(),
         "data_dir": str(paths_mod.data_dir()),
         "data_persistent": bool(data_persistent),
@@ -1355,7 +1370,13 @@ if FRONTEND_DIR.exists():
     @app.get("/", response_class=HTMLResponse)
     async def index() -> HTMLResponse:
         html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
-        return HTMLResponse(html)
+        return HTMLResponse(
+            html,
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate",
+                "Pragma": "no-cache",
+            },
+        )
 else:
 
     @app.get("/")

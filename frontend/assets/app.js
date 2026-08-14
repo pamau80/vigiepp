@@ -127,6 +127,8 @@
     repSideList: $("#repSideList"),
   };
 
+  const APP_BUILD = "v31";
+
   let profiles = [];
   let mediaStream = null;
   let camTimer = null;
@@ -988,13 +990,24 @@
   }
 
   function applyHealth(health) {
-    if (!health) return;
-    const ready = !!health.model_ready && !health.booting;
+    if (!health) return false;
+    const idOn = !!els.chkIdentify?.checked;
+    const idReady = !!health.identity_ready;
+    const eppReady = !!health.model_ready;
+    const ready = idOn ? idReady : eppReady || idReady;
     els.modelStatus.classList.toggle("ready", ready);
-    els.modelStatus.classList.toggle("error", !health.model_ready && !!health.warning);
-    els.modelStatusText.textContent = ready
-      ? `IA lista · ${health.model || "EPP"}`
-      : health.warning || "Cargando IA…";
+    els.modelStatus.classList.toggle("error", !ready && !!health.warning);
+    if (ready) {
+      const tag = idOn
+        ? `ID lista · ${health.workers_ready || 0} persona(s) · ${health.gallery_size || 0} plantillas`
+        : `IA lista · ${health.model || "EPP"}`;
+      els.modelStatusText.textContent = tag;
+    } else {
+      els.modelStatusText.textContent = health.warning || (idOn ? "Cargando identidad…" : "Cargando IA…");
+    }
+    if (els.fpsLabel && health.build) {
+      els.fpsLabel.textContent = `${health.build} · ${idOn ? "modo ID" : "modo EPP"}`;
+    }
     showPersistBanner(health);
     return ready;
   }
@@ -1036,7 +1049,12 @@
     hideLiveVideo();
     await refreshCameraPermissionHint();
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/assets/sw.js?v=30").catch(() => {});
+      navigator.serviceWorker.getRegistrations().then((regs) => {
+        regs.forEach((r) => r.unregister().catch(() => {}));
+      });
+      setTimeout(() => {
+        navigator.serviceWorker.register("/assets/sw.js?v=31").catch(() => {});
+      }, 400);
     }
     const offlineBadge = $("#offlineBadge");
     const syncOffline = () => {
@@ -1466,8 +1484,9 @@
       fd.append("threshold", String(settings.identifyThreshold || 0.33));
       const data = await api("/api/detect", { method: "POST", body: fd }, 25000);
       if (data?.down || data?._http === 502) {
-        detectBackoffMs = Math.min(20000, Math.max(8000, (detectBackoffMs || 4000) * 1.5));
-        els.fpsLabel.textContent = "servidor lento";
+        detectBackoffMs = Math.min(25000, Math.max(12000, (detectBackoffMs || 6000) * 1.4));
+        els.fpsLabel.textContent = "reintentando…";
+        if (els.complianceSummary) els.complianceSummary.textContent = "Servidor ocupado. Reintentando en unos segundos…";
         return;
       }
       if (data?.booting || data?._http === 503) {
@@ -1511,16 +1530,14 @@
     } catch (err) {
       console.error(err);
       const msg = String(err?.message || err || "");
-      const down = /502|caído|agotado|timeout|HTTP2|protocol/i.test(msg);
-      if (down) detectBackoffMs = Math.min(20000, Math.max(8000, (detectBackoffMs || 4000) * 1.5));
-      els.fpsLabel.textContent = /401|sesión|PIN/i.test(msg)
-        ? "sesión"
-        : down
-          ? "servidor lento"
-          : /red|network|fetch/i.test(msg)
-            ? "red"
-            : "error IA";
-      if (els.complianceSummary) els.complianceSummary.textContent = msg;
+      const down = /502|503|caído|agotado|timeout|HTTP2|protocol|ocupado/i.test(msg);
+      if (down) detectBackoffMs = Math.min(25000, Math.max(12000, (detectBackoffMs || 6000) * 1.4));
+      els.fpsLabel.textContent = down ? "reintentando…" : /401|sesión|PIN/i.test(msg) ? "sesión" : "error IA";
+      if (els.complianceSummary) {
+        els.complianceSummary.textContent = down
+          ? "Servidor ocupado. Reintentando…"
+          : msg;
+      }
     } finally {
       busy = false;
     }
@@ -1593,8 +1610,8 @@
     fd.append("return_image", flash ? "true" : "false");
     const data = await api("/api/identity/identify", { method: "POST", body: fd }, 20000);
     if (data?.down || data?._http === 502 || data?.booting || data?._http === 503) {
-      detectBackoffMs = Math.min(20000, Math.max(8000, (detectBackoffMs || 4000) * 1.5));
-      if (els.identityMethod) els.identityMethod.textContent = "ID: servidor ocupado, reintentando…";
+      detectBackoffMs = Math.min(25000, Math.max(12000, (detectBackoffMs || 6000) * 1.4));
+      if (els.identityMethod) els.identityMethod.textContent = "Identificando… (servidor ocupado, reintenta solo)";
       return null;
     }
     if (data?._http === 429 || data?.busy) {
@@ -1627,20 +1644,24 @@
     if (appMode !== "monitor" || sourceMode !== "camera") return;
     const wantId = !!els.chkIdentify?.checked;
     const now = Date.now();
-    if (wantId && now - lastIdentifyAt > 2800) {
+    // Con ID activa: SOLO reconocimiento facial, sin YOLO (evita 502 en Render Free)
+    if (wantId) {
+      const idGap = Math.max(5000, detectBackoffMs || 5000);
+      if (now - lastIdentifyAt < idGap) return;
       lastIdentifyAt = now;
       try {
         await identifyLiveFrame();
+        detectBackoffMs = 0;
       } catch (err) {
         const msg = String(err?.message || err || "");
-        if (/502|caído|agotado|timeout|ocupado/i.test(msg)) {
-          detectBackoffMs = Math.min(20000, Math.max(8000, (detectBackoffMs || 4000) * 1.5));
+        if (/502|503|caído|agotado|timeout|ocupado/i.test(msg)) {
+          detectBackoffMs = Math.min(25000, Math.max(12000, (detectBackoffMs || 6000) * 1.4));
         }
-        if (els.identityMethod) els.identityMethod.textContent = "ID: reintentando…";
+        if (els.identityMethod) els.identityMethod.textContent = "Identificando…";
       }
       return;
     }
-    const blob = await captureBlob(0.55, 400);
+    const blob = await captureBlob(0.5, 360);
     if (!blob) return;
     await detectBlob(blob, { identify: false, returnImage: false });
   }
@@ -1654,7 +1675,7 @@
       if (!detectLoopOn) return;
       await tickDetect();
       if (!detectLoopOn) return;
-      const delay = detectBackoffMs || 1600;
+      const delay = detectBackoffMs || (els.chkIdentify?.checked ? 5000 : 2500);
       camTimer = setTimeout(loop, delay);
     };
     loop();
