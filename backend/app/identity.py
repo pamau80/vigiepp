@@ -27,14 +27,18 @@ MODELS_DIR = face_models_dir()
 YUNET_PATH = MODELS_DIR / "face_detection_yunet_2023mar.onnx"
 SFACE_PATH = MODELS_DIR / "face_recognition_sface_2021dec.onnx"
 
-# Modo precisión: OpenCV SFace ~0.363; usamos umbral más alto + margen obligatorio.
-DEFAULT_THRESHOLD = 0.42
-MIN_MATCH_MARGIN = 0.06  # diferencia mínima vs 2.º candidato
+# OpenCV SFace cosine: ~0.363. Webcam+JPEG baja el score; 0.42 rechazaba al enrolado.
+DEFAULT_THRESHOLD = 0.33
+MIN_MATCH_MARGIN = 0.04  # diferencia mínima vs 2.º candidato (si hay más de 1 persona)
 MIN_SAMPLES_READY = 4  # muestras de calidad para considerar ficha lista
-MIN_SAMPLES_MATCH = 3  # por debajo: no se acepta match facial (evitar falsos)
-MIN_FACE_AREA_RATIO = 0.045  # cara ≥ ~4.5% del frame
+MIN_SAMPLES_MATCH = 2  # con 2+ embeddings ya se puede identificar
+MIN_FACE_AREA_RATIO = 0.045  # enrolar: cara ≥ ~4.5% del frame
 MIN_DETECT_SCORE = 0.65
-MIN_SHARPNESS = 35.0  # varianza Laplaciana del crop
+MIN_SHARPNESS = 35.0  # enrolar: varianza Laplaciana del crop
+# Match en vivo: la webcam de portería es más chica/borrosa que el enrolamiento
+MIN_FACE_AREA_RATIO_LIVE = 0.006
+MIN_DETECT_SCORE_LIVE = 0.35
+MIN_SHARPNESS_LIVE = 5.0
 
 CONSENT_VERSION = "1"
 
@@ -98,25 +102,34 @@ def is_identity_ready(face_samples: int) -> bool:
 def assess_face_quality(
     frame_bgr: np.ndarray,
     face_row: np.ndarray,
+    *,
+    strict: bool = True,
 ) -> tuple[bool, str, dict[str, Any]]:
-    """Valida tamaño, score YuNet, nitidez y frontalidad antes de enrolar/match."""
+    """Valida tamaño, score YuNet, nitidez y frontalidad.
+
+    strict=True: enrolamiento. strict=False: match en vivo (no bloquear el compare).
+    """
     h, w = frame_bgr.shape[:2]
     fx, fy, fw, fh = [float(v) for v in face_row[:4]]
     area_ratio = (fw * fh) / float(max(1, w * h))
     det_score = float(face_row[14]) if len(face_row) > 14 else 0.0
+    min_area = MIN_FACE_AREA_RATIO if strict else MIN_FACE_AREA_RATIO_LIVE
+    min_score = MIN_DETECT_SCORE if strict else MIN_DETECT_SCORE_LIVE
+    min_sharp = MIN_SHARPNESS if strict else MIN_SHARPNESS_LIVE
     meta: dict[str, Any] = {
         "area_ratio": round(area_ratio, 4),
         "detect_score": round(det_score, 3),
         "sharpness": None,
         "frontal": None,
+        "strict": strict,
     }
 
-    if area_ratio < MIN_FACE_AREA_RATIO:
+    if area_ratio < min_area:
         return False, "Acercá más el rostro a la cámara (muy lejos).", meta
-    if det_score and det_score < MIN_DETECT_SCORE:
+    if det_score and det_score < min_score:
         return False, "Rostro poco claro. Mejorá la luz y mirá de frente.", meta
 
-    # Landmarks YuNet: RE, LE, nose, RM, LM
+    # Landmarks YuNet: RE, LE, nose, RM, LM — solo obligatorio al enrolar
     if len(face_row) >= 14:
         re_x, re_y = float(face_row[4]), float(face_row[5])
         le_x, le_y = float(face_row[6]), float(face_row[7])
@@ -127,7 +140,7 @@ def assess_face_quality(
         eye_span = eye_dist / max(fw, 1.0)
         frontal_ok = eye_y_diff < 0.22 and nose_center < 0.45 and 0.25 <= eye_span <= 0.95
         meta["frontal"] = round(1.0 - min(1.0, eye_y_diff + nose_center * 0.5), 3)
-        if not frontal_ok:
+        if strict and not frontal_ok:
             return False, "Mirá de frente a la cámara (sin perfil extremo).", meta
 
     x1 = max(0, int(fx))
@@ -140,7 +153,7 @@ def assess_face_quality(
     gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
     sharp = float(cv2.Laplacian(gray, cv2.CV_64F).var())
     meta["sharpness"] = round(sharp, 1)
-    if sharp < MIN_SHARPNESS:
+    if sharp < min_sharp:
         return False, "Imagen borrosa. Sostené firme y con buena luz.", meta
     return True, "ok", meta
 
@@ -224,8 +237,8 @@ def worker_public(w: Worker) -> dict[str, Any]:
     d["has_photo"] = has_photo
     d["photo_url"] = f"/api/identity/workers/{w.id}/photo" if has_photo else None
     d["quality"] = w.quality or compute_quality(samples)
-    d["ready"] = is_identity_ready(samples) and (emb_count > 0 or samples > 0)
-    d["embedding_count"] = emb_count or samples
+    d["ready"] = is_identity_ready(samples) and emb_count >= MIN_SAMPLES_MATCH
+    d["embedding_count"] = emb_count
     d["min_samples_ready"] = MIN_SAMPLES_READY
     d["consent_ok"] = bool(w.consent_at)
     return d
@@ -795,6 +808,7 @@ class IdentityService:
             pts = np.array(qr["points"], dtype=np.int32)
             cv2.polylines(annotated, [pts], True, (0, 180, 255), 2)
 
+        gallery_n = sum(len(e) for e in self.registry._embeddings.values())
         faces = self.registry.detect_faces(frame_bgr)
         if not faces and self.registry._backend != "sface":
             cv2.putText(
@@ -809,29 +823,29 @@ class IdentityService:
 
         for face_row in faces:
             x, y, w, h = [int(v) for v in face_row[:4]]
-            ok_q, q_msg, q_meta = assess_face_quality(frame_bgr, face_row)
-            feat = self.registry.feature_from_face(frame_bgr, face_row) if ok_q else None
+            ok_q, q_msg, q_meta = assess_face_quality(frame_bgr, face_row, strict=False)
+            # Siempre extraer embedding: nitidez/ángulo no pueden bloquear el compare
+            feat = self.registry.feature_from_face(frame_bgr, face_row)
             best_id, best_score, second = None, -1.0, -1.0
-            reject_reason = None if ok_q else q_msg
+            reject_reason = None
+            if feat is None:
+                reject_reason = q_msg if not ok_q else "No se pudo leer el rostro"
 
             if feat is not None:
+                if gallery_n <= 0:
+                    reject_reason = "Sin plantillas faciales en servidor. Re-enrolá en Personas."
                 for wid, embs in self.registry._embeddings.items():
                     cand = self.registry._workers.get(wid)
                     if not cand or not getattr(cand, "active", True) or not embs:
                         continue
-                    # Fichas con pocas muestras: no participan (evita falsos positivos)
                     if len(embs) < MIN_SAMPLES_MATCH and int(cand.face_samples or 0) < MIN_SAMPLES_MATCH:
                         continue
-                    # Media de los 2 mejores matches contra la galería (más estable que un solo pico)
+                    # Mejor coincidencia de la galería (poses distintas: frente/lado/mentón)
                     sample_scores = sorted(
                         (self.registry.match_score(feat, e) for e in embs),
                         reverse=True,
                     )
-                    score = (
-                        float(np.mean(sample_scores[:2]))
-                        if len(sample_scores) >= 2
-                        else float(sample_scores[0])
-                    )
+                    score = float(sample_scores[0]) if sample_scores else -1.0
                     if score > best_score:
                         second = best_score
                         best_score, best_id = score, wid
@@ -842,19 +856,21 @@ class IdentityService:
             accepted = False
             confidence = "none"
             thr = float(threshold)
+            n_people = sum(1 for embs in self.registry._embeddings.values() if embs)
             margin = float(best_score - second) if best_id is not None else 0.0
 
-            if best_id is not None and feat is not None and not reject_reason:
-                # Aceptación estricta: umbral + margen vs 2.º (si hay competencia)
-                has_rival = second >= 0.0
+            if best_id is not None and feat is not None:
+                # Con una sola persona enrolada no hay rival: no exigir margen
+                has_rival = n_people >= 2 and second >= 0.0
                 margin_ok = (not has_rival) or (margin >= MIN_MATCH_MARGIN)
                 if best_score >= thr and margin_ok:
                     accepted = True
-                    confidence = "high" if best_score >= thr + 0.08 and margin >= MIN_MATCH_MARGIN + 0.04 else "medium"
+                    confidence = "high" if best_score >= thr + 0.08 else "medium"
+                    reject_reason = None
                 elif best_score >= thr and not margin_ok:
                     reject_reason = "Ambigüedad entre dos personas parecidas"
                     confidence = "ambiguous"
-                elif best_score >= thr - 0.04:
+                elif best_score >= thr - 0.08:
                     reject_reason = f"Score insuficiente ({best_score:.0%} < {thr:.0%})"
                     confidence = "low"
                 else:
@@ -956,5 +972,6 @@ class IdentityService:
             "faces_detected": len(faces),
             "backend": self.registry._backend,
             "threshold": threshold,
+            "gallery_size": gallery_n,
             "annotated": annotated,
         }

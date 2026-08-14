@@ -197,7 +197,7 @@
     identifyDefault: false,
     showPpeBoxes: false,
     fullscreenDefault: false,
-    identifyThreshold: 0.42,
+    identifyThreshold: 0.33,
     audioAlerts: true,
     audioAlertRepeats: 0,
     anonymizeFaces: true,
@@ -216,11 +216,17 @@
       settings.guideOffsetY = Math.max(-20, Math.min(20, Number(settings.guideOffsetY) || 0));
       settings.audioAlertRepeats = Math.max(0, Math.min(10, Number(settings.audioAlertRepeats) || 0));
       settings.identifyThreshold = Math.max(
-        0.3,
-        Math.min(0.65, Number(settings.identifyThreshold) || 0.42)
+        0.25,
+        Math.min(0.65, Number(settings.identifyThreshold) || 0.33)
       );
-      // Migrar umbral demo antiguo a modo precisión
-      if (settings.identifyThreshold < 0.38) settings.identifyThreshold = 0.42;
+      // El 0.42 de “modo precisión” rechazaba al enrolado en webcam real
+      if (!settings._idThreshV30) {
+        settings.identifyThreshold = 0.33;
+        settings._idThreshV30 = true;
+        try {
+          localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+        } catch (_) {}
+      }
     } catch (_) {
       settings = defaultSettings();
     }
@@ -249,7 +255,7 @@
     if (els.cfgPoseAttempts) els.cfgPoseAttempts.value = String(settings.poseAttempts || 8);
     if (els.cfgIdentifyDefault) els.cfgIdentifyDefault.checked = !!settings.identifyDefault;
     if (els.cfgIdThresh) {
-      const pct = Math.round((settings.identifyThreshold || 0.42) * 100);
+      const pct = Math.round((settings.identifyThreshold || 0.33) * 100);
       els.cfgIdThresh.value = String(pct);
       if (els.cfgIdThreshVal) els.cfgIdThreshVal.textContent = `${pct}%`;
     }
@@ -280,7 +286,7 @@
     settings.poseAttempts = Math.max(1, Math.min(20, Number(els.cfgPoseAttempts?.value) || 8));
     settings.identifyDefault = !!els.cfgIdentifyDefault?.checked;
     if (els.cfgIdThresh) {
-      settings.identifyThreshold = Math.max(0.3, Math.min(0.65, (Number(els.cfgIdThresh.value) || 42) / 100));
+      settings.identifyThreshold = Math.max(0.25, Math.min(0.65, (Number(els.cfgIdThresh.value) || 33) / 100));
       if (els.cfgIdThreshVal) els.cfgIdThreshVal.textContent = `${Math.round(settings.identifyThreshold * 100)}%`;
     }
     settings.showPpeBoxes = !!els.cfgShowBoxes?.checked;
@@ -437,7 +443,17 @@
           return { ok: false, busy: true, error: data.error || "IA ocupada", _http: 429 };
         }
         if (res.status === 502 || res.status === 503) {
-          throw new Error(res.status === 502 ? "Servidor caído (502). Esperá 15 s." : (data.error || "Servidor no listo"));
+          if (/\/api\/detect|\/api\/identity\/identify/.test(path)) {
+            return {
+              ok: false,
+              down: true,
+              _http: res.status,
+              error: "Servidor ocupado. Reintentando…",
+            };
+          }
+          throw new Error(
+            res.status === 502 ? "Servidor ocupado. Esperá 15 s." : data.error || "Servidor no listo"
+          );
         }
         const detail = data.detail || data.error || `HTTP ${res.status}`;
         throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
@@ -1020,7 +1036,7 @@
     hideLiveVideo();
     await refreshCameraPermissionHint();
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/assets/sw.js?v=29").catch(() => {});
+      navigator.serviceWorker.register("/assets/sw.js?v=30").catch(() => {});
     }
     const offlineBadge = $("#offlineBadge");
     const syncOffline = () => {
@@ -1414,7 +1430,10 @@
         .filter(Boolean)
         .join(" · ");
     } else if (identity.faces_detected) {
-      const why = identity.reject_reason || "sin match estricto";
+      const why =
+        identity.gallery_size === 0
+          ? "Sin plantillas en servidor. Re-enrolá en Personas"
+          : identity.reject_reason || "sin coincidencia";
       els.identityMethod.textContent = [
         "No identificado",
         score,
@@ -1444,8 +1463,13 @@
       fd.append("identify", identify ? "true" : "false");
       fd.append("return_image", returnImage ? "true" : "false");
       fd.append("imgsz", "320");
-      fd.append("threshold", String(settings.identifyThreshold || 0.42));
+      fd.append("threshold", String(settings.identifyThreshold || 0.33));
       const data = await api("/api/detect", { method: "POST", body: fd }, 25000);
+      if (data?.down || data?._http === 502) {
+        detectBackoffMs = Math.min(20000, Math.max(8000, (detectBackoffMs || 4000) * 1.5));
+        els.fpsLabel.textContent = "servidor lento";
+        return;
+      }
       if (data?.booting || data?._http === 503) {
         let ready = false;
         try {
@@ -1538,16 +1562,87 @@
     });
   }
 
+  function captureFaceBlob(quality = 0.88, maxW = 560) {
+    return new Promise((resolve) => {
+      const video = els.liveVideo;
+      if (!video.videoWidth) return resolve(null);
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      const side = Math.min(vw, Math.round(vh * 0.62));
+      const sx = Math.max(0, Math.round((vw - side) / 2));
+      const sy = Math.max(0, Math.round(vh * 0.05));
+      const sw = Math.min(side, vw - sx);
+      const sh = Math.min(side, vh - sy);
+      const scale = Math.min(1, maxW / sw);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(sw * scale);
+      canvas.height = Math.round(sh * scale);
+      canvas
+        .getContext("2d")
+        .drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob((blob) => resolve(blob), "image/jpeg", quality);
+    });
+  }
+
+  async function identifyLiveFrame({ flash = false } = {}) {
+    const blob = await captureFaceBlob(flash ? 0.92 : 0.88, flash ? 640 : 560);
+    if (!blob) return null;
+    const fd = new FormData();
+    fd.append("file", blob, "id.jpg");
+    fd.append("threshold", String(settings.identifyThreshold || 0.33));
+    fd.append("return_image", flash ? "true" : "false");
+    const data = await api("/api/identity/identify", { method: "POST", body: fd }, 20000);
+    if (data?.down || data?._http === 502 || data?.booting || data?._http === 503) {
+      detectBackoffMs = Math.min(20000, Math.max(8000, (detectBackoffMs || 4000) * 1.5));
+      if (els.identityMethod) els.identityMethod.textContent = "ID: servidor ocupado, reintentando…";
+      return null;
+    }
+    if (data?._http === 429 || data?.busy) {
+      detectBackoffMs = 1500;
+      return null;
+    }
+    const m0 = data.matches?.[0] || {};
+    const faceBox = m0.box || null;
+    if (faceBox) lastFaceBox = faceBox;
+    const identified = data.identified;
+    const card = {
+      known: !!identified?.id,
+      name: identified?.name || null,
+      rut: identified?.rut || null,
+      score: m0.score,
+      confidence: m0.confidence,
+      reject_reason: m0.reject_reason,
+      faces_detected: data.faces_detected || 0,
+      face_box: faceBox,
+      gallery_size: data.gallery_size,
+    };
+    lastIdentity = card;
+    setIdentityCard(card);
+    drawDetections([], lastFrameSize.w, lastFrameSize.h, card);
+    if (card.known) refreshScans();
+    return data;
+  }
+
   async function tickDetect() {
     if (appMode !== "monitor" || sourceMode !== "camera") return;
-    const blob = await captureBlob(0.55, 400);
-    if (!blob) return;
     const wantId = !!els.chkIdentify?.checked;
     const now = Date.now();
-    const idGap = 3500;
-    const identify = wantId && now - lastIdentifyAt > idGap;
-    if (identify) lastIdentifyAt = now;
-    await detectBlob(blob, { identify, returnImage: false });
+    if (wantId && now - lastIdentifyAt > 2800) {
+      lastIdentifyAt = now;
+      try {
+        await identifyLiveFrame();
+      } catch (err) {
+        const msg = String(err?.message || err || "");
+        if (/502|caído|agotado|timeout|ocupado/i.test(msg)) {
+          detectBackoffMs = Math.min(20000, Math.max(8000, (detectBackoffMs || 4000) * 1.5));
+        }
+        if (els.identityMethod) els.identityMethod.textContent = "ID: reintentando…";
+      }
+      return;
+    }
+    const blob = await captureBlob(0.55, 400);
+    if (!blob) return;
+    await detectBlob(blob, { identify: false, returnImage: false });
   }
 
   function startDetectLoop() {
@@ -2411,53 +2506,21 @@
   async function identifyWorker() {
     identifyingNow = true;
     applyGuideMode();
+    stopDetectLoop();
     if (!mediaStream) await startCamera({ silentDetect: true });
     showLive();
-    const blob = await captureBlob(0.92, 960);
-    const fd = new FormData();
-    fd.append("file", blob, "id.jpg");
-    fd.append("threshold", String(settings.identifyThreshold || 0.42));
     try {
-      const data = await api("/api/identity/identify", { method: "POST", body: fd });
-      const faceBox = data.matches?.[0]?.box || null;
-      const m0 = data.matches?.[0] || {};
-      if (faceBox) lastFaceBox = faceBox;
-      if (data.identified) {
-        setIdentityCard({
-          known: !!data.identified.id,
-          name: data.identified.name,
-          rut: data.identified.rut,
-          score: m0.score,
-          confidence: m0.confidence,
-          reject_reason: m0.reject_reason,
-          faces_detected: data.faces_detected,
-          face_box: faceBox,
-        });
-      } else {
-        setIdentityCard({
-          known: false,
-          name: null,
-          faces_detected: data.faces_detected || 0,
-          score: m0.score,
-          confidence: m0.confidence,
-          reject_reason: m0.reject_reason,
-        });
-      }
-      drawDetections([], lastFrameSize.w, lastFrameSize.h, {
-        known: !!data.identified?.id,
-        name: data.identified?.name,
-        rut: data.identified?.rut,
-        face_box: faceBox,
-      });
-      if (data.image_b64) {
-        // flash result briefly
+      const data = await identifyLiveFrame({ flash: true });
+      if (!data) {
+        els.identityMethod.textContent = els.identityMethod.textContent || "Sin resultado. Reintentá.";
+      } else if (data.image_b64) {
         els.annotatedImg.hidden = false;
         els.annotatedImg.src = `data:image/jpeg;base64,${data.image_b64}`;
         await sleep(1200);
         showLive();
       }
     } catch (err) {
-      els.identityMethod.textContent = err.message;
+      els.identityMethod.textContent = err.message || "No se pudo identificar";
     } finally {
       identifyingNow = false;
       applyGuideMode();

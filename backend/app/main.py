@@ -252,6 +252,7 @@ def _identify_on_frame(frame: np.ndarray, threshold: float = 0.42) -> dict[str, 
                 "confidence": match.get("confidence"),
                 "reject_reason": match.get("reject_reason"),
                 "face_box": face_box,
+                "gallery_size": result.get("gallery_size", 0),
             }
         return {
             "known": bool(person.get("id")),
@@ -266,6 +267,7 @@ def _identify_on_frame(frame: np.ndarray, threshold: float = 0.42) -> dict[str, 
             "face_box": face_box,
             "group": person.get("group"),
             "active": person.get("active", True),
+            "gallery_size": result.get("gallery_size", 0),
         }
     except Exception:  # noqa: BLE001
         logger.exception("Identificación en detect falló")
@@ -494,10 +496,10 @@ async def detect_upload(
     file: UploadFile = File(...),
     profile: str = Form("general"),
     conf: float = Form(0.35),
-    identify: bool = Form(True),
+    identify: bool = Form(False),
     return_image: bool = Form(False),
     imgsz: int = Form(416),
-    threshold: float = Form(0.42),
+    threshold: float = Form(0.33),
 ) -> JSONResponse:
     data = await file.read()
     if not data:
@@ -542,38 +544,12 @@ def _detect_frame(
         scale = max_side / max(h, w)
         frame = cv2.resize(frame, (int(w * scale), int(h * scale)))
 
-    det = PPEDetector.peek()
-    if det is None or not det.ready:
-        # No bloquear: el warm thread carga el modelo; el cliente reintenta.
-        threading.Thread(target=PPEDetector.get, name="epp-load", daemon=True).start()
-        return JSONResponse(
-            {
-                "ok": False,
-                "booting": True,
-                "error": "Modelo IA cargando… reintentá en unos segundos.",
-                "detections": [],
-                "compliance": {"overall_compliant": False, "persons": [], "summary": "Cargando IA"},
-            },
-            status_code=503,
-        )
-
-    imgsz_use = max(256, min(int(imgsz or _DETECT_IMGSZ_MAX), _DETECT_IMGSZ_MAX))
-    try:
-        detections, annotated = det.predict(frame, conf=conf, imgsz=imgsz_use)
-    except Exception:  # noqa: BLE001
-        logger.exception("Inferencia EPP falló")
-        return JSONResponse(
-            {
-                "ok": False,
-                "error": "La IA falló en este frame. Reintentá.",
-                "detections": [],
-                "compliance": {"overall_compliant": False, "persons": [], "summary": "Error de inferencia"},
-            },
-            status_code=503,
-        )
-
-    thr = max(0.28, min(0.7, float(threshold or 0.42)))
+    thr = max(0.25, min(0.7, float(threshold or 0.33)))
     identity = None
+    detections: list = []
+    annotated = frame
+
+    # YOLO y SFace NUNCA en el mismo request: en Render Free (512 MB) eso es 502/OOM.
     if identify:
         reg = IdentityRegistry.peek()
         if reg is None:
@@ -589,8 +565,37 @@ def _detect_frame(
             }
         else:
             identity = _identify_on_frame(frame, threshold=thr)
-    if identity and return_image:
-        annotated = _draw_identity(annotated, identity)
+        if identity and return_image:
+            annotated = _draw_identity(annotated, identity)
+    else:
+        det = PPEDetector.peek()
+        if det is None or not det.ready:
+            threading.Thread(target=PPEDetector.get, name="epp-load", daemon=True).start()
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "booting": True,
+                    "error": "Modelo IA cargando… reintentá en unos segundos.",
+                    "detections": [],
+                    "compliance": {"overall_compliant": False, "persons": [], "summary": "Cargando IA"},
+                },
+                status_code=503,
+            )
+
+        imgsz_use = max(256, min(int(imgsz or _DETECT_IMGSZ_MAX), _DETECT_IMGSZ_MAX))
+        try:
+            detections, annotated = det.predict(frame, conf=conf, imgsz=imgsz_use)
+        except Exception:  # noqa: BLE001
+            logger.exception("Inferencia EPP falló")
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": "La IA falló en este frame. Reintentá.",
+                    "detections": [],
+                    "compliance": {"overall_compliant": False, "persons": [], "summary": "Error de inferencia"},
+                },
+                status_code=503,
+            )
 
     jpeg = encode_jpeg(annotated, quality=70) if return_image else None
     payload = _build_response(
@@ -1125,18 +1130,52 @@ async def identity_enroll_photos(
 @app.post("/api/identity/identify")
 async def identity_identify(
     file: UploadFile = File(...),
-    threshold: float = Form(0.42),
+    threshold: float = Form(0.33),
+    return_image: str = Form("false"),
 ) -> JSONResponse:
     data = await file.read()
+    if not data:
+        raise HTTPException(400, "Archivo vacío")
+    if not _detect_lock.acquire(blocking=False):
+        return JSONResponse(
+            {"ok": False, "busy": True, "error": "IA ocupada, esperá un momento."},
+            status_code=429,
+        )
     try:
-        frame = decode_image_bytes(data)
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    thr = max(0.28, min(0.7, float(threshold or 0.42)))
-    result = IdentityService().identify(frame, threshold=thr)
-    jpeg = encode_jpeg(result.pop("annotated"))
-    result["image_b64"] = base64.b64encode(jpeg).decode("ascii")
-    return JSONResponse(result)
+        try:
+            frame = decode_image_bytes(data)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        reg = IdentityRegistry.peek()
+        if reg is None:
+            threading.Thread(target=IdentityRegistry.get, name="id-load", daemon=True).start()
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "booting": True,
+                    "error": "Reconocimiento facial cargando…",
+                    "matches": [],
+                    "identified": None,
+                    "faces_detected": 0,
+                    "gallery_size": 0,
+                },
+                status_code=503,
+            )
+        h, w = frame.shape[:2]
+        max_side = 640
+        if max(h, w) > max_side:
+            scale = max_side / max(h, w)
+            frame = cv2.resize(frame, (int(w * scale), int(h * scale)))
+        thr = max(0.25, min(0.7, float(threshold or 0.33)))
+        result = IdentityService().identify(frame, threshold=thr)
+        annotated = result.pop("annotated", None)
+        want_img = str(return_image).lower() in ("1", "true", "yes", "on")
+        if want_img and annotated is not None:
+            jpeg = encode_jpeg(annotated, quality=72)
+            result["image_b64"] = base64.b64encode(jpeg).decode("ascii")
+        return JSONResponse(result)
+    finally:
+        _detect_lock.release()
 
 
 # ── Enseñar EPP personalizado ───────────────────────────────────────────────
