@@ -98,7 +98,7 @@
 
       <div class="viewport viewport-portrait">
         <div class="scan-frame">
-          <video id="liveVideo" playsinline webkit-playsinline muted autoplay></video>
+          <video id="liveVideo" playsinline webkit-playsinline muted preload="none"></video>
           <canvas id="overlayCanvas"></canvas>
           <img id="annotatedImg" alt="Resultado" hidden />
           <div class="silhouette-guide" id="silhouetteGuide" data-guide="body" aria-hidden="true">
@@ -133,7 +133,8 @@
             <p class="sil-hint" id="silHint">Encajá el cuerpo en la silueta vertical</p>
           </div>
           <div class="viewport-overlay" id="overlayHint">
-            <p>Inicia el monitoreo y encajá en la silueta</p>
+            <p id="overlayHintText">Tocá Iniciar y permití la cámara para evaluar EPP</p>
+            <button type="button" class="btn primary" id="btnOverlayStart">Iniciar cámara</button>
           </div>
           <div class="live-badge" id="liveBadge" hidden><span class="pulse"></span> EN VIVO</div>
           <div class="align-badge" id="alignBadge" data-state="idle">Posicionate</div>
@@ -166,7 +167,7 @@
           Identificar rostro (portería)
         </label>
         <label class="check" id="lblFullscreen">
-          <input type="checkbox" id="chkFullscreen" checked />
+          <input type="checkbox" id="chkFullscreen" />
           Abrir a pantalla completa
         </label>
         <span class="hint" id="speedHint">Lectura vertical · cuerpo completo</span>

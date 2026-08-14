@@ -194,7 +194,7 @@
     poseAttempts: 8,
     identifyDefault: false,
     showPpeBoxes: false,
-    fullscreenDefault: true,
+    fullscreenDefault: false,
     identifyThreshold: 0.42,
     audioAlerts: true,
     audioAlertRepeats: 0,
@@ -534,12 +534,43 @@
     return new Promise((r) => setTimeout(r, ms));
   }
 
+  function setOverlayHint(text, { showStart = true } = {}) {
+    if (!els.overlayHint) return;
+    els.overlayHint.hidden = false;
+    const p = els.overlayHint.querySelector("p");
+    if (p) p.textContent = text;
+    const btn = $("#btnOverlayStart");
+    if (btn) btn.classList.toggle("hidden", !showStart);
+  }
+
   function showLive() {
     els.overlayHint.hidden = true;
     els.annotatedImg.hidden = true;
     els.liveVideo.hidden = false;
     els.overlayCanvas.hidden = false;
-    if (mediaStream) els.liveBadge.hidden = false;
+    const hasFrames = !!(els.liveVideo.videoWidth && mediaStream);
+    if (els.liveBadge) els.liveBadge.hidden = !hasFrames;
+  }
+
+  async function waitForVideoFrames(timeoutMs = 4000) {
+    const video = els.liveVideo;
+    if (!video) return false;
+    if (video.videoWidth > 0) return true;
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (ok) => {
+        if (done) return;
+        done = true;
+        video.removeEventListener("loadeddata", onReady);
+        video.removeEventListener("playing", onReady);
+        clearTimeout(timer);
+        resolve(ok);
+      };
+      const onReady = () => finish(video.videoWidth > 0);
+      video.addEventListener("loadeddata", onReady);
+      video.addEventListener("playing", onReady);
+      const timer = setTimeout(() => finish(video.videoWidth > 0), timeoutMs);
+    });
   }
 
   function clearOverlay() {
@@ -920,9 +951,8 @@
     await refreshCameras();
     await loadZones();
     loadSettings();
-    if (isMobile()) {
-      settings.fullscreenDefault = false;
-    }
+    settings.fullscreenDefault = false;
+    if (els.chkFullscreen) els.chkFullscreen.checked = false;
     syncSettingsForm();
     applyMobileChrome();
     applyGuideMode();
@@ -1417,6 +1447,10 @@
       if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error("Este navegador no permite cámara. Usá Chrome/Safari actualizado por HTTPS.");
       }
+      if (!window.isSecureContext) {
+        throw new Error("La cámara requiere HTTPS. Abrí vigiepp.onrender.com o localhost.");
+      }
+      setOverlayHint("Pedí permiso de cámara en el navegador…", { showStart: false });
       if (!mediaStream) {
         mediaStream = await openCameraStream(preferredFacing);
         els.liveVideo.setAttribute("playsinline", "");
@@ -1427,16 +1461,16 @@
           await els.liveVideo.play();
         } catch (_) {}
       }
+      const hasFrames = await waitForVideoFrames();
+      if (!hasFrames) {
+        throw new Error("NoImage");
+      }
       showLive();
       els.btnStartCam.disabled = true;
       els.btnStopCam.disabled = false;
       if (els.btnFlipCam) els.btnFlipCam.disabled = false;
       stopDetectLoop();
       if (!opts.silentDetect && appMode === "monitor" && sourceMode === "camera") {
-        const canFs = !isIOS() && !!els.chkFullscreen?.checked;
-        if (canFs && !isFullscreen()) {
-          await enterFullscreen();
-        }
         document.body.classList.add("is-scanning");
         applyGuideMode();
         camTimer = setInterval(tickDetect, isMobile() ? 1100 : 900);
@@ -1444,19 +1478,28 @@
       }
     } catch (err) {
       console.error(err);
-      els.overlayHint.hidden = false;
-      const msg = String(err?.message || err || "");
-      let tip = "No se pudo acceder a la cámara. Revisá permisos del navegador.";
-      if (/NotAllowed|Permission|denied/i.test(msg)) {
+      if (mediaStream) {
+        mediaStream.getTracks().forEach((t) => t.stop());
+        mediaStream = null;
+        els.liveVideo.srcObject = null;
+      }
+      els.btnStartCam.disabled = false;
+      els.btnStopCam.disabled = true;
+      if (els.liveBadge) els.liveBadge.hidden = true;
+      const msg = String(err?.name || err?.message || err || "");
+      let tip = "No se pudo acceder a la cámara. Tocá Iniciar y permití el acceso.";
+      if (/NotAllowed|Permission|denied|NotReadable/i.test(msg)) {
         tip = isIOS()
-          ? "Permiso denegado. En Ajustes → Safari → Cámara, permití acceso y recargá."
-          : "Permiso denegado. Tocá el candado de la URL y permití la cámara.";
+          ? "Cámara bloqueada. En Ajustes → Safari → Cámara, permití acceso y recargá."
+          : "Cámara bloqueada. Tocá el candado de la barra de dirección → Permisos → Cámara → Permitir, y volvé a Iniciar.";
+      } else if (/NoImage/i.test(msg)) {
+        tip = "La cámara no entrega imagen. Cerrá Zoom/Meet u otra app que la use y tocá Iniciar.";
       } else if (/NotFound|DevicesNotFound/i.test(msg)) {
         tip = "No hay cámara disponible en este dispositivo.";
-      } else if (/secure|HTTPS|getUserMedia/i.test(msg)) {
+      } else if (/secure|HTTPS/i.test(msg)) {
         tip = msg;
       }
-      els.overlayHint.querySelector("p").textContent = tip;
+      setOverlayHint(tip, { showStart: true });
     }
   }
 
@@ -1537,12 +1580,10 @@
     els.liveVideo.srcObject = null;
     els.btnStartCam.disabled = false;
     els.btnStopCam.disabled = true;
-    els.liveBadge.hidden = true;
+    if (els.liveBadge) els.liveBadge.hidden = true;
     clearOverlay();
     els.personChip.classList.add("hidden");
-    els.overlayHint.hidden = false;
-    els.overlayHint.querySelector("p").textContent =
-      "Activa la cámara y encajá en la silueta vertical";
+    setOverlayHint("Tocá Iniciar y permití la cámara para evaluar EPP", { showStart: true });
     setAlignment("idle", "Posicionate");
   }
 
@@ -1622,9 +1663,6 @@
     els.btnStopRtsp.disabled = false;
     els.overlayHint.hidden = true;
     els.liveBadge.hidden = false;
-    if (els.chkFullscreen?.checked && !isIOS() && !isFullscreen()) {
-      await enterFullscreen();
-    }
     document.body.classList.add("is-scanning");
     applyGuideMode();
     const poll = async () => {
@@ -2816,6 +2854,7 @@
   });
   els.profileSelect.addEventListener("change", renderProfile);
   els.btnStartCam.addEventListener("click", () => startCamera());
+  $("#btnOverlayStart")?.addEventListener("click", () => startCamera());
   els.btnStopCam.addEventListener("click", stopCamera);
   if (els.btnFlipCam) {
     els.btnFlipCam.addEventListener("click", () => flipCamera());
@@ -2835,6 +2874,9 @@
       els.btnFullscreen.textContent = isFullscreen() ? "Salir pantalla completa" : "Pantalla completa";
     }
     document.body.classList.toggle("is-fullscreen", isFullscreen());
+    if (mediaStream && els.liveVideo?.srcObject) {
+      els.liveVideo.play().catch(() => {});
+    }
   });
   els.btnStartRtsp.addEventListener("click", startRtsp);
   els.btnStopRtsp.addEventListener("click", stopRtsp);
