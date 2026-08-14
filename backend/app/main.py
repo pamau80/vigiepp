@@ -45,10 +45,10 @@ _last_scan_log: dict[str, tuple[float, bool]] = {}
 _SCAN_DEBOUNCE_S = float(os.getenv("VIGIEPP_SCAN_DEBOUNCE", "12"))
 _detect_lock = threading.Lock()
 # Render Free: YOLO+SFace en paralelo tumba el proceso (502). Una inferencia a la vez.
-_DETECT_IMGSZ_MAX = int(os.getenv("VIGIEPP_IMGSZ_MAX", "320"))
+_DETECT_IMGSZ_MAX = int(os.getenv("VIGIEPP_IMGSZ_MAX", "256"))
 
 
-BUILD_VERSION = "v33"
+BUILD_VERSION = "v34"
 
 
 @asynccontextmanager
@@ -573,7 +573,7 @@ def _detect_frame(
         raise HTTPException(400, str(exc)) from exc
 
     h, w = frame.shape[:2]
-    max_side = 480
+    max_side = 384
     if max(h, w) > max_side:
         scale = max_side / max(h, w)
         frame = cv2.resize(frame, (int(w * scale), int(h * scale)))
@@ -616,9 +616,11 @@ def _detect_frame(
                 status_code=503,
             )
 
-        imgsz_use = max(256, min(int(imgsz or _DETECT_IMGSZ_MAX), _DETECT_IMGSZ_MAX))
+        imgsz_use = max(224, min(int(imgsz or _DETECT_IMGSZ_MAX), _DETECT_IMGSZ_MAX))
         try:
-            detections, annotated = det.predict(frame, conf=conf, imgsz=imgsz_use)
+            detections, annotated = det.predict(
+                frame, conf=conf, imgsz=imgsz_use, annotate=return_image
+            )
         except Exception:  # noqa: BLE001
             logger.exception("Inferencia EPP falló")
             return JSONResponse(
@@ -631,7 +633,7 @@ def _detect_frame(
                 status_code=503,
             )
 
-    jpeg = encode_jpeg(annotated, quality=70) if return_image else None
+    jpeg = encode_jpeg(annotated, quality=68) if return_image else None
     payload = _build_response(
         detections,
         jpeg,
@@ -846,8 +848,15 @@ def rtsp_frame(
         frame = cv2.resize(frame, (int(w * scale), int(h * scale)))
 
     det = PPEDetector.get()
-    detections, _annotated = det.predict(frame, conf=conf, imgsz=416)
-    identity = _identify_on_frame(frame) if identify else None
+    det = PPEDetector.get()
+    identity = None
+    detections: list = []
+    if identify:
+        identity = _identify_on_frame(frame)
+    else:
+        detections, _annotated = det.predict(
+            frame, conf=conf, imgsz=_DETECT_IMGSZ_MAX, annotate=False
+        )
     payload = _build_response(
         detections,
         None,
@@ -1207,7 +1216,7 @@ async def identity_identify(
                 status_code=503,
             )
         h, w = frame.shape[:2]
-        max_side = 640
+        max_side = 480
         if max(h, w) > max_side:
             scale = max_side / max(h, w)
             frame = cv2.resize(frame, (int(w * scale), int(h * scale)))
@@ -1372,8 +1381,10 @@ async def ws_detect(websocket: WebSocket) -> None:
                 await websocket.send_json({"ok": False, "error": "frame inválido"})
                 continue
 
-            detections, annotated = det.predict(frame, conf=conf, imgsz=416)
-            jpeg = encode_jpeg(annotated, quality=70)
+            detections, annotated = det.predict(
+                frame, conf=conf, imgsz=_DETECT_IMGSZ_MAX, annotate=True
+            )
+            jpeg = encode_jpeg(annotated, quality=68)
             payload = _build_response(detections, jpeg, profile)
             await websocket.send_json(payload)
     except WebSocketDisconnect:

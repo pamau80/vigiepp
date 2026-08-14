@@ -1,5 +1,5 @@
-/* Service worker v33: selector EPP personalizable */
-const CACHE = "vigiepp-shell-v33";
+/* Service worker v34: ciclo de detección más rápido */
+const CACHE = "vigiepp-shell-v34";
 const ASSETS = ["/assets/styles.css", "/manifest.webmanifest", "/assets/icons/icon-192.png"];
 
 self.addEventListener("install", (event) => {

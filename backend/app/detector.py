@@ -183,6 +183,7 @@ class PPEDetector:
         frame_bgr: np.ndarray,
         conf: float = 0.35,
         imgsz: int = 416,
+        annotate: bool = True,
     ) -> tuple[list[dict[str, Any]], np.ndarray]:
         if not self.ready or self.model is None:
             annotated = frame_bgr.copy()
@@ -225,7 +226,8 @@ class PPEDetector:
                     }
                 )
 
-        annotated = self.draw(frame_bgr, detections)
+        # En monitoreo live no hace falta dibujar cajas en el servidor (el canvas del cliente lo hace).
+        annotated = self.draw(frame_bgr, detections) if annotate else frame_bgr
         return detections, annotated
 
     def draw(self, frame_bgr: np.ndarray, detections: list[dict[str, Any]]) -> np.ndarray:

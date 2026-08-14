@@ -130,11 +130,12 @@
     repSideList: $("#repSideList"),
   };
 
-  const APP_BUILD = "v33";
+  const APP_BUILD = "v34";
 
   let profiles = [];
   let ppeCatalog = [];
-  let scanPhase = "epp"; // alterna EPP ↔ ID cuando ambos activos
+  let eppStreak = 0;
+  let lastScanRefreshAt = 0;
   let mediaStream = null;
   let camTimer = null;
   let detectLoopOn = false;
@@ -1145,7 +1146,7 @@
         regs.forEach((r) => r.unregister().catch(() => {}));
       });
       setTimeout(() => {
-        navigator.serviceWorker.register("/assets/sw.js?v=33").catch(() => {});
+        navigator.serviceWorker.register("/assets/sw.js?v=34").catch(() => {});
       }, 400);
     }
     const offlineBadge = $("#offlineBadge");
@@ -1577,14 +1578,14 @@
       fd.append("conf", "0.35");
       fd.append("identify", identify ? "true" : "false");
       fd.append("return_image", returnImage ? "true" : "false");
-      fd.append("imgsz", "320");
+      fd.append("imgsz", "256");
       fd.append("threshold", String(settings.identifyThreshold || 0.33));
       fd.append("required", requiredQueryValue());
-      const data = await api("/api/detect", { method: "POST", body: fd }, 25000);
+      const data = await api("/api/detect", { method: "POST", body: fd }, 18000);
       if (data?.down || data?._http === 502) {
-        detectBackoffMs = Math.min(25000, Math.max(12000, (detectBackoffMs || 6000) * 1.4));
+        detectBackoffMs = Math.min(10000, Math.max(3500, (detectBackoffMs || 2000) * 1.35));
         els.fpsLabel.textContent = "reintentando…";
-        if (els.complianceSummary) els.complianceSummary.textContent = "Servidor ocupado. Reintentando en unos segundos…";
+        if (els.complianceSummary) els.complianceSummary.textContent = "Servidor ocupado. Reintentando…";
         return;
       }
       if (data?.booting || data?._http === 503) {
@@ -1594,14 +1595,14 @@
           ready = !!applyHealth(h);
         } catch (_) {}
         if (ready) {
-          detectBackoffMs = 700;
+          detectBackoffMs = 900;
           els.fpsLabel.textContent = "EPP cargando…";
           if (els.complianceSummary) {
             els.complianceSummary.textContent =
               "YOLO cargando (~15 s tras arranque). El escaneo EPP sigue en cola…";
           }
         } else {
-          detectBackoffMs = 4000;
+          detectBackoffMs = 2200;
           els.fpsLabel.textContent = "cargando IA…";
           if (els.complianceSummary) {
             els.complianceSummary.textContent = data.error || "Modelo cargando…";
@@ -1610,7 +1611,7 @@
         return;
       }
       if (data?._http === 429 || data?.busy) {
-        detectBackoffMs = 1500;
+        detectBackoffMs = 700;
         els.fpsLabel.textContent = "IA ocupada";
         return;
       }
@@ -1619,7 +1620,7 @@
         return;
       }
       updateUi(data);
-      if (identify && data.identity?.known) refreshScans();
+      if (identify && data.identity?.known) maybeRefreshScans();
       if (identify && data.identity?.booting) {
         els.identityName.textContent = "ID cargando…";
         els.identityRut.textContent = "El reconocimiento facial aún inicia";
@@ -1630,7 +1631,7 @@
       console.error(err);
       const msg = String(err?.message || err || "");
       const down = /502|503|caído|agotado|timeout|HTTP2|protocol|ocupado/i.test(msg);
-      if (down) detectBackoffMs = Math.min(25000, Math.max(12000, (detectBackoffMs || 6000) * 1.4));
+      if (down) detectBackoffMs = Math.min(10000, Math.max(3500, (detectBackoffMs || 2000) * 1.35));
       els.fpsLabel.textContent = down ? "reintentando…" : /401|sesión|PIN/i.test(msg) ? "sesión" : "error IA";
       if (els.complianceSummary) {
         els.complianceSummary.textContent = down
@@ -1701,20 +1702,20 @@
   }
 
   async function identifyLiveFrame({ flash = false } = {}) {
-    const blob = await captureFaceBlob(flash ? 0.92 : 0.88, flash ? 640 : 560);
+    const blob = await captureFaceBlob(flash ? 0.9 : 0.72, flash ? 560 : 400);
     if (!blob) return null;
     const fd = new FormData();
     fd.append("file", blob, "id.jpg");
     fd.append("threshold", String(settings.identifyThreshold || 0.33));
     fd.append("return_image", flash ? "true" : "false");
-    const data = await api("/api/identity/identify", { method: "POST", body: fd }, 20000);
+    const data = await api("/api/identity/identify", { method: "POST", body: fd }, 12000);
     if (data?.down || data?._http === 502 || data?.booting || data?._http === 503) {
-      detectBackoffMs = Math.min(25000, Math.max(12000, (detectBackoffMs || 6000) * 1.4));
-      if (els.identityMethod) els.identityMethod.textContent = "Identificando… (servidor ocupado, reintenta solo)";
+      detectBackoffMs = Math.min(10000, Math.max(3500, (detectBackoffMs || 2000) * 1.35));
+      if (els.identityMethod) els.identityMethod.textContent = "Identificando… (servidor ocupado)";
       return null;
     }
     if (data?._http === 429 || data?.busy) {
-      detectBackoffMs = 1500;
+      detectBackoffMs = 700;
       return null;
     }
     const m0 = data.matches?.[0] || {};
@@ -1735,8 +1736,15 @@
     lastIdentity = card;
     setIdentityCard(card);
     drawDetections([], lastFrameSize.w, lastFrameSize.h, card);
-    if (card.known) refreshScans();
+    if (card.known) maybeRefreshScans();
     return data;
+  }
+
+  function maybeRefreshScans() {
+    const now = Date.now();
+    if (now - lastScanRefreshAt < 10000) return;
+    lastScanRefreshAt = now;
+    refreshScans().catch(() => {});
   }
 
   async function tickDetect() {
@@ -1744,34 +1752,33 @@
     const wantId = !!els.chkIdentify?.checked;
     const now = Date.now();
 
-    // ID+EPP: alternar requests (nunca juntos → evita 502 en Render Free)
+    // 2 escaneos EPP + 1 ID: más fluido y sin cargar YOLO+SFace juntos
     if (wantId) {
-      if (scanPhase === "epp") {
-        const blob = await captureBlob(0.52, 380);
-        if (!blob) return;
-        await detectBlob(blob, { identify: false, returnImage: false });
-        scanPhase = "id";
+      const dueId = eppStreak >= 2 && now - lastIdentifyAt >= 2800;
+      if (dueId) {
+        lastIdentifyAt = now;
+        eppStreak = 0;
+        try {
+          await identifyLiveFrame();
+          detectBackoffMs = Math.min(detectBackoffMs || 0, 400);
+        } catch (err) {
+          const msg = String(err?.message || err || "");
+          if (/502|503|caído|agotado|timeout|ocupado/i.test(msg)) {
+            detectBackoffMs = Math.min(10000, Math.max(3500, (detectBackoffMs || 2000) * 1.35));
+          }
+          if (els.identityMethod) els.identityMethod.textContent = "Identificando…";
+        }
         return;
       }
-      const idGap = Math.max(4000, detectBackoffMs || 4000);
-      if (now - lastIdentifyAt < idGap) return;
-      lastIdentifyAt = now;
-      try {
-        await identifyLiveFrame();
-        detectBackoffMs = 0;
-      } catch (err) {
-        const msg = String(err?.message || err || "");
-        if (/502|503|caído|agotado|timeout|ocupado/i.test(msg)) {
-          detectBackoffMs = Math.min(25000, Math.max(12000, (detectBackoffMs || 6000) * 1.4));
-        }
-        if (els.identityMethod) els.identityMethod.textContent = "Identificando…";
-      }
-      scanPhase = "epp";
+      const blob = await captureBlob(0.42, 320);
+      if (!blob) return;
+      await detectBlob(blob, { identify: false, returnImage: false });
+      eppStreak += 1;
       return;
     }
 
-    scanPhase = "epp";
-    const blob = await captureBlob(0.52, 380);
+    eppStreak = 0;
+    const blob = await captureBlob(0.42, 320);
     if (!blob) return;
     await detectBlob(blob, { identify: false, returnImage: false });
   }
@@ -1785,7 +1792,8 @@
       if (!detectLoopOn) return;
       await tickDetect();
       if (!detectLoopOn) return;
-      const delay = detectBackoffMs || (els.chkIdentify?.checked ? 3200 : 2500);
+      // Ciclo corto: ~0.7–1.1 s entre frames cuando el servidor responde bien
+      const delay = detectBackoffMs || (els.chkIdentify?.checked ? 900 : 700);
       camTimer = setTimeout(loop, delay);
     };
     loop();
