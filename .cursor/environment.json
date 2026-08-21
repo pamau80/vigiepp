@@ -1,0 +1,14 @@
+{
+  "name": "VigiEPP",
+  "install": "bash .cursor/install.sh",
+  "start": "bash .cursor/start.sh",
+  "terminals": [
+    {
+      "name": "backend",
+      "command": "cd backend && VIGIEPP_DOCS=1 ULTRALYTICS_OFFLINE=false $HOME/.vigiepp/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    }
+  ],
+  "ports": [
+    { "name": "VigiEPP", "port": 8000 }
+  ]
+}
