@@ -14,8 +14,22 @@ class IndustryProfile(TypedDict):
     alert_message: str
 
 
-# Claves internas alineadas al detector (casco, chaleco, lentes, guantes, arnes, persona)
-VALID_PPE_KEYS = frozenset({"casco", "chaleco", "lentes", "guantes", "arnes"})
+# Claves internas alineadas al detector (casco, chaleco, lentes, guantes, arnes, persona, vestimenta)
+VALID_PPE_KEYS = frozenset(
+    {
+        "casco",
+        "chaleco",
+        "lentes",
+        "guantes",
+        "arnes",
+        "zapatos",
+        "buzo",
+        "casaca",
+        "pantalon",
+        "reflectante",
+        "mascarilla",
+    }
+)
 
 PPE_CATALOG: list[dict[str, str]] = [
     {"id": "casco", "label": "Casco"},
@@ -23,6 +37,12 @@ PPE_CATALOG: list[dict[str, str]] = [
     {"id": "lentes", "label": "Lentes"},
     {"id": "guantes", "label": "Guantes"},
     {"id": "arnes", "label": "Arnés"},
+    {"id": "zapatos", "label": "Zapatos / botas de seguridad"},
+    {"id": "buzo", "label": "Buzo de papel / overol desechable"},
+    {"id": "casaca", "label": "Casaca / chaqueta de faena"},
+    {"id": "pantalon", "label": "Pantalón de trabajo"},
+    {"id": "reflectante", "label": "Cinta / ropa reflectante"},
+    {"id": "mascarilla", "label": "Mascarilla / respirador"},
 ]
 
 PROFILES: dict[str, IndustryProfile] = {
@@ -39,7 +59,7 @@ PROFILES: dict[str, IndustryProfile] = {
         "name": "Construcción",
         "description": "Obras civiles, andamios y frentes de trabajo.",
         "required": ["casco", "chaleco"],
-        "optional": ["lentes", "guantes"],
+        "optional": ["lentes", "guantes", "zapatos", "casaca"],
         "alert_message": "Trabajador en obra sin EPP obligatorio",
     },
     "mineria": {
@@ -47,7 +67,7 @@ PROFILES: dict[str, IndustryProfile] = {
         "name": "Minería",
         "description": "Faenas mineras, patios de equipos y accesos.",
         "required": ["casco", "chaleco", "lentes"],
-        "optional": ["guantes", "arnes"],
+        "optional": ["guantes", "arnes", "zapatos", "buzo"],
         "alert_message": "Incumplimiento EPP en zona minera",
     },
     "escuela": {

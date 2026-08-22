@@ -15,31 +15,34 @@ DATA_DIR = data_dir()
 ZONES_FILE = DATA_DIR / "zones.json"
 _lock = threading.Lock()
 
+_DEFAULT_ZONES = [
+    {
+        "id": "zona-restringida-demo",
+        "name": "Zona restringida",
+        "type": "restricted",
+        "enabled": False,
+        "x": 0.05,
+        "y": 0.1,
+        "w": 0.35,
+        "h": 0.5,
+        "color": "#e85d04",
+    },
+    {
+        "id": "via-vehiculos-demo",
+        "name": "Vía vehículos",
+        "type": "vehicle_lane",
+        "enabled": False,
+        "x": 0.55,
+        "y": 0.35,
+        "w": 0.4,
+        "h": 0.55,
+        "color": "#d62828",
+    },
+]
+
 DEFAULT = {
-    "zones": [
-        {
-            "id": "zona-restringida-demo",
-            "name": "Zona restringida",
-            "type": "restricted",
-            "enabled": False,
-            "x": 0.05,
-            "y": 0.1,
-            "w": 0.35,
-            "h": 0.5,
-            "color": "#e85d04",
-        },
-        {
-            "id": "via-vehiculos-demo",
-            "name": "Vía vehículos",
-            "type": "vehicle_lane",
-            "enabled": False,
-            "x": 0.55,
-            "y": 0.35,
-            "w": 0.4,
-            "h": 0.55,
-            "color": "#d62828",
-        },
-    ],
+    "global": _DEFAULT_ZONES,
+    "cameras": {},
     "updated_at": None,
 }
 
@@ -120,18 +123,17 @@ PRESETS: dict[str, list[dict[str, Any]]] = {
 }
 
 
-def apply_preset(name: str) -> dict[str, Any]:
+def apply_preset(name: str, camera_id: str | None = None) -> dict[str, Any]:
     key = (name or "faena").strip().lower()
     zones = PRESETS.get(key)
     if not zones:
         raise ValueError(f"Preset desconocido: {name}. Usa: {', '.join(PRESETS)}")
-    # copias nuevas con ids únicos si ya existen
     payload_zones = []
     for z in zones:
         item = dict(z)
         item["id"] = str(item.get("id") or uuid.uuid4().hex[:10])
         payload_zones.append(item)
-    return save_zones(payload_zones)
+    return save_zones(payload_zones, camera_id=camera_id)
 
 
 def list_presets() -> list[dict[str, Any]]:
@@ -153,10 +155,62 @@ def _ensure() -> None:
         ZONES_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def get_zones() -> dict[str, Any]:
+def _migrate_raw(raw: dict[str, Any]) -> dict[str, Any]:
+    """Formato legacy {zones: [...]} → {global, cameras}."""
+    if "global" in raw or "cameras" in raw:
+        raw.setdefault("global", [])
+        raw.setdefault("cameras", {})
+        return raw
+    legacy = raw.get("zones")
+    if isinstance(legacy, list):
+        return {
+            "global": legacy,
+            "cameras": {},
+            "updated_at": raw.get("updated_at"),
+        }
+    return dict(DEFAULT)
+
+
+def _read_store() -> dict[str, Any]:
     _ensure()
     with _lock:
-        return json.loads(ZONES_FILE.read_text(encoding="utf-8"))
+        raw = json.loads(ZONES_FILE.read_text(encoding="utf-8"))
+    return _migrate_raw(raw)
+
+
+def _write_store(payload: dict[str, Any]) -> None:
+    payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+    with _lock:
+        ZONES_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        from . import cloud_persist as cloud_mod
+
+        cloud_mod.schedule_push()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def get_zones(camera_id: str | None = None) -> dict[str, Any]:
+    """Zonas globales o de una cámara registrada. Si la cámara no tiene zonas, usa global."""
+    data = _read_store()
+    cam_key = (camera_id or "").strip()
+    if cam_key:
+        per_cam = (data.get("cameras") or {}).get(cam_key)
+        zones = per_cam if isinstance(per_cam, list) else list(data.get("global") or [])
+        return {
+            "camera_id": cam_key,
+            "zones": zones,
+            "source": "camera" if isinstance(per_cam, list) else "global_fallback",
+            "updated_at": data.get("updated_at"),
+            "cameras_with_zones": list((data.get("cameras") or {}).keys()),
+        }
+    return {
+        "camera_id": None,
+        "zones": list(data.get("global") or []),
+        "global": list(data.get("global") or []),
+        "cameras": dict(data.get("cameras") or {}),
+        "updated_at": data.get("updated_at"),
+    }
 
 
 _ZONE_TYPES = ("restricted", "vehicle_lane", "machinery")
@@ -167,7 +221,7 @@ def _normalize_zone_type(raw: Any) -> str:
     return t if t in _ZONE_TYPES else "restricted"
 
 
-def save_zones(zones: list[dict[str, Any]]) -> dict[str, Any]:
+def _clean_zone_list(zones: list[dict[str, Any]]) -> list[dict[str, Any]]:
     cleaned: list[dict[str, Any]] = []
     for z in zones:
         cleaned.append(
@@ -183,16 +237,21 @@ def save_zones(zones: list[dict[str, Any]]) -> dict[str, Any]:
                 "color": str(z.get("color") or "#e85d04")[:20],
             }
         )
-    payload = {"zones": cleaned, "updated_at": datetime.now(timezone.utc).isoformat()}
-    with _lock:
-        ZONES_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    try:
-        from . import cloud_persist as cloud_mod
+    return cleaned
 
-        cloud_mod.schedule_push()
-    except Exception:  # noqa: BLE001
-        pass
-    return payload
+
+def save_zones(zones: list[dict[str, Any]], camera_id: str | None = None) -> dict[str, Any]:
+    cleaned = _clean_zone_list(zones)
+    data = _read_store()
+    cam_key = (camera_id or "").strip()
+    if cam_key:
+        cams = dict(data.get("cameras") or {})
+        cams[cam_key] = cleaned
+        data["cameras"] = cams
+    else:
+        data["global"] = cleaned
+    _write_store(data)
+    return get_zones(cam_key or None)
 
 
 def _overlap_ratio(box: list[float], zone: dict[str, Any], fw: int, fh: int) -> float:
@@ -219,9 +278,10 @@ def evaluate_zones(
     detections: list[dict[str, Any]],
     frame_w: int,
     frame_h: int,
+    camera_id: str | None = None,
 ) -> dict[str, Any]:
-    """Evalúa personas dentro de zonas habilitadas."""
-    data = get_zones()
+    """Evalúa personas dentro de zonas habilitadas (por cámara o globales)."""
+    data = get_zones(camera_id)
     zones = [z for z in data.get("zones") or [] if z.get("enabled")]
     alerts: list[str] = []
     hits: list[dict[str, Any]] = []
@@ -274,4 +334,10 @@ def evaluate_zones(
         if a not in seen:
             seen.add(a)
             uniq.append(a)
-    return {"alerts": uniq, "hits": hits, "zones": data.get("zones") or []}
+    return {
+        "alerts": uniq,
+        "hits": hits,
+        "zones": data.get("zones") or [],
+        "camera_id": data.get("camera_id"),
+        "zone_source": data.get("source"),
+    }

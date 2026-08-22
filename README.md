@@ -2,7 +2,7 @@
 
 Detección de EPP e identidad para faenas en Chile. Cámara o NVR → IA → cumplimiento, enrolamiento, informes y alerta (incluida baliza ESP32).
 
-Build actual: **v36**. Backend FastAPI + frontend estático. Detección EPP pensada para portería (alta precisión por defecto).
+Build actual: **v37**. Backend FastAPI + frontend estático. Detección EPP pensada para portería (alta precisión por defecto) y **ojo vigilia** en cámaras fijas.
 
 ## Qué hace
 
@@ -46,6 +46,36 @@ El modelo SafetyVision (YOLOv8s) distingue casco, chaleco, lentes, guantes, pers
 | `VIGIEPP_PRECISION` | `alta` | `alta` / `equilibrada` / `sensible` |
 | `VIGIEPP_IMGSZ_MAX` | `640` | tope YOLO (`320` en Render) |
 | `VIGIEPP_MAX_SIDE` | `960` | resize previo (`512` en Render) |
+
+## Ojo vigilia (cámaras estáticas)
+
+v37 agrega monitoreo continuo en el **backend** (no depende del navegador abierto):
+
+1. Registrá hasta **4 cámaras RTSP** (`POST /api/cameras`).
+2. Definí **zonas por cámara** (`GET/POST /api/zones?camera_id=...`).
+3. Activá el vigilante: `POST /api/vigil/start` o `VIGIEPP_VIGIL_AUTO=1` al arrancar.
+4. Consultá estado y eventos: `GET /api/vigil/status`, `GET /api/vigil/events`.
+
+El sistema evalúa en cada ciclo (~2,5 s):
+
+- **EPP** (casco, chaleco, lentes, guantes, zapatos, buzo, casaca, etc. — catálogo ampliado).
+- **Identidad facial** cada N frames (enrolados en faena).
+- **Zonas** restringidas / vías / maquinaria por cámara.
+- **Conducta**: caídas (modelo), proximidad agresiva, posible altercado, merodeo sin EPP.
+
+| Variable | Default | Efecto |
+| --- | --- | --- |
+| `VIGIEPP_VIGIL_AUTO` | off | `1` inicia vigilancia al boot |
+| `VIGIEPP_VIGIL_INTERVAL` | `2.5` | segundos entre ciclos |
+| `VIGIEPP_VIGIL_PROFILE` | `general` | perfil de cumplimiento |
+| `VIGIEPP_VIGIL_IDENTIFY_EVERY` | `4` | cada cuántos ciclos identifica rostros |
+
+### Límites honestos (importante)
+
+- **No es perfección absoluta.** La precisión depende de ángulo, luz, oclusión y del modelo base SafetyVision (+ Teach para prendas propias).
+- **Peleas y actitudes sospechosas** hoy son **heurísticas** (proximidad, superposición, zonas). Para alta precisión en agresión se requiere un modelo de **pose/acción** entrenado con video real de la faena (fase 2).
+- **Buzo de papel / zapatos** se detectan mejor con cámara baja o módulo **Teach** (fotos reales del cliente).
+- **Producción seria**: PC industrial o NVR con GPU en la LAN (`start-edge.bat`, Docker). Render Free no sostiene 4 RTSP + YOLO + identidad simultánea.
 
 ## Arranque local
 

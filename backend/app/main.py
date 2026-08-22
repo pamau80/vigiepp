@@ -29,6 +29,7 @@ from . import notifications as notif_mod
 from . import paths as paths_mod
 from . import reports as reports_mod
 from . import zones as zones_mod
+from .behavior import evaluate_behavior
 from .compliance import evaluate
 from .detector import PPEDetector, decode_image_bytes, encode_jpeg
 from .precision import normalize_precision
@@ -37,6 +38,7 @@ from .profiles import get_profile, list_profiles, parse_required_list, PPE_CATAL
 from .scanlog import ScanEvent, log_scan, recent_scans
 from .stream_rtsp import get_or_create_stream, stop_all, stop_stream
 from .teach import TeachStore
+from .vigil import VigilMonitor, auto_start_if_configured
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 logger = logging.getLogger("vigiepp")
@@ -74,7 +76,7 @@ def _default_precision() -> str:
 # Tope de imgsz YOLO. En Render Free el default es 320; en local/Cloud Agent 640.
 _DETECT_IMGSZ_MAX = _detect_imgsz_max()
 
-BUILD_VERSION = "v36"
+BUILD_VERSION = "v37"
 
 
 @asynccontextmanager
@@ -109,6 +111,7 @@ async def lifespan(_: FastAPI):
         threading.Thread(target=_lazy_yolo, name="epp-lazy", daemon=True).start()
 
     threading.Thread(target=_warm, name="vigiepp-warm", daemon=True).start()
+    auto_start_if_configured()
     if auth_mod.using_default_pins():
         logger.warning(
             "PIN de fábrica activo. Definí VIGIEPP_ADMIN_PIN y VIGIEPP_OPERATOR_PIN "
@@ -203,32 +206,52 @@ def _build_response(
     identity: dict[str, Any] | None = None,
     frame_wh: tuple[int, int] | None = None,
     required: list[str] | None = None,
+    camera_id: str | None = None,
 ) -> dict[str, Any]:
     compliance = evaluate(detections, profile, required_override=required)
     fw = frame_wh[0] if frame_wh else 0
     fh = frame_wh[1] if frame_wh else 0
-    zone_eval = zones_mod.evaluate_zones(detections, fw, fh) if fw and fh else {"alerts": [], "hits": [], "zones": []}
+    zone_eval = (
+        zones_mod.evaluate_zones(detections, fw, fh, camera_id=camera_id)
+        if fw and fh
+        else {"alerts": [], "hits": [], "zones": []}
+    )
+    persons = [asdict(p) for p in compliance.persons]
+    behavior = (
+        evaluate_behavior(
+            detections,
+            zone_hits=zone_eval.get("hits"),
+            persons=persons,
+            frame_w=fw,
+            frame_h=fh,
+        )
+        if fw and fh
+        else {"alerts": [], "events": [], "severity": "ok"}
+    )
     alerts = list(compliance.alerts or [])
     for a in zone_eval.get("alerts") or []:
         if a not in alerts:
             alerts.append(a)
+    for a in behavior.get("alerts") or []:
+        if a not in alerts:
+            alerts.append(a)
 
-    # Si hay zona restringida / near-miss, no marcar como cumple global
+    # Si hay zona restringida / near-miss / conducta, no marcar como cumple global
     zone_bad = bool(zone_eval.get("alerts"))
-    overall = bool(compliance.overall_compliant) and not zone_bad
+    behavior_bad = behavior.get("severity") in ("high", "critical")
+    overall = bool(compliance.overall_compliant) and not zone_bad and not behavior_bad
 
     exposure = exposure_mod.update_exposure(overall, identity)
 
-    persons = [asdict(p) for p in compliance.persons]
     # Safety score en vivo 0–100 (promedio scores de personas; penaliza zonas)
     if persons:
         avg = sum(float(p.get("score") or 0) for p in persons) / max(1, len(persons))
         live_score = int(round(avg * 100))
     elif detections:
-        live_score = 40 if zone_bad else 70
+        live_score = 40 if (zone_bad or behavior_bad) else 70
     else:
         live_score = None
-    if zone_bad and live_score is not None:
+    if (zone_bad or behavior_bad) and live_score is not None:
         live_score = max(0, live_score - 25)
     if exposure.get("active") and live_score is not None and int(exposure.get("seconds") or 0) > 30:
         live_score = max(0, live_score - 10)
@@ -251,8 +274,8 @@ def _build_response(
             "profile_name": compliance.profile_name,
             "overall_compliant": overall,
             "summary": compliance.summary
-            if not zone_bad
-            else f"{compliance.summary} · alerta de zona",
+            if not (zone_bad or behavior_bad)
+            else f"{compliance.summary} · alerta de zona/conducta",
             "alerts": alerts,
             "persons": persons,
             "required": required if required is not None else list(get_profile(profile)["required"]),
@@ -262,7 +285,10 @@ def _build_response(
             "alerts": zone_eval.get("alerts") or [],
             "hits": zone_eval.get("hits") or [],
             "defs": zone_eval.get("zones") or [],
+            "camera_id": zone_eval.get("camera_id"),
+            "source": zone_eval.get("zone_source"),
         },
+        "behavior": behavior,
         "exposure": exposure,
         "safety_score": live_score,
         "model": PPEDetector.get().model_name,
@@ -724,8 +750,8 @@ def _detect_frame(
 
 
 @app.get("/api/zones")
-def zones_get() -> dict[str, Any]:
-    return zones_mod.get_zones()
+def zones_get(camera_id: str | None = None) -> dict[str, Any]:
+    return zones_mod.get_zones(camera_id or None)
 
 
 @app.get("/api/zones/presets")
@@ -734,9 +760,9 @@ def zones_presets() -> dict[str, Any]:
 
 
 @app.post("/api/zones/presets/{preset_id}")
-def zones_apply_preset(preset_id: str) -> dict[str, Any]:
+def zones_apply_preset(preset_id: str, camera_id: str | None = None) -> dict[str, Any]:
     try:
-        return zones_mod.apply_preset(preset_id)
+        return zones_mod.apply_preset(preset_id, camera_id=camera_id)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
@@ -744,10 +770,40 @@ def zones_apply_preset(preset_id: str) -> dict[str, Any]:
 @app.post("/api/zones")
 async def zones_save(request: Request) -> dict[str, Any]:
     body = await request.json()
-    zones = body.get("zones") if isinstance(body, dict) else body
+    if not isinstance(body, dict):
+        raise HTTPException(400, "JSON inválido")
+    zones = body.get("zones")
+    camera_id = body.get("camera_id")
     if not isinstance(zones, list):
-        raise HTTPException(400, "Se esperaba { zones: [...] }")
-    return zones_mod.save_zones(zones)
+        raise HTTPException(400, "Se esperaba { zones: [...], camera_id?: string }")
+    return zones_mod.save_zones(zones, camera_id=str(camera_id).strip() if camera_id else None)
+
+
+class VigilStartBody(BaseModel):
+    profile: str = "general"
+
+
+@app.get("/api/vigil/status")
+def vigil_status() -> dict[str, Any]:
+    return {"ok": True, **VigilMonitor.get().status()}
+
+
+@app.get("/api/vigil/events")
+def vigil_events(limit: int = 50) -> dict[str, Any]:
+    return {"ok": True, "events": VigilMonitor.get().events(limit=limit)}
+
+
+@app.post("/api/vigil/start")
+def vigil_start(body: VigilStartBody | None = None) -> dict[str, Any]:
+    profile = (body.profile if body else None) or "general"
+    audit_mod.log("vigil_start", detail=profile)
+    return {"ok": True, **VigilMonitor.get().start(profile=profile)}
+
+
+@app.post("/api/vigil/stop")
+def vigil_stop() -> dict[str, Any]:
+    audit_mod.log("vigil_stop")
+    return {"ok": True, **VigilMonitor.get().stop()}
 
 
 @app.get("/api/scans/recent")
@@ -887,6 +943,7 @@ def rtsp_frame(
     identify: bool = False,
     required: str = "",
     precision: str = "",
+    camera_id: str | None = None,
 ) -> JSONResponse:
     url = _validate_rtsp_url(url)
     stream = get_or_create_stream(url)
@@ -926,6 +983,7 @@ def rtsp_frame(
         identity=identity,
         frame_wh=(frame.shape[1], frame.shape[0]),
         required=parse_required_list(required),
+        camera_id=camera_id,
     )
     return JSONResponse(payload)
 
