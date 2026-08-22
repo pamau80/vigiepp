@@ -102,7 +102,21 @@ En Windows hay atajos: `start-edge.bat` (datos en disco) y `deploy-local-and-web
 
 ## Cloud Agent (Cursor)
 
-El repo trae `.cursor/environment.json` + `.cursor/install.sh`. El install crea `.venv` y descarga los pesos. El terminal **backend** levanta uvicorn en `:8000`.
+El repo trae `.cursor/environment.json` + `.cursor/install.sh`. El install crea `.venv` y descarga los pesos.
+
+### Cómo abrir la app desde tu PC (Cloud Agent)
+
+**No uses `http://127.0.0.1:8000` en tu navegador local** — esa URL es solo dentro de la VM.
+
+1. Entrá a la página del agente en Cursor (pestaña del run).
+2. Abrí el puerto **VigiEPP · 8000** (botón **Open** / sección **Ports**).
+3. Login: PIN `vigiepp` (admin) o `porteria` (operador).
+
+Si el puerto no aparece, ejecutá en el agente: `bash .cursor/start-app.sh` y revisá **AGENTS.md**.
+
+### Alternativa en internet (Render)
+
+[https://vigiepp.onrender.com](https://vigiepp.onrender.com) — puede ir una versión anterior hasta mergear el PR a `main`.
 
 ```bash
 python -m unittest discover -s backend/tests -v
