@@ -1415,7 +1415,11 @@
 
     if (payload.zones?.defs) zonesCache = payload.zones.defs;
 
-    const gateOn = !!settings.silhouetteGate && !!settings.silhouetteEnabled && appMode === "monitor";
+    const gateOn =
+      !!settings.silhouetteGate &&
+      !!settings.silhouetteEnabled &&
+      appMode === "monitor" &&
+      sourceMode === "camera";
     const aligned = gateOn
       ? evaluateAlignment(payload.detections || [], lastFrameSize.w, lastFrameSize.h)
       : true;

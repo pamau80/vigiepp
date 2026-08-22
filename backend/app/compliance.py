@@ -10,6 +10,7 @@ from .profiles import IndustryProfile, get_profile
 # Mapeo: clase del modelo → categoría interna
 CLASS_TO_CATEGORY: dict[str, str] = {
     "hardhat": "casco",
+    "Hardhat": "casco",
     "helmet": "casco",
     "Helmet": "casco",
     "casco": "casco",
@@ -113,7 +114,11 @@ def normalize_detections(raw: list[dict]) -> list[Detection]:
     out: list[Detection] = []
     for item in raw:
         label = str(item.get("label", ""))
-        category = CLASS_TO_CATEGORY.get(label, label.lower().replace(" ", "_"))
+        category = CLASS_TO_CATEGORY.get(label)
+        if category is None:
+            category = CLASS_TO_CATEGORY.get(label.lower())
+        if category is None:
+            category = label.lower().replace(" ", "_")
         out.append(
             Detection(
                 label=label,

@@ -21,6 +21,35 @@ DEFAULT = {
             "id": "zona-restringida-demo",
             "name": "Zona restringida",
             "type": "restricted",
+            "enabled": False,
+            "x": 0.05,
+            "y": 0.1,
+            "w": 0.35,
+            "h": 0.5,
+            "color": "#e85d04",
+        },
+        {
+            "id": "via-vehiculos-demo",
+            "name": "Vía vehículos",
+            "type": "vehicle_lane",
+            "enabled": False,
+            "x": 0.55,
+            "y": 0.35,
+            "w": 0.4,
+            "h": 0.55,
+            "color": "#d62828",
+        },
+    ],
+    "updated_at": None,
+}
+
+
+PRESETS: dict[str, list[dict[str, Any]]] = {
+    "faena": [
+        {
+            "id": "zona-restringida-demo",
+            "name": "Zona restringida",
+            "type": "restricted",
             "enabled": True,
             "x": 0.05,
             "y": 0.1,
@@ -40,12 +69,6 @@ DEFAULT = {
             "color": "#d62828",
         },
     ],
-    "updated_at": None,
-}
-
-
-PRESETS: dict[str, list[dict[str, Any]]] = {
-    "faena": DEFAULT["zones"],
     "porteria": [
         {
             "id": "acceso-principal",
