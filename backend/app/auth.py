@@ -102,6 +102,10 @@ def using_default_pins() -> bool:
     return not admin_set or not op_set
 
 
+def hosted_on_render() -> bool:
+    return bool(os.getenv("RENDER") or os.getenv("RENDER_SERVICE_ID"))
+
+
 def api_key() -> str | None:
     key = os.getenv("VIGIEPP_API_KEY", "").strip()
     return key or None
@@ -355,5 +359,6 @@ def auth_status() -> dict[str, Any]:
         "docs_enabled": docs_enabled(),
         "roles": [ROLE_ADMIN, ROLE_OPERATOR],
         "default_pins": using_default_pins(),
+        "hosted_on_render": hosted_on_render(),
         "hint": "PIN admin (VIGIEPP_ADMIN_PIN) o PIN operador/portería (VIGIEPP_OPERATOR_PIN).",
     }

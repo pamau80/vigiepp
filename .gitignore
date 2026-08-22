@@ -6,6 +6,7 @@ __pycache__/
 venv/
 .env
 .env.*
+!.env.example
 
 # Local runtime data / biometrics (keep structure, ignore contents)
 backend/data/faces/
@@ -14,6 +15,8 @@ backend/data/scan_events.jsonl
 backend/data/notifications.json
 backend/data/notification_log.jsonl
 backend/data/zones.json
+backend/data/sessions.json
+backend/data/audit.jsonl
 backend/data/evidence/
 backend/datasets/
 backend/runs/

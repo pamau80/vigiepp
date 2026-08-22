@@ -48,7 +48,7 @@ _detect_lock = threading.Lock()
 _DETECT_IMGSZ_MAX = int(os.getenv("VIGIEPP_IMGSZ_MAX", "256"))
 
 
-BUILD_VERSION = "v34"
+BUILD_VERSION = "v35"
 
 
 @asynccontextmanager
@@ -83,6 +83,11 @@ async def lifespan(_: FastAPI):
         threading.Thread(target=_lazy_yolo, name="epp-lazy", daemon=True).start()
 
     threading.Thread(target=_warm, name="vigiepp-warm", daemon=True).start()
+    if auth_mod.using_default_pins():
+        logger.warning(
+            "PIN de fábrica activo. Definí VIGIEPP_ADMIN_PIN y VIGIEPP_OPERATOR_PIN "
+            "antes de usarlo con un cliente."
+        )
     yield
     stop_all()
 
@@ -463,6 +468,7 @@ def health() -> dict[str, Any]:
         "data_ephemeral_risk": bool(ephemeral_risk and not durable),
         "cloud_backup": cloud,
         "default_pins": auth_mod.using_default_pins(),
+        "hosted_on_render": auth_mod.hosted_on_render(),
         "email_transport": notif_mod.email_transport_status().get("mode"),
     }
 

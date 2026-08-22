@@ -578,10 +578,34 @@
     if (tag) tag.textContent = isOp ? "Portería · operador" : "EPP + identidad · Chile";
   }
 
+  function factoryPinHint(status) {
+    if (!status?.default_pins) return "PIN admin o portería (operador)";
+    if (status.hosted_on_render) {
+      return "PIN de fábrica activo. Definí VIGIEPP_ADMIN_PIN y VIGIEPP_OPERATOR_PIN.";
+    }
+    return "Demo local: PIN admin vigiepp · portería porteria. Cambialos en producción.";
+  }
+
+  function showFactoryPinNote(status) {
+    const note = $("#authFactoryHint");
+    if (!note) return;
+    if (status?.default_pins && !status.hosted_on_render) {
+      note.textContent = "PIN de fábrica: admin vigiepp · operador porteria";
+      note.classList.remove("hidden");
+    } else if (status?.default_pins) {
+      note.textContent = "Cambiá los PIN con VIGIEPP_ADMIN_PIN y VIGIEPP_OPERATOR_PIN.";
+      note.classList.remove("hidden");
+    } else {
+      note.textContent = "";
+      note.classList.add("hidden");
+    }
+  }
+
   async function ensureAuth(force = false) {
+    let status = { auth_enabled: true, default_pins: false, hosted_on_render: false };
     try {
-      const st = await fetch("/api/auth/status", { credentials: "include" }).then((r) => r.json());
-      if (!st.auth_enabled) {
+      status = await fetch("/api/auth/status", { credentials: "include" }).then((r) => r.json());
+      if (!status.auth_enabled) {
         showAuthGate(false);
         $("#btnLogout")?.classList.add("hidden");
         applyRoleUI("admin");
@@ -607,7 +631,8 @@
     }
 
     return new Promise((resolve) => {
-      showAuthGate(true, "PIN admin o portería (operador)");
+      showFactoryPinNote(status);
+      showAuthGate(true, factoryPinHint(status));
       const form = $("#authForm");
       const onSubmit = async (e) => {
         e.preventDefault();
@@ -1146,7 +1171,7 @@
         regs.forEach((r) => r.unregister().catch(() => {}));
       });
       setTimeout(() => {
-        navigator.serviceWorker.register("/assets/sw.js?v=34").catch(() => {});
+        navigator.serviceWorker.register("/assets/sw.js?v=35").catch(() => {});
       }, 400);
     }
     const offlineBadge = $("#offlineBadge");
@@ -2215,17 +2240,29 @@
   function showPersistBanner(health) {
     const el = $("#persistBanner");
     if (!el) return;
+    const msgs = [];
+    if (health?.default_pins) {
+      msgs.push(
+        "<strong>PIN de fábrica:</strong> definí <code>VIGIEPP_ADMIN_PIN</code> y " +
+          "<code>VIGIEPP_OPERATOR_PIN</code> antes de usarlo con un cliente."
+      );
+    }
     const cloud = health?.cloud_backup || {};
-    if (cloud.configured || (health?.data_persistent && !health?.data_ephemeral_risk)) {
+    const onRender = !!health?.hosted_on_render;
+    if (onRender && !cloud.configured && (health?.data_ephemeral_risk || !health?.data_persistent)) {
+      msgs.push(
+        "<strong>Falta volumen durable:</strong> Render Free no guarda disco. " +
+          "Solución gratis: corré <code>activate-free-durable.ps1</code> (Hugging Face, sin pago). " +
+          "Las personas quedan en un dataset privado y sobreviven al sleep."
+      );
+    }
+    if (!msgs.length) {
       el.classList.add("hidden");
       el.textContent = "";
       return;
     }
     el.classList.remove("hidden");
-    el.innerHTML =
-      "<strong>Falta volumen durable:</strong> Render Free no guarda disco. " +
-      "Solución gratis: corré <code>activate-free-durable.ps1</code> (Hugging Face, sin pago). " +
-      "Las personas quedan en un dataset privado y sobreviven al sleep.";
+    el.innerHTML = msgs.join("<br>");
   }
 
   function renderWorkerList() {
