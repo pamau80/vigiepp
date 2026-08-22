@@ -3307,7 +3307,9 @@
   els.fileInput.addEventListener("change", async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    await detectBlob(file, { identify: true, returnImage: true });
+    // /api/detect con identify=true omite YOLO (un modelo por request). Foto = EPP.
+    await detectBlob(file, { identify: false, returnImage: true });
+    e.target.value = "";
   });
   els.btnEnroll.addEventListener("click", enrollWorker);
   els.btnCancelEnroll.addEventListener("click", () => {
