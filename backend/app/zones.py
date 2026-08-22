@@ -304,7 +304,7 @@ def evaluate_zones(
             if ratio < 0.28:
                 continue
             hit = {
-                "zone_id": z["id"],
+                "zone_id": str(z.get("id") or "zona"),
                 "zone_name": z["name"],
                 "zone_type": z["type"],
                 "overlap": round(ratio, 3),

@@ -238,8 +238,14 @@ input, select, textarea, button {
 .panel[data-mode="identity"] .panel-section[data-show="identity"],
 .panel[data-mode="teach"] .panel-section[data-show="teach"],
 .panel[data-mode="config"] .panel-section[data-show="config"],
-.panel[data-mode="reports"] .panel-section[data-show="reports"] {
+.panel[data-mode="reports"] .panel-section[data-show="reports"],
+.panel[data-mode="vigil"] .panel-section[data-show="vigil"] {
   display: block;
+}
+
+.panel[data-mode="vigil"] [data-monitor-only],
+.panel[data-mode="vigil"] .card-person {
+  display: none !important;
 }
 
 /* En Personas / Ropa: ocultar ruido de monitoreo EPP */

@@ -1,5 +1,5 @@
-/* Service worker v36: detección EPP de alta precisión */
-const CACHE = "vigiepp-shell-v36";
+/* Service worker v38: pantalla Vigilancia separada de EPP */
+const CACHE = "vigiepp-shell-v38";
 const ASSETS = ["/assets/styles.css", "/manifest.webmanifest", "/assets/icons/icon-192.png"];
 
 self.addEventListener("install", (event) => {

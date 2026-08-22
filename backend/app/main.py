@@ -76,7 +76,7 @@ def _default_precision() -> str:
 # Tope de imgsz YOLO. En Render Free el default es 320; en local/Cloud Agent 640.
 _DETECT_IMGSZ_MAX = _detect_imgsz_max()
 
-BUILD_VERSION = "v37"
+BUILD_VERSION = "v38"
 
 
 @asynccontextmanager
@@ -207,8 +207,90 @@ def _build_response(
     frame_wh: tuple[int, int] | None = None,
     required: list[str] | None = None,
     camera_id: str | None = None,
+    context: str = "epp",
 ) -> dict[str, Any]:
+    """context=epp → Monitoreo (EPP + identidad). context=vigil → Conducta/zonas (sin EPP ni rostros)."""
+    ctx = (context or "epp").strip().lower()
+    if ctx not in ("epp", "vigil"):
+        ctx = "epp"
+
+    fw = frame_wh[0] if frame_wh else 0
+    fh = frame_wh[1] if frame_wh else 0
+
+    if ctx == "vigil":
+        return _build_vigil_response(
+            detections,
+            annotated_jpeg,
+            profile,
+            frame_wh=frame_wh,
+            required=required,
+            camera_id=camera_id,
+        )
+
     compliance = evaluate(detections, profile, required_override=required)
+    persons = [asdict(p) for p in compliance.persons]
+    overall = bool(compliance.overall_compliant)
+    exposure = exposure_mod.update_exposure(overall, identity)
+    alerts = list(compliance.alerts or [])
+
+    if persons:
+        avg = sum(float(p.get("score") or 0) for p in persons) / max(1, len(persons))
+        live_score = int(round(avg * 100))
+    elif detections:
+        live_score = 70
+    else:
+        live_score = None
+    if exposure.get("active") and live_score is not None and int(exposure.get("seconds") or 0) > 30:
+        live_score = max(0, live_score - 10)
+    if identity and not identity.get("known") and int(identity.get("faces_detected") or 0) > 0:
+        live_score = max(0, (live_score if live_score is not None else 55) - 15)
+    if persons and live_score is not None:
+        crit = {"casco", "hardhat", "helmet", "arnes", "chaleco", "safety vest", "vest"}
+        miss = []
+        for p in persons:
+            miss.extend(str(x).lower() for x in (p.get("missing") or []))
+        if any(any(c in m for c in crit) for m in miss):
+            live_score = max(0, live_score - 10)
+
+    payload: dict[str, Any] = {
+        "ok": True,
+        "context": "epp",
+        "detections": detections,
+        "compliance": {
+            "profile_id": compliance.profile_id,
+            "profile_name": compliance.profile_name,
+            "overall_compliant": overall,
+            "summary": compliance.summary,
+            "alerts": alerts,
+            "persons": persons,
+            "required": required if required is not None else list(get_profile(profile)["required"]),
+        },
+        "identity": identity,
+        "zones": {"alerts": [], "hits": [], "defs": []},
+        "behavior": {"alerts": [], "events": [], "severity": "ok"},
+        "exposure": exposure,
+        "safety_score": live_score,
+        "model": PPEDetector.get().model_name,
+        "model_ready": PPEDetector.get().ready,
+        "model_warning": (PPEDetector.peek().error if PPEDetector.peek() else None),
+    }
+    if frame_wh:
+        payload["frame_width"] = frame_wh[0]
+        payload["frame_height"] = frame_wh[1]
+    if annotated_jpeg is not None:
+        payload["image_b64"] = base64.b64encode(annotated_jpeg).decode("ascii")
+    return payload
+
+
+def _build_vigil_response(
+    detections: list[dict],
+    annotated_jpeg: bytes | None,
+    profile: str,
+    *,
+    frame_wh: tuple[int, int] | None,
+    required: list[str] | None,
+    camera_id: str | None,
+) -> dict[str, Any]:
     fw = frame_wh[0] if frame_wh else 0
     fh = frame_wh[1] if frame_wh else 0
     zone_eval = (
@@ -216,6 +298,8 @@ def _build_response(
         if fw and fh
         else {"alerts": [], "hits": [], "zones": []}
     )
+    # Cumplimiento interno solo para merodeo sin EPP en zona restringida (no se expone como panel EPP)
+    compliance = evaluate(detections, profile, required_override=required)
     persons = [asdict(p) for p in compliance.persons]
     behavior = (
         evaluate_behavior(
@@ -228,59 +312,39 @@ def _build_response(
         if fw and fh
         else {"alerts": [], "events": [], "severity": "ok"}
     )
-    alerts = list(compliance.alerts or [])
+    vigil_alerts: list[str] = []
     for a in zone_eval.get("alerts") or []:
-        if a not in alerts:
-            alerts.append(a)
+        if a not in vigil_alerts:
+            vigil_alerts.append(a)
     for a in behavior.get("alerts") or []:
-        if a not in alerts:
-            alerts.append(a)
+        if a not in vigil_alerts:
+            vigil_alerts.append(a)
 
-    # Si hay zona restringida / near-miss / conducta, no marcar como cumple global
-    zone_bad = bool(zone_eval.get("alerts"))
-    behavior_bad = behavior.get("severity") in ("high", "critical")
-    overall = bool(compliance.overall_compliant) and not zone_bad and not behavior_bad
-
-    exposure = exposure_mod.update_exposure(overall, identity)
-
-    # Safety score en vivo 0–100 (promedio scores de personas; penaliza zonas)
-    if persons:
-        avg = sum(float(p.get("score") or 0) for p in persons) / max(1, len(persons))
-        live_score = int(round(avg * 100))
-    elif detections:
-        live_score = 40 if (zone_bad or behavior_bad) else 70
+    severity = str(behavior.get("severity") or "ok")
+    person_count = int(behavior.get("person_count") or len(persons))
+    if severity == "critical":
+        summary = f"Alerta crítica · {person_count} persona(s) en encuadre"
+    elif severity == "high":
+        summary = f"Situación de riesgo · {person_count} persona(s)"
+    elif severity == "medium":
+        summary = f"Atención requerida · {person_count} persona(s)"
+    elif person_count:
+        summary = f"Vigilancia activa · {person_count} persona(s) · sin incidentes"
     else:
-        live_score = None
-    if (zone_bad or behavior_bad) and live_score is not None:
-        live_score = max(0, live_score - 25)
-    if exposure.get("active") and live_score is not None and int(exposure.get("seconds") or 0) > 30:
-        live_score = max(0, live_score - 10)
-    if identity and not identity.get("known") and int(identity.get("faces_detected") or 0) > 0:
-        live_score = max(0, (live_score if live_score is not None else 55) - 15)
-    # Faltantes críticos pesan más en vivo
-    if persons and live_score is not None:
-        crit = {"casco", "hardhat", "helmet", "arnes", "chaleco", "safety vest", "vest"}
-        miss = []
-        for p in persons:
-            miss.extend(str(x).lower() for x in (p.get("missing") or []))
-        if any(any(c in m for c in crit) for m in miss):
-            live_score = max(0, live_score - 10)
+        summary = "Sin personas en encuadre"
 
     payload: dict[str, Any] = {
         "ok": True,
+        "context": "vigil",
         "detections": detections,
         "compliance": {
-            "profile_id": compliance.profile_id,
-            "profile_name": compliance.profile_name,
-            "overall_compliant": overall,
-            "summary": compliance.summary
-            if not (zone_bad or behavior_bad)
-            else f"{compliance.summary} · alerta de zona/conducta",
-            "alerts": alerts,
-            "persons": persons,
-            "required": required if required is not None else list(get_profile(profile)["required"]),
+            "overall_compliant": severity == "ok" and not vigil_alerts,
+            "summary": summary,
+            "alerts": vigil_alerts,
+            "persons": [],
+            "person_count": person_count,
         },
-        "identity": identity,
+        "identity": None,
         "zones": {
             "alerts": zone_eval.get("alerts") or [],
             "hits": zone_eval.get("hits") or [],
@@ -289,8 +353,8 @@ def _build_response(
             "source": zone_eval.get("zone_source"),
         },
         "behavior": behavior,
-        "exposure": exposure,
-        "safety_score": live_score,
+        "exposure": {"active": False, "seconds": 0, "label": ""},
+        "safety_score": None,
         "model": PPEDetector.get().model_name,
         "model_ready": PPEDetector.get().ready,
         "model_warning": (PPEDetector.peek().error if PPEDetector.peek() else None),
@@ -585,6 +649,7 @@ def ppe_catalog() -> dict[str, Any]:
 
 @app.post("/api/detect")
 async def detect_upload(
+    request: Request,
     file: UploadFile = File(...),
     profile: str = Form("general"),
     conf: float = Form(0.35),
@@ -595,7 +660,12 @@ async def detect_upload(
     required: str = Form(""),
     precision: str = Form(""),
     full: bool = Form(False),
+    context: str = Form("epp"),
+    camera_id: str = Form(""),
 ) -> JSONResponse:
+    ctx = (context or "epp").strip().lower()
+    if ctx == "vigil":
+        auth_mod.require_admin(request)
     data = await file.read()
     if not data:
         raise HTTPException(400, "Archivo vacío")
@@ -616,6 +686,8 @@ async def detect_upload(
             required=parse_required_list(required),
             precision=precision,
             full=full,
+            context=ctx,
+            camera_id=camera_id.strip() or None,
         )
     finally:
         _detect_lock.release()
@@ -633,7 +705,13 @@ def _detect_frame(
     required: list[str] | None = None,
     precision: str = "",
     full: bool = False,
+    context: str = "epp",
+    camera_id: str | None = None,
 ) -> JSONResponse:
+    ctx = (context or "epp").strip().lower()
+    if ctx not in ("epp", "vigil"):
+        ctx = "epp"
+
     try:
         frame = decode_image_bytes(data)
     except ValueError as exc:
@@ -651,11 +729,10 @@ def _detect_frame(
     detections: list = []
     annotated = frame
 
-    # En Render Free no corremos YOLO+SFace en el mismo request (OOM).
-    # Fuera de Render, `full` hace EPP y luego identidad en serie.
-    run_id = bool(identify or (full and not _on_render()))
-    run_yolo = (not identify) or (full and not _on_render())
-    if identify and _on_render():
+    # Vigilancia: solo detección espacial/conducta — sin identidad facial
+    run_id = ctx == "epp" and bool(identify or (full and not _on_render()))
+    run_yolo = ctx == "vigil" or (not identify) or (full and not _on_render())
+    if ctx == "epp" and identify and _on_render():
         run_yolo = False
         run_id = True
 
@@ -723,15 +800,27 @@ def _detect_frame(
         identity=identity,
         frame_wh=(frame.shape[1], frame.shape[0]),
         required=required,
+        camera_id=camera_id,
+        context=ctx,
     )
     payload["precision"] = mode
     payload["imgsz"] = int(imgsz or _detect_imgsz_max())
-    if identify and identity and identity.get("known"):
+    if ctx == "epp" and identify and identity and identity.get("known"):
         evid = _maybe_log(profile, payload["compliance"], identity, frame_bgr=annotated)
         if evid:
             payload["evidence_id"] = evid
-    elif identify and identity and not identity.get("known"):
+    elif ctx == "epp" and identify and identity and not identity.get("known"):
         _maybe_notify_unknown(profile, identity)
+    if ctx == "vigil":
+        try:
+            notif_mod.maybe_notify_zones(
+                None,
+                (payload.get("zones") or {}).get("alerts") or [],
+                profile,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("Notificación de vigilancia falló")
+        return JSONResponse(payload)
     try:
         notif_mod.maybe_notify_zones(
             identity,
@@ -937,6 +1026,7 @@ def rtsp_start(body: RTSPStartRequest) -> dict[str, Any]:
 
 @app.get("/api/rtsp/frame")
 def rtsp_frame(
+    request: Request,
     url: str,
     profile: str = "general",
     conf: float = 0.35,
@@ -944,7 +1034,11 @@ def rtsp_frame(
     required: str = "",
     precision: str = "",
     camera_id: str | None = None,
+    context: str = "epp",
 ) -> JSONResponse:
+    ctx = (context or "epp").strip().lower()
+    if ctx == "vigil":
+        auth_mod.require_admin(request)
     url = _validate_rtsp_url(url)
     stream = get_or_create_stream(url)
     frame = stream.read()
@@ -974,7 +1068,7 @@ def rtsp_frame(
         enhance=True,
     )
     identity = None
-    if identify and not _on_render():
+    if ctx == "epp" and identify and not _on_render():
         identity = _identify_on_frame(frame)
     payload = _build_response(
         detections,
@@ -984,6 +1078,7 @@ def rtsp_frame(
         frame_wh=(frame.shape[1], frame.shape[0]),
         required=parse_required_list(required),
         camera_id=camera_id,
+        context=ctx,
     )
     return JSONResponse(payload)
 

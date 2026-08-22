@@ -10,6 +10,7 @@ from collections import deque
 from datetime import datetime, timezone
 from typing import Any
 
+from .behavior import evaluate_behavior
 from .compliance import evaluate
 from .detector import PPEDetector, encode_jpeg
 from .precision import normalize_precision
@@ -127,8 +128,9 @@ class VigilMonitor:
                         enhance=True,
                     )
                     fh, fw = frame.shape[:2]
-                    compliance = evaluate(detections, self._profile)
                     zone_eval = zones_mod.evaluate_zones(detections, fw, fh, camera_id=cam_id)
+                    # Cumplimiento interno solo para merodeo (no alertas EPP en ojo vigilia)
+                    compliance = evaluate(detections, self._profile)
                     persons = [
                         {
                             "person_id": p.person_id,
@@ -146,28 +148,15 @@ class VigilMonitor:
                         frame_h=fh,
                     )
 
-                    identity_summary: dict[str, Any] | None = None
-                    if self._tick % self._identify_every == 0:
-                        try:
-                            from .identity import IdentityService
-
-                            id_result = IdentityService().identify(frame)
-                            person = id_result.get("identified")
-                            identity_summary = {
-                                "known": bool(person),
-                                "name": person.get("name") if person else None,
-                                "rut": person.get("rut") if person else None,
-                            }
-                        except Exception as exc:  # noqa: BLE001
-                            identity_summary = {"error": str(exc)[:120]}
-
-                    all_alerts = list(compliance.alerts or [])
+                    all_alerts: list[str] = []
                     for a in zone_eval.get("alerts") or []:
                         if a not in all_alerts:
                             all_alerts.append(a)
                     for a in behavior.get("alerts") or []:
                         if a not in all_alerts:
                             all_alerts.append(a)
+
+                    identity_summary = None
 
                     snapshot_b64: str | None = None
                     if all_alerts and annotated is not None:
@@ -184,10 +173,9 @@ class VigilMonitor:
                         "ok": True,
                         "connected": stream.connected,
                         "persons": len(compliance.persons),
-                        "compliant": compliance.overall_compliant and not zone_eval.get("alerts"),
+                        "compliant": not all_alerts,
                         "alerts": all_alerts,
                         "behavior_severity": behavior.get("severity"),
-                        "identity": identity_summary,
                         "updated_at": datetime.now(timezone.utc).isoformat(),
                     }
                     with self._lock:
@@ -201,7 +189,6 @@ class VigilMonitor:
                                 "camera_name": name,
                                 "alerts": all_alerts,
                                 "behavior": behavior.get("events") or [],
-                                "identity": identity_summary,
                                 "severity": behavior.get("severity") or "medium",
                                 "snapshot_b64": snapshot_b64,
                             }

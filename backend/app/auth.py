@@ -283,9 +283,11 @@ def is_admin_only(method: str, path: str) -> bool:
         return True
     if path.startswith("/api/notifications/"):
         return True
-    if path.startswith("/api/cameras"):
-        return True
-    return False
+        if path.startswith("/api/cameras"):
+            return True
+        if path.startswith("/api/vigil/"):
+            return True
+        return False
 
 
 def set_session_cookie(response: Response, token: str) -> None:

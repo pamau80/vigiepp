@@ -56,12 +56,12 @@ v37 agrega monitoreo continuo en el **backend** (no depende del navegador abiert
 3. Activá el vigilante: `POST /api/vigil/start` o `VIGIEPP_VIGIL_AUTO=1` al arrancar.
 4. Consultá estado y eventos: `GET /api/vigil/status`, `GET /api/vigil/events`.
 
-El sistema evalúa en cada ciclo (~2,5 s):
+El backend evalúa en cada ciclo (~2,5 s) **solo en pantalla 6 · Vigilancia** (no en Monitoreo):
 
-- **EPP** (casco, chaleco, lentes, guantes, zapatos, buzo, casaca, etc. — catálogo ampliado).
-- **Identidad facial** cada N frames (enrolados en faena).
 - **Zonas** restringidas / vías / maquinaria por cámara.
-- **Conducta**: caídas (modelo), proximidad agresiva, posible altercado, merodeo sin EPP.
+- **Conducta**: caídas, proximidad agresiva, posible altercado, merodeo sin EPP en zona restringida.
+
+**Monitoreo (1)** queda exclusivo para **EPP + identidad facial**. Operador/portería no ve Vigilancia.
 
 | Variable | Default | Efecto |
 | --- | --- | --- |

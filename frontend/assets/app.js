@@ -129,9 +129,19 @@
     btnRepRefresh: $("#btnRepRefresh"),
     repSideSummary: $("#repSideSummary"),
     repSideList: $("#repSideList"),
+    vigilToolbar: $("#vigilToolbar"),
+    vigilBox: $("#vigilBox"),
+    vigilPill: $("#vigilPill"),
+    vigilValue: $("#vigilValue"),
+    vigilSummary: $("#vigilSummary"),
+    vigilSvcStatus: $("#vigilSvcStatus"),
+    vigilAlertList: $("#vigilAlertList"),
+    vigilEventsList: $("#vigilEventsList"),
+    btnVigilSvcStart: $("#btnVigilSvcStart"),
+    btnVigilSvcStop: $("#btnVigilSvcStop"),
   };
 
-  const APP_BUILD = "v34";
+  const APP_BUILD = "v38";
 
   let profiles = [];
   let ppeCatalog = [];
@@ -142,8 +152,10 @@
   let detectLoopOn = false;
   let detectBackoffMs = 0;
   let rtspTimer = null;
+  let vigilEventsTimer = null;
   let busy = false;
   let sourceMode = "camera";
+  let vigilSourceMode = "rtsp";
   let appMode = "monitor";
   let enrollAbort = false;
   let enrolling = false;
@@ -948,7 +960,7 @@
   }
 
   function drawZonesOverlay(ctx, frameW, frameH, cover, hits) {
-    if (!settings.showZones || !zonesCache.length) return;
+    if (!settings.showZones || !zonesCache.length || appMode !== "vigil") return;
     const sx = cover.w / frameW;
     const sy = cover.h / frameH;
     for (const z of zonesCache) {
@@ -1261,17 +1273,20 @@
 
   function setAppMode(mode) {
     const prevMode = appMode;
+    if (mode !== "vigil") stopVigilEventsPoll();
     appMode = mode;
     document.body.classList.remove(
       "mode-monitor",
       "mode-identity",
       "mode-teach",
       "mode-config",
-      "mode-reports"
+      "mode-reports",
+      "mode-vigil"
     );
     document.body.classList.add(`mode-${mode}`);
     $$(".mode-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === mode));
     els.monitorToolbar.classList.toggle("hidden", mode !== "monitor");
+    if (els.vigilToolbar) els.vigilToolbar.classList.toggle("hidden", mode !== "vigil");
     const stage = $(".stage");
     if (stage) stage.classList.toggle("is-reports", mode === "reports");
     if (els.reportsDesk) els.reportsDesk.classList.toggle("hidden", mode !== "reports");
@@ -1281,7 +1296,9 @@
     if (ctx) {
       ctx.textContent =
         mode === "monitor"
-          ? "Resultado del escaneo en vivo"
+          ? "Resultado del escaneo en vivo · EPP e identidad"
+          : mode === "vigil"
+            ? "Conducta, zonas y caídas (sin EPP ni rostros)"
           : mode === "identity"
             ? "Enrolar e identificar personas"
             : mode === "teach"
@@ -1292,7 +1309,7 @@
     }
     if (mode === "monitor") {
       setSource(
-        sourceMode === "identity" || sourceMode === "teach" || sourceMode === "config" || sourceMode === "reports"
+        sourceMode === "identity" || sourceMode === "teach" || sourceMode === "config" || sourceMode === "reports" || sourceMode === "vigil"
           ? "camera"
           : sourceMode
       );
@@ -1300,6 +1317,13 @@
       if (prevMode === "identity" && hasReadyWorkers()) {
         enableIdentifyForPorteria("Identificación ON · volviste de Personas");
       }
+    } else if (mode === "vigil") {
+      stopDetectLoop();
+      stopRtsp();
+      setVigilSource(vigilSourceMode || "rtsp");
+      loadCameras().then(() => loadZonesForVigil()).catch(() => {});
+      refreshVigilStatus();
+      startVigilEventsPoll();
     } else if (mode === "identity") setSource("identity");
     else if (mode === "teach") setSource("teach");
     else if (mode === "reports") setSource("reports");
@@ -1316,6 +1340,152 @@
       openReport(currentRep || "overview");
     }
     requestAnimationFrame(() => syncCanvasSize());
+  }
+
+  function setVigilSource(mode) {
+    vigilSourceMode = mode;
+    $$("[data-vigil-source]").forEach((t) => {
+      t.classList.toggle("active", t.dataset.vigilSource === mode);
+    });
+    els.cameraControls.classList.toggle("hidden", mode !== "camera");
+    els.rtspControls.classList.toggle("hidden", mode !== "rtsp");
+    els.uploadControls?.classList.add("hidden");
+    if (els.chkIdentify?.closest?.("label")) {
+      els.chkIdentify.closest("label").classList.add("hidden");
+    }
+    els.personChip?.classList.add("hidden");
+    if (els.speedHint) {
+      els.speedHint.classList.toggle("hidden", false);
+      els.speedHint.textContent =
+        mode === "rtsp" ? "Cámaras fijas · zonas y conducta" : "Demo webcam · sin EPP ni rostros";
+    }
+    if (mode === "camera") {
+      stopRtsp();
+      if (!mediaStream) startCamera({ silentDetect: true });
+      else showLive();
+      if (!detectLoopOn) startDetectLoop();
+    } else if (mode === "rtsp") {
+      stopDetectLoop();
+      stopCamera();
+      showLive();
+    }
+    applyGuideMode();
+  }
+
+  async function loadZonesForVigil() {
+    try {
+      const camId = els.cameraSelect?.value || "";
+      const q = camId ? `?camera_id=${encodeURIComponent(camId)}` : "";
+      const data = await api(`/api/zones${q}`);
+      zonesCache = data.zones || [];
+    } catch (err) {
+      console.warn("zones vigil", err);
+    }
+  }
+
+  async function refreshVigilStatus() {
+    if (!els.vigilSvcStatus) return;
+    try {
+      const data = await api("/api/vigil/status");
+      const running = !!data.running;
+      const n = Object.keys(data.cameras || {}).length;
+      els.vigilSvcStatus.textContent = running
+        ? `Servicio 24/7 activo · ${n} cámara(s) · cada ${data.interval_sec}s`
+        : "Servicio 24/7 detenido — podés analizar en vivo abajo";
+      if (els.btnVigilSvcStart) els.btnVigilSvcStart.disabled = running;
+      if (els.btnVigilSvcStop) els.btnVigilSvcStop.disabled = !running;
+    } catch (err) {
+      els.vigilSvcStatus.textContent = err.message || "Servicio no disponible";
+    }
+  }
+
+  async function refreshVigilEvents() {
+    if (!els.vigilEventsList || appMode !== "vigil") return;
+    try {
+      const data = await api("/api/vigil/events?limit=20");
+      const evs = data.events || [];
+      els.vigilEventsList.innerHTML = evs.length
+        ? [...evs]
+            .reverse()
+            .map((e) => {
+              const ts = (e.ts || "").replace("T", " ").slice(0, 19);
+              const al = (e.alerts || [])[0] || e.severity || "evento";
+              return `<li><span>${escapeHtml(e.camera_name || e.camera_id || "cámara")}</span><span class="conf">${escapeHtml(ts)} · ${escapeHtml(al)}</span></li>`;
+            })
+            .join("")
+        : `<li class="muted">Sin eventos recientes</li>`;
+    } catch (_) {
+      /* operador sin acceso */
+    }
+  }
+
+  function startVigilEventsPoll() {
+    stopVigilEventsPoll();
+    refreshVigilEvents();
+    vigilEventsTimer = setInterval(refreshVigilEvents, 4000);
+  }
+
+  function stopVigilEventsPoll() {
+    if (vigilEventsTimer) {
+      clearInterval(vigilEventsTimer);
+      vigilEventsTimer = null;
+    }
+  }
+
+  function updateVigilUi(payload) {
+    if (payload.frame_width && payload.frame_height) {
+      lastFrameSize = { w: payload.frame_width, h: payload.frame_height };
+    }
+    showLive();
+    drawDetections(
+      payload.detections || [],
+      lastFrameSize.w,
+      lastFrameSize.h,
+      null,
+      payload.zones?.hits || []
+    );
+    if (payload.zones?.defs) zonesCache = payload.zones.defs;
+
+    const sev = payload.behavior?.severity || "ok";
+    const alerts = payload.compliance?.alerts || [];
+    const personCount = payload.compliance?.person_count ?? (payload.detections || []).filter((d) =>
+      /person/i.test(d.label || "")
+    ).length;
+    const hasPeople = personCount > 0;
+
+    if (els.vigilBox) {
+      const bad = sev === "critical" || sev === "high" || alerts.length > 0;
+      els.vigilBox.dataset.state = bad ? "bad" : hasPeople ? "ok" : "idle";
+    }
+    if (els.vigilPill) {
+      els.vigilPill.textContent =
+        sev === "critical"
+          ? "Crítico"
+          : sev === "high"
+            ? "Alerta"
+            : sev === "medium"
+              ? "Atención"
+              : hasPeople
+                ? "OK"
+                : "Standby";
+    }
+    if (els.vigilValue) {
+      els.vigilValue.textContent =
+        sev === "critical" ? "Incidente" : alerts.length ? "Situación detectada" : hasPeople ? "Vigilando" : "Sin personas";
+    }
+    if (els.vigilSummary) els.vigilSummary.textContent = payload.compliance?.summary || "—";
+
+    if (els.vigilAlertList) {
+      els.vigilAlertList.innerHTML = alerts.length
+        ? alerts.map((a) => `<li class="warn">${escapeHtml(a)}</li>`).join("")
+        : `<li class="muted">Sin alertas de conducta</li>`;
+    }
+
+    if (appMode === "vigil" && alerts.length && (sev === "critical" || sev === "high")) {
+      speakAlert(String(alerts[0]).replace("Near-miss:", "Cuidado.").slice(0, 120));
+    } else if (!alerts.length) {
+      resetSpeakIncident();
+    }
   }
 
   function setSource(mode) {
@@ -1399,6 +1569,14 @@
 
   function updateUi(payload) {
     if (!payload || !payload.ok) return;
+    if (payload.context === "vigil" || appMode === "vigil") {
+      updateVigilUi(payload);
+      return;
+    }
+    updateMonitorUi(payload);
+  }
+
+  function updateMonitorUi(payload) {
     const t0 = performance.now();
 
     if (payload.frame_width && payload.frame_height) {
@@ -1618,10 +1796,12 @@
     return lastHealth?.hosted_on_render ? 480 : 720;
   }
 
-  async function detectBlob(blob, { identify = false, returnImage = false } = {}) {
+  async function detectBlob(blob, { identify = false, returnImage = false, context = "" } = {}) {
     if (busy) return;
     busy = true;
     const t0 = performance.now();
+    const ctx =
+      context || (appMode === "vigil" ? "vigil" : "epp");
     try {
       const fd = new FormData();
       fd.append("file", blob, "frame.jpg");
@@ -1633,6 +1813,9 @@
       fd.append("precision", settings.precision || "equilibrada");
       fd.append("threshold", String(settings.identifyThreshold || 0.33));
       fd.append("required", requiredQueryValue());
+      fd.append("context", ctx);
+      const camId = els.cameraSelect?.value || "";
+      if (ctx === "vigil" && camId) fd.append("camera_id", camId);
       const data = await api("/api/detect", { method: "POST", body: fd }, 18000);
       if (data?.down || data?._http === 502) {
         detectBackoffMs = Math.min(10000, Math.max(3500, (detectBackoffMs || 2000) * 1.35));
@@ -1800,6 +1983,12 @@
   }
 
   async function tickDetect() {
+    if (appMode === "vigil" && vigilSourceMode === "camera") {
+      const blob = await captureBlob(0.72, detectBlobMaxW());
+      if (!blob) return;
+      await detectBlob(blob, { identify: false, returnImage: false, context: "vigil" });
+      return;
+    }
     if (appMode !== "monitor" || sourceMode !== "camera") return;
     const wantId = !!els.chkIdentify?.checked;
     const now = Date.now();
@@ -2115,7 +2304,10 @@
         identify: "false",
         precision: settings.precision || "equilibrada",
         required: requiredQueryValue(),
+        context: appMode === "vigil" ? "vigil" : "epp",
       });
+      const camId = els.cameraSelect?.value || "";
+      if (camId) q.set("camera_id", camId);
       try {
         const data = await api(`/api/rtsp/frame?${q}`);
         if (data.ok) updateUi(data);
@@ -3264,6 +3456,36 @@
 
   // Events
   $$(".mode-btn").forEach((b) => b.addEventListener("click", () => setAppMode(b.dataset.mode)));
+  $$("[data-vigil-source]").forEach((t) => {
+    t.addEventListener("click", () => {
+      if (appMode !== "vigil") setAppMode("vigil");
+      setVigilSource(t.dataset.vigilSource);
+    });
+  });
+  els.btnVigilSvcStart?.addEventListener("click", async () => {
+    try {
+      await api("/api/vigil/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profile: els.profileSelect.value }),
+      });
+      await refreshVigilStatus();
+      await refreshVigilEvents();
+    } catch (err) {
+      window.alert(err.message || "No se pudo iniciar el servicio");
+    }
+  });
+  els.btnVigilSvcStop?.addEventListener("click", async () => {
+    try {
+      await api("/api/vigil/stop", { method: "POST" });
+      await refreshVigilStatus();
+    } catch (err) {
+      window.alert(err.message || "No se pudo detener");
+    }
+  });
+  els.cameraSelect?.addEventListener("change", () => {
+    if (appMode === "vigil") loadZonesForVigil();
+  });
   document.addEventListener("click", (ev) => {
     const btn = ev.target.closest(".cfg-nav-btn");
     if (!btn) return;
