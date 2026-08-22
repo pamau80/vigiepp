@@ -137,11 +137,16 @@
     vigilSvcStatus: $("#vigilSvcStatus"),
     vigilAlertList: $("#vigilAlertList"),
     vigilEventsList: $("#vigilEventsList"),
+    vigilTimeline: $("#vigilTimeline"),
+    vigilTimelineStrip: $("#vigilTimelineStrip"),
+    vigilFilterCamera: $("#vigilFilterCamera"),
+    vigilFilterSeverity: $("#vigilFilterSeverity"),
+    btnVigilTimelineClear: $("#btnVigilTimelineClear"),
     btnVigilSvcStart: $("#btnVigilSvcStart"),
     btnVigilSvcStop: $("#btnVigilSvcStop"),
   };
 
-  const APP_BUILD = "v38";
+  const APP_BUILD = "v39";
 
   let profiles = [];
   let ppeCatalog = [];
@@ -153,6 +158,8 @@
   let detectBackoffMs = 0;
   let rtspTimer = null;
   let vigilEventsTimer = null;
+  let vigilTimelineLive = [];
+  const vigilLiveDebounce = {};
   let busy = false;
   let sourceMode = "camera";
   let vigilSourceMode = "rtsp";
@@ -1195,7 +1202,7 @@
         regs.forEach((r) => r.unregister().catch(() => {}));
       });
       setTimeout(() => {
-        navigator.serviceWorker.register("/assets/sw.js?v=36").catch(() => {});
+        navigator.serviceWorker.register("/assets/sw.js?v=39").catch(() => {});
       }, 400);
     }
     const offlineBadge = $("#offlineBadge");
@@ -1321,8 +1328,12 @@
       stopDetectLoop();
       stopRtsp();
       setVigilSource(vigilSourceMode || "rtsp");
-      loadCameras().then(() => loadZonesForVigil()).catch(() => {});
+      loadCameras().then(() => {
+        loadZonesForVigil();
+        populateVigilCameraFilter();
+      }).catch(() => {});
       refreshVigilStatus();
+      refreshVigilTimeline();
       startVigilEventsPoll();
     } else if (mode === "identity") setSource("identity");
     else if (mode === "teach") setSource("teach");
@@ -1399,24 +1410,184 @@
     }
   }
 
-  async function refreshVigilEvents() {
-    if (!els.vigilEventsList || appMode !== "vigil") return;
+  const VIGIL_SEV_LABELS = {
+    critical: "Crítica",
+    high: "Alta",
+    medium: "Media",
+    ok: "Info",
+  };
+
+  const VIGIL_TYPE_LABELS = {
+    caida: "Caída",
+    pelea_probable: "Altercado",
+    proximidad_agresiva: "Proximidad",
+    merodeo: "Merodeo",
+    aglomeracion: "Aglomeración",
+  };
+
+  function formatTimelineTime(iso) {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return String(iso).slice(0, 19).replace("T", " ");
+    return d.toLocaleString("es-CL", {
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  }
+
+  async function populateVigilCameraFilter() {
+    if (!els.vigilFilterCamera) return;
+    const cur = els.vigilFilterCamera.value;
     try {
-      const data = await api("/api/vigil/events?limit=20");
-      const evs = data.events || [];
-      els.vigilEventsList.innerHTML = evs.length
-        ? [...evs]
-            .reverse()
+      const data = await api("/api/cameras");
+      const cams = data.cameras || [];
+      els.vigilFilterCamera.innerHTML =
+        `<option value="">Todas</option>` +
+        cams
+          .map(
+            (c) =>
+              `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name || c.id)}</option>`
+          )
+          .join("") +
+        `<option value="live">En vivo (webcam demo)</option>`;
+      if (cur && [...els.vigilFilterCamera.options].some((o) => o.value === cur)) {
+        els.vigilFilterCamera.value = cur;
+      }
+    } catch (_) {
+      els.vigilFilterCamera.innerHTML = `<option value="">Todas</option><option value="live">En vivo</option>`;
+    }
+  }
+
+  function pushLiveVigilEvent(payload) {
+    const alerts = payload.compliance?.alerts || [];
+    if (!alerts.length) return;
+    const camId =
+      payload.zones?.camera_id ||
+      els.cameraSelect?.value ||
+      (vigilSourceMode === "camera" ? "live" : "");
+    const camName =
+      vigilSourceMode === "camera"
+        ? "Webcam demo"
+        : els.cameraSelect?.selectedOptions?.[0]?.text?.trim() || "Cámara en vivo";
+    const sev = payload.behavior?.severity || "medium";
+    const dedupeKey = `${camId}|${sev}|${alerts[0]}`;
+    const now = Date.now();
+    if (vigilLiveDebounce[dedupeKey] && now - vigilLiveDebounce[dedupeKey] < 12000) return;
+    vigilLiveDebounce[dedupeKey] = now;
+
+    vigilTimelineLive.unshift({
+      id: `live-${now}`,
+      ts: new Date().toISOString(),
+      camera_id: camId || "live",
+      camera_name: camName,
+      alerts,
+      behavior: payload.behavior?.events || [],
+      severity: sev,
+      source: "live",
+      snapshot_b64: payload.image_b64 || null,
+    });
+    if (vigilTimelineLive.length > 80) vigilTimelineLive.length = 80;
+    renderVigilTimeline();
+  }
+
+  function mergeTimelineEvents(serverEvents, liveEvents) {
+    const seen = new Set();
+    const out = [];
+    for (const e of [...liveEvents, ...serverEvents]) {
+      const key = e.id || `${e.ts}|${(e.alerts || [])[0]}|${e.camera_id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(e);
+    }
+    out.sort((a, b) => String(b.ts || "").localeCompare(String(a.ts || "")));
+    return out;
+  }
+
+  function renderVigilTimeline(events) {
+    const camFilter = els.vigilFilterCamera?.value || "";
+    const sevFilter = (els.vigilFilterSeverity?.value || "").toLowerCase();
+    let items = events || mergeTimelineEvents(vigilTimelineServer, vigilTimelineLive);
+    if (camFilter === "live") {
+      items = items.filter((e) => e.source === "live" || e.camera_id === "live");
+    } else if (camFilter) {
+      items = items.filter((e) => String(e.camera_id || "") === camFilter);
+    }
+    if (sevFilter) {
+      items = items.filter((e) => String(e.severity || "ok").toLowerCase() === sevFilter);
+    }
+
+    if (els.vigilTimeline) {
+      if (!items.length) {
+        els.vigilTimeline.innerHTML =
+          `<p class="muted vigil-timeline-empty">Sin eventos para los filtros seleccionados</p>`;
+      } else {
+        els.vigilTimeline.innerHTML = items
+          .map((e) => {
+            const sev = String(e.severity || "medium").toLowerCase();
+            const msg = (e.alerts || [])[0] || "Evento registrado";
+            const types = (e.behavior || [])
+              .map((b) => VIGIL_TYPE_LABELS[b.type] || b.type)
+              .filter(Boolean);
+            const tags = types.length
+              ? types.map((t) => `<span class="vigil-timeline-tag">${escapeHtml(t)}</span>`).join("")
+              : `<span class="vigil-timeline-tag">${escapeHtml(e.source === "live" ? "en vivo" : "24/7")}</span>`;
+            const thumb = e.snapshot_b64
+              ? `<img class="vigil-timeline-thumb" src="data:image/jpeg;base64,${e.snapshot_b64}" alt="Evidencia" data-snap="1" />`
+              : "";
+            return `<article class="vigil-timeline-item" data-severity="${escapeHtml(sev)}" data-id="${escapeHtml(e.id || "")}">
+              <div class="vigil-timeline-dot" aria-hidden="true"></div>
+              <time class="vigil-timeline-time">${escapeHtml(formatTimelineTime(e.ts))}</time>
+              <p class="vigil-timeline-title">
+                ${escapeHtml(e.camera_name || e.camera_id || "Cámara")}
+                <span class="vigil-timeline-sev">${escapeHtml(VIGIL_SEV_LABELS[sev] || sev)}</span>
+              </p>
+              <p class="vigil-timeline-msg">${escapeHtml(msg)}</p>
+              <div class="vigil-timeline-tags">${tags}</div>
+              ${thumb}
+            </article>`;
+          })
+          .join("");
+      }
+    }
+
+    if (els.vigilTimelineStrip) {
+      const strip = items.slice(0, 6);
+      els.vigilTimelineStrip.innerHTML = strip.length
+        ? strip
             .map((e) => {
-              const ts = (e.ts || "").replace("T", " ").slice(0, 19);
-              const al = (e.alerts || [])[0] || e.severity || "evento";
-              return `<li><span>${escapeHtml(e.camera_name || e.camera_id || "cámara")}</span><span class="conf">${escapeHtml(ts)} · ${escapeHtml(al)}</span></li>`;
+              const sev = String(e.severity || "medium").toLowerCase();
+              const msg = (e.alerts || [])[0] || "Evento";
+              const t = formatTimelineTime(e.ts).split(", ").pop() || "";
+              return `<span class="vigil-strip-chip" data-severity="${escapeHtml(sev)}" title="${escapeHtml(msg)}">${escapeHtml(t)} · ${escapeHtml((e.camera_name || "").slice(0, 12))}</span>`;
             })
             .join("")
-        : `<li class="muted">Sin eventos recientes</li>`;
-    } catch (_) {
-      /* operador sin acceso */
+        : "";
     }
+  }
+
+  let vigilTimelineServer = [];
+
+  async function refreshVigilTimeline() {
+    if (appMode !== "vigil") return;
+    const cam = els.vigilFilterCamera?.value || "";
+    const sev = els.vigilFilterSeverity?.value || "";
+    const q = new URLSearchParams({ limit: "80" });
+    if (cam && cam !== "live") q.set("camera_id", cam);
+    if (sev) q.set("severity", sev);
+    try {
+      const data = await api(`/api/vigil/events?${q}`);
+      vigilTimelineServer = data.events || [];
+    } catch (_) {
+      vigilTimelineServer = [];
+    }
+    renderVigilTimeline();
+  }
+
+  async function refreshVigilEvents() {
+    await refreshVigilTimeline();
   }
 
   function startVigilEventsPoll() {
@@ -1485,6 +1656,10 @@
       speakAlert(String(alerts[0]).replace("Near-miss:", "Cuidado.").slice(0, 120));
     } else if (!alerts.length) {
       resetSpeakIncident();
+    }
+
+    if (alerts.length) {
+      pushLiveVigilEvent(payload);
     }
   }
 
@@ -3470,7 +3645,7 @@
         body: JSON.stringify({ profile: els.profileSelect.value }),
       });
       await refreshVigilStatus();
-      await refreshVigilEvents();
+      await refreshVigilTimeline();
     } catch (err) {
       window.alert(err.message || "No se pudo iniciar el servicio");
     }
@@ -3483,8 +3658,28 @@
       window.alert(err.message || "No se pudo detener");
     }
   });
+  els.vigilFilterCamera?.addEventListener("change", () => refreshVigilTimeline());
+  els.vigilFilterSeverity?.addEventListener("change", () => {
+    refreshVigilTimeline();
+  });
+  els.btnVigilTimelineClear?.addEventListener("click", () => {
+    vigilTimelineLive = [];
+    Object.keys(vigilLiveDebounce).forEach((k) => delete vigilLiveDebounce[k]);
+    renderVigilTimeline();
+  });
+  els.vigilTimeline?.addEventListener("click", (ev) => {
+    const img = ev.target.closest(".vigil-timeline-thumb");
+    if (!img || !els.annotatedImg) return;
+    els.annotatedImg.src = img.src;
+    els.annotatedImg.hidden = false;
+    els.liveVideo.hidden = true;
+    els.overlayCanvas.hidden = true;
+  });
   els.cameraSelect?.addEventListener("change", () => {
-    if (appMode === "vigil") loadZonesForVigil();
+    if (appMode === "vigil") {
+      loadZonesForVigil();
+      populateVigilCameraFilter();
+    }
   });
   document.addEventListener("click", (ev) => {
     const btn = ev.target.closest(".cfg-nav-btn");

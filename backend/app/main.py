@@ -76,7 +76,7 @@ def _default_precision() -> str:
 # Tope de imgsz YOLO. En Render Free el default es 320; en local/Cloud Agent 640.
 _DETECT_IMGSZ_MAX = _detect_imgsz_max()
 
-BUILD_VERSION = "v38"
+BUILD_VERSION = "v39"
 
 
 @asynccontextmanager
@@ -878,8 +878,17 @@ def vigil_status() -> dict[str, Any]:
 
 
 @app.get("/api/vigil/events")
-def vigil_events(limit: int = 50) -> dict[str, Any]:
-    return {"ok": True, "events": VigilMonitor.get().events(limit=limit)}
+def vigil_events(
+    limit: int = 80,
+    camera_id: str | None = None,
+    severity: str | None = None,
+) -> dict[str, Any]:
+    items = VigilMonitor.get().events(
+        limit=limit,
+        camera_id=camera_id,
+        severity=severity,
+    )
+    return {"ok": True, "events": items, "count": len(items)}
 
 
 @app.post("/api/vigil/start")

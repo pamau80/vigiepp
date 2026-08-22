@@ -6,6 +6,7 @@ import logging
 import os
 import threading
 import time
+import uuid
 from collections import deque
 from datetime import datetime, timezone
 from typing import Any
@@ -79,14 +80,29 @@ class VigilMonitor:
                 "recent_events": list(self._events)[-15:],
             }
 
-    def events(self, limit: int = 50) -> list[dict[str, Any]]:
+    def events(
+        self,
+        limit: int = 50,
+        camera_id: str | None = None,
+        severity: str | None = None,
+    ) -> list[dict[str, Any]]:
         lim = max(1, min(limit, _MAX_EVENTS))
+        cam = (camera_id or "").strip()
+        sev = (severity or "").strip().lower()
         with self._lock:
-            return list(self._events)[-lim:]
+            items = list(self._events)
+        if cam:
+            items = [e for e in items if str(e.get("camera_id") or "") == cam]
+        if sev:
+            items = [e for e in items if str(e.get("severity") or "").lower() == sev]
+        return items[-lim:]
 
     def _emit(self, event: dict[str, Any]) -> None:
+        payload = dict(event)
+        payload.setdefault("id", uuid.uuid4().hex[:12])
+        payload.setdefault("source", "service")
         with self._lock:
-            self._events.append(event)
+            self._events.append(payload)
 
     def _loop(self) -> None:
         from . import cameras as cameras_mod

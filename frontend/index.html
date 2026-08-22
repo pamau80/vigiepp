@@ -21,7 +21,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/styles.css?v=38" />
+  <link rel="stylesheet" href="/assets/styles.css?v=39" />
 </head>
 <body>
   <div id="authGate" class="auth-gate hidden" aria-modal="true" role="dialog">
@@ -176,6 +176,8 @@
           </div>
         </div>
       </div>
+
+      <div class="vigil-timeline-strip" id="vigilTimelineStrip" aria-hidden="true"></div>
 
       <div class="controls control-bar" id="cameraControls">
         <button id="btnStartCam" class="btn primary" type="button">Iniciar</button>
@@ -620,7 +622,35 @@
         <p class="card-meta">Zonas por cámara: 4 · Config → Zonas.</p>
       </section>
 
-      <section class="card panel-section" data-show="vigil" id="vigilEventsBlock">
+      <section class="card panel-section vigil-timeline-card" data-show="vigil" id="vigilTimelineBlock">
+        <div class="card-row vigil-timeline-head">
+          <p class="card-kicker">Timeline de eventos</p>
+          <button type="button" class="btn ghost btn-sm" id="btnVigilTimelineClear">Limpiar vista</button>
+        </div>
+        <div class="vigil-timeline-filters">
+          <label class="field inline">
+            <span>Cámara</span>
+            <select id="vigilFilterCamera">
+              <option value="">Todas</option>
+            </select>
+          </label>
+          <label class="field inline">
+            <span>Severidad</span>
+            <select id="vigilFilterSeverity">
+              <option value="">Todas</option>
+              <option value="critical">Crítica</option>
+              <option value="high">Alta</option>
+              <option value="medium">Media</option>
+              <option value="ok">Info</option>
+            </select>
+          </label>
+        </div>
+        <div class="vigil-timeline" id="vigilTimeline" role="log" aria-live="polite">
+          <p class="muted vigil-timeline-empty">Sin eventos — activá el servicio 24/7 o conectá una cámara en vivo</p>
+        </div>
+      </section>
+
+      <section class="card panel-section hidden-legacy" data-show="vigil" id="vigilEventsBlock" hidden>
         <p class="card-kicker">Eventos del servicio 24/7</p>
         <ul class="item-list" id="vigilEventsList">
           <li class="muted">Servicio detenido</li>
@@ -642,6 +672,6 @@
     <span id="fpsLabel">— ms</span>
   </footer>
 
-  <script src="/assets/app.js?v=38"></script>
+  <script src="/assets/app.js?v=39"></script>
 </body>
 </html>

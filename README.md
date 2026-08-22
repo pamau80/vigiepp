@@ -2,7 +2,7 @@
 
 Detección de EPP e identidad para faenas en Chile. Cámara o NVR → IA → cumplimiento, enrolamiento, informes y alerta (incluida baliza ESP32).
 
-Build actual: **v37**. Backend FastAPI + frontend estático. Detección EPP pensada para portería (alta precisión por defecto) y **ojo vigilia** en cámaras fijas.
+Build actual: **v39**. Backend FastAPI + frontend estático. Detección EPP pensada para portería (alta precisión por defecto) y **ojo vigilia** en cámaras fijas.
 
 ## Qué hace
 
@@ -54,7 +54,9 @@ v37 agrega monitoreo continuo en el **backend** (no depende del navegador abiert
 1. Registrá hasta **4 cámaras RTSP** (`POST /api/cameras`).
 2. Definí **zonas por cámara** (`GET/POST /api/zones?camera_id=...`).
 3. Activá el vigilante: `POST /api/vigil/start` o `VIGIEPP_VIGIL_AUTO=1` al arrancar.
-4. Consultá estado y eventos: `GET /api/vigil/status`, `GET /api/vigil/events`.
+4. Consultá estado y eventos: `GET /api/vigil/status`, `GET /api/vigil/events?camera_id=...&severity=...`
+
+En pantalla **6 · Vigilancia** hay un **timeline visual** con filtros por cámara y severidad (crítica / alta / media), más una franja compacta bajo el video con los últimos eventos..
 
 El backend evalúa en cada ciclo (~2,5 s) **solo en pantalla 6 · Vigilancia** (no en Monitoreo):
 

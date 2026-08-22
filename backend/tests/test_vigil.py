@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT))
 
 from app import zones as zones_mod  # noqa: E402
 from app.behavior import evaluate_behavior  # noqa: E402
+from app.vigil import VigilMonitor  # noqa: E402
 
 
 class ZonesPerCameraTests(unittest.TestCase):
@@ -68,6 +69,34 @@ class BehaviorTests(unittest.TestCase):
         self.assertIn(out["severity"], ("high", "medium"))
         types = {e["type"] for e in out["events"]}
         self.assertTrue(types & {"pelea_probable", "proximidad_agresiva"})
+
+
+class VigilEventsFilterTests(unittest.TestCase):
+    def test_filter_by_camera_and_severity(self) -> None:
+        mon = VigilMonitor()
+        mon._events.clear()
+        mon._emit(
+            {
+                "ts": "2026-01-01T12:00:00+00:00",
+                "camera_id": "camA",
+                "camera_name": "A",
+                "alerts": ["Zona"],
+                "severity": "high",
+            }
+        )
+        mon._emit(
+            {
+                "ts": "2026-01-01T12:01:00+00:00",
+                "camera_id": "camB",
+                "camera_name": "B",
+                "alerts": ["Caída"],
+                "severity": "critical",
+            }
+        )
+        out = mon.events(limit=10, camera_id="camA", severity="high")
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["camera_id"], "camA")
+        self.assertTrue(out[0].get("id"))
 
 
 if __name__ == "__main__":

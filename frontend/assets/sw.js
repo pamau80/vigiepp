@@ -1,5 +1,5 @@
-/* Service worker v38: pantalla Vigilancia separada de EPP */
-const CACHE = "vigiepp-shell-v38";
+/* Service worker v39: timeline vigilancia */
+const CACHE = "vigiepp-shell-v39";
 const ASSETS = ["/assets/styles.css", "/manifest.webmanifest", "/assets/icons/icon-192.png"];
 
 self.addEventListener("install", (event) => {
