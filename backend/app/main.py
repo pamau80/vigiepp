@@ -567,7 +567,7 @@ def health() -> dict[str, Any]:
                 workers_ready += 1
     identity_ready = reg is not None
     epp_ready = bool(det and det.ready)
-    return {
+    payload: dict[str, Any] = {
         "status": "ok",
         "product": "VigiEPP",
         "build": BUILD_VERSION,
@@ -590,6 +590,13 @@ def health() -> dict[str, Any]:
         "precision": _default_precision(),
         "email_transport": notif_mod.email_transport_status().get("mode"),
     }
+    if os.getenv("CURSOR_AGENT"):
+        payload["cloud_agent"] = True
+        payload["access_hint"] = (
+            "Abrí la app desde el panel del agente en Cursor → puerto VigiEPP 8000 (Open). "
+            "No uses 127.0.0.1 en tu PC."
+        )
+    return payload
 
 
 @app.get("/api/auth/status")
