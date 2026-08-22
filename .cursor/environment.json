@@ -1,6 +1,7 @@
 {
   "name": "VigiEPP",
   "install": "bash .cursor/install.sh",
+  "start": "bash .cursor/start-app.sh",
   "terminals": [
     {
       "name": "backend",

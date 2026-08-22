@@ -10,6 +10,7 @@ from .profiles import IndustryProfile, get_profile
 # Mapeo: clase del modelo → categoría interna
 CLASS_TO_CATEGORY: dict[str, str] = {
     "hardhat": "casco",
+    "Hardhat": "casco",
     "helmet": "casco",
     "Helmet": "casco",
     "casco": "casco",
@@ -30,7 +31,20 @@ CLASS_TO_CATEGORY: dict[str, str] = {
     "arnes": "arnes",
     "polera": "polera",
     "pantalon_azul_franja": "pantalon",
+    "pantalon_trabajo": "pantalon",
     "zapatos_seguridad": "zapatos",
+    "botas": "zapatos",
+    "Safety-Shoes": "zapatos",
+    "safety_shoes": "zapatos",
+    "casaca": "casaca",
+    "chaleco_fluor": "chaleco",
+    "buzo_papel": "buzo",
+    "buzo": "buzo",
+    "coverall": "buzo",
+    "disposable_coverall": "buzo",
+    "overol": "buzo",
+    "uniforme_completo": "vestimenta",
+    "ropa_reflectante": "reflectante",
     "Person": "persona",
     "person": "persona",
     "Human": "persona",
@@ -43,10 +57,49 @@ CLASS_TO_CATEGORY: dict[str, str] = {
     "NO-Goggles": "sin_lentes",
     "NO-Gloves": "sin_guantes",
     "NO-Mask": "sin_mascarilla",
+    "Mask": "mascarilla",
+    "mask": "mascarilla",
+    "mascarilla": "mascarilla",
     "Fall-Detected": "caida",
 }
 
-POSITIVE_PPE = {"casco", "chaleco", "lentes", "guantes", "arnes", "polera", "pantalon", "zapatos"}
+# Franja vertical relativa al bbox de la persona (0 = cabeza, 1 = pies)
+PPE_Y_BAND: dict[str, tuple[float, float]] = {
+    "casco": (0.0, 0.50),
+    "sin_casco": (0.0, 0.52),
+    "lentes": (0.0, 0.42),
+    "sin_lentes": (0.0, 0.42),
+    "mascarilla": (0.0, 0.48),
+    "sin_mascarilla": (0.0, 0.48),
+    "chaleco": (0.10, 0.90),
+    "sin_chaleco": (0.10, 0.90),
+    "arnes": (0.08, 0.95),
+    "sin_arnes": (0.08, 0.95),
+    "guantes": (0.30, 1.08),
+    "sin_guantes": (0.30, 1.08),
+    "zapatos": (0.72, 1.15),
+    "buzo": (0.05, 0.98),
+    "casaca": (0.08, 0.95),
+    "pantalon": (0.45, 1.05),
+    "reflectante": (0.10, 0.95),
+    "vestimenta": (0.05, 0.98),
+}
+
+POSITIVE_PPE = {
+    "casco",
+    "chaleco",
+    "lentes",
+    "guantes",
+    "arnes",
+    "mascarilla",
+    "polera",
+    "pantalon",
+    "zapatos",
+    "buzo",
+    "casaca",
+    "reflectante",
+    "vestimenta",
+}
 NEGATIVE_PPE = {
     "sin_casco": "casco",
     "sin_chaleco": "chaleco",
@@ -109,11 +162,32 @@ def _center_inside(inner: list[float], outer: list[float], pad: float = 0.15) ->
     return (ox1 - w * pad) <= cx <= (ox2 + w * pad) and (oy1 - h * pad) <= cy <= (oy2 + h * pad)
 
 
+def category_of(label: str) -> str:
+    key = str(label or "").strip()
+    return CLASS_TO_CATEGORY.get(key) or CLASS_TO_CATEGORY.get(key.lower()) or key.lower().replace(" ", "_")
+
+
+def _ppe_fits_person(item: Detection, person: Detection) -> bool:
+    """Asocia EPP a una persona por overlap + franja anatómica (casco arriba, chaleco torso)."""
+    iou = _iou(person.box, item.box)
+    inside = _center_inside(item.box, person.box, pad=0.28)
+    if iou < 0.04 and not inside:
+        return False
+    band = PPE_Y_BAND.get(item.category)
+    if not band:
+        return True
+    py1, py2 = person.box[1], person.box[3]
+    cy = (item.box[1] + item.box[3]) / 2
+    rel = (cy - py1) / max(1.0, py2 - py1)
+    lo, hi = band
+    return (lo - 0.10) <= rel <= (hi + 0.10)
+
+
 def normalize_detections(raw: list[dict]) -> list[Detection]:
     out: list[Detection] = []
     for item in raw:
         label = str(item.get("label", ""))
-        category = CLASS_TO_CATEGORY.get(label, label.lower().replace(" ", "_"))
+        category = str(item.get("category") or "") or category_of(label)
         out.append(
             Detection(
                 label=label,
@@ -137,21 +211,24 @@ def evaluate(
     persons_boxes = [d for d in detections if d.category == "persona"]
     ppe_items = [d for d in detections if d.category != "persona"]
 
-    # Si no hay persona pero hay EPP / violaciones, crear un "trabajador implícito"
-    if not persons_boxes and ppe_items:
-        # bbox envolvente de todo lo detectado
-        xs1 = [d.box[0] for d in ppe_items]
-        ys1 = [d.box[1] for d in ppe_items]
-        xs2 = [d.box[2] for d in ppe_items]
-        ys2 = [d.box[3] for d in ppe_items]
-        persons_boxes = [
-            Detection(
-                label="Person",
-                category="persona",
-                confidence=0.5,
-                box=[min(xs1), min(ys1), max(xs2), max(ys2)],
-            )
-        ]
+    # Persona implícita solo con EPP positivo (no a partir de un solo NO-casco)
+    if not persons_boxes:
+        positives = [d for d in ppe_items if d.category in POSITIVE_PPE]
+        if positives:
+            xs1 = [d.box[0] for d in positives]
+            ys1 = [d.box[1] for d in positives]
+            xs2 = [d.box[2] for d in positives]
+            ys2 = [d.box[3] for d in positives]
+            x1, y1, x2, y2 = min(xs1), min(ys1), max(xs2), max(ys2)
+            bw, bh = max(8.0, x2 - x1), max(8.0, y2 - y1)
+            persons_boxes = [
+                Detection(
+                    label="Person",
+                    category="persona",
+                    confidence=0.5,
+                    box=[x1 - 0.22 * bw, y1 - 0.18 * bh, x2 + 0.22 * bw, y2 + 0.55 * bh],
+                )
+            ]
 
     persons: list[PersonCompliance] = []
     alerts: list[str] = []
@@ -161,7 +238,7 @@ def evaluate(
         violations: list[str] = []
 
         for item in ppe_items:
-            related = _iou(person.box, item.box) > 0.05 or _center_inside(item.box, person.box)
+            related = _ppe_fits_person(item, person)
             if not related:
                 continue
             if item.category in POSITIVE_PPE:

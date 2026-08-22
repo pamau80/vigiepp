@@ -238,9 +238,170 @@ input, select, textarea, button {
 .panel[data-mode="identity"] .panel-section[data-show="identity"],
 .panel[data-mode="teach"] .panel-section[data-show="teach"],
 .panel[data-mode="config"] .panel-section[data-show="config"],
-.panel[data-mode="reports"] .panel-section[data-show="reports"] {
+.panel[data-mode="reports"] .panel-section[data-show="reports"],
+.panel[data-mode="vigil"] .panel-section[data-show="vigil"] {
   display: block;
 }
+
+.panel[data-mode="vigil"] [data-monitor-only],
+.panel[data-mode="vigil"] .card-person {
+  display: none !important;
+}
+
+/* Timeline vigilancia (pantalla 6) */
+.vigil-timeline-card {
+  max-height: min(52vh, 520px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.vigil-timeline-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+.vigil-timeline-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 0.65rem;
+}
+.vigil-timeline-filters .field.inline {
+  min-width: 7.5rem;
+  flex: 1;
+}
+.vigil-timeline {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.25rem 0.15rem 0.5rem 0.5rem;
+  border-left: 2px solid rgba(255, 255, 255, 0.08);
+  margin-left: 0.35rem;
+}
+.vigil-timeline-empty {
+  padding: 0.75rem 0.5rem;
+  font-size: 0.88rem;
+}
+.vigil-timeline-item {
+  position: relative;
+  padding: 0 0 1rem 1.15rem;
+  border: none;
+}
+.vigil-timeline-item:last-child {
+  padding-bottom: 0.25rem;
+}
+.vigil-timeline-dot {
+  position: absolute;
+  left: -0.55rem;
+  top: 0.35rem;
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 50%;
+  background: var(--muted, #6c757d);
+  box-shadow: 0 0 0 3px var(--panel, #1a1d24);
+}
+.vigil-timeline-item[data-severity="critical"] .vigil-timeline-dot {
+  background: #d62828;
+  box-shadow: 0 0 0 3px var(--panel, #1a1d24), 0 0 8px rgba(214, 40, 40, 0.55);
+}
+.vigil-timeline-item[data-severity="high"] .vigil-timeline-dot {
+  background: #e85d04;
+}
+.vigil-timeline-item[data-severity="medium"] .vigil-timeline-dot {
+  background: #f4a261;
+}
+.vigil-timeline-item[data-severity="ok"] .vigil-timeline-dot {
+  background: #52b788;
+}
+.vigil-timeline-time {
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.45);
+  letter-spacing: 0.02em;
+}
+.vigil-timeline-title {
+  font-weight: 600;
+  font-size: 0.92rem;
+  margin: 0.12rem 0 0.2rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.vigil-timeline-sev {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.vigil-timeline-item[data-severity="critical"] .vigil-timeline-sev {
+  background: rgba(214, 40, 40, 0.25);
+  color: #ff8a8a;
+}
+.vigil-timeline-item[data-severity="high"] .vigil-timeline-sev {
+  background: rgba(232, 93, 4, 0.22);
+  color: #ffb380;
+}
+.vigil-timeline-msg {
+  font-size: 0.85rem;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.82);
+  line-height: 1.35;
+}
+.vigil-timeline-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.35rem;
+}
+.vigil-timeline-tag {
+  font-size: 0.68rem;
+  padding: 0.08rem 0.35rem;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.55);
+}
+.vigil-timeline-thumb {
+  display: block;
+  margin-top: 0.4rem;
+  max-width: 100%;
+  max-height: 4.5rem;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+  object-fit: cover;
+}
+body.mode-vigil .vigil-timeline-strip {
+  display: flex;
+}
+.vigil-timeline-strip {
+  display: none;
+  flex-wrap: nowrap;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding: 0.5rem 0.75rem;
+  margin-top: 0.35rem;
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 6px;
+  max-width: 100%;
+}
+.vigil-strip-chip {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  padding: 0.35rem 0.55rem;
+  border-radius: 4px;
+  border-left: 3px solid #6c757d;
+  background: rgba(255, 255, 255, 0.06);
+  white-space: nowrap;
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vigil-strip-chip[data-severity="critical"] { border-left-color: #d62828; }
+.vigil-strip-chip[data-severity="high"] { border-left-color: #e85d04; }
+.vigil-strip-chip[data-severity="medium"] { border-left-color: #f4a261; }
 
 /* En Personas / Ropa: ocultar ruido de monitoreo EPP */
 .panel[data-mode="identity"] [data-monitor-only],
@@ -1638,6 +1799,12 @@ body[data-role="operator"] .mode-btn:not([data-mode="monitor"]) {
 }
 .persist-banner.hidden { display: none; }
 .persist-banner strong { font-weight: 700; }
+.persist-banner code {
+  font-size: 0.9em;
+  background: rgba(0, 0, 0, 0.28);
+  padding: 0.05em 0.35em;
+  border-radius: 4px;
+}
 body.auth-locked .layout,
 body.auth-locked .topbar {
   filter: blur(2px);

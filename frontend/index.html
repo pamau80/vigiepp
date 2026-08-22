@@ -21,13 +21,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/styles.css?v=32" />
+  <link rel="stylesheet" href="/assets/styles.css?v=39" />
 </head>
 <body>
   <div id="authGate" class="auth-gate hidden" aria-modal="true" role="dialog">
     <form id="authForm" class="auth-card">
       <p class="brand-name">VigiEPP</p>
         <p class="card-meta">Ingresá PIN admin o PIN de portería (operador).</p>
+      <p class="hint hidden" id="authFactoryHint"></p>
       <label class="field">
         <span>PIN administrador</span>
         <input type="password" id="authPin" autocomplete="current-password" required />
@@ -61,6 +62,9 @@
       <button class="mode-btn" data-mode="reports" type="button" title="Informes">
         <span class="mode-full">5 · Informes</span><span class="mode-short" aria-hidden="true">5</span>
       </button>
+      <button class="mode-btn" data-mode="vigil" type="button" title="Vigilancia conductual">
+        <span class="mode-full">6 · Vigilancia</span><span class="mode-short" aria-hidden="true">6</span>
+      </button>
     </nav>
     <div class="top-status" id="modelStatus">
       <span class="dot"></span>
@@ -86,6 +90,19 @@
           <select id="profileSelect"></select>
         </label>
         <button type="button" class="btn secondary" id="btnKiosk">Modo portería</button>
+      </div>
+
+      <div class="stage-toolbar hidden" id="vigilToolbar">
+        <div class="source-group">
+          <span class="toolbar-label">Ojo vigilia</span>
+          <div class="tabs" role="tablist" aria-label="Fuente vigilancia">
+            <button class="tab active" data-vigil-source="rtsp" type="button">Cámaras fijas</button>
+            <button class="tab" data-vigil-source="camera" type="button">Webcam demo</button>
+          </div>
+        </div>
+        <button type="button" class="btn primary" id="btnVigilSvcStart">Activar 24/7</button>
+        <button type="button" class="btn ghost" id="btnVigilSvcStop">Detener servicio</button>
+        <span class="hint vigil-toolbar-hint">Conducta, zonas y caídas — sin EPP ni identidad facial</span>
       </div>
 
       <div id="kioskOverlay" class="kiosk-overlay hidden" aria-live="polite">
@@ -159,6 +176,8 @@
           </div>
         </div>
       </div>
+
+      <div class="vigil-timeline-strip" id="vigilTimelineStrip" aria-hidden="true"></div>
 
       <div class="controls control-bar" id="cameraControls">
         <button id="btnStartCam" class="btn primary" type="button">Iniciar</button>
@@ -510,12 +529,12 @@
           <label class="cfg-row">
             <span>
               <strong>Mostrar zonas</strong>
-              <small>Dibuja zonas restringidas / vía vehículos</small>
+              <small>Solo en 6 · Vigilancia (zonas restringidas / vía vehículos)</small>
             </span>
             <input type="checkbox" id="cfgShowZones" checked />
           </label>
           <div id="zonesEditor" class="zones-editor">
-            <p class="card-meta">Zonas (activá y ajustá). Tipo «vía» = near-miss peatón.</p>
+            <p class="card-meta">Zonas para pantalla <strong>6 · Vigilancia</strong> (cámaras fijas). No afectan Monitoreo EPP.</p>
             <div class="zone-presets">
               <button type="button" class="btn secondary" data-zone-preset="faena">Preset faena</button>
               <button type="button" class="btn secondary" data-zone-preset="porteria">Preset portería</button>
@@ -540,6 +559,17 @@
               <small>Más bajo = reconoce más fácil en webcam · <b id="cfgIdThreshVal">33%</b></small>
             </span>
             <input type="range" id="cfgIdThresh" min="25" max="55" value="33" step="1" />
+          </label>
+          <label class="cfg-row">
+            <span>
+              <strong>Precisión de detección EPP</strong>
+              <small>Alta = menos falsos positivos (recomendado en portería). Sensible = detecta más, con más ruido.</small>
+            </span>
+            <select id="cfgPrecision">
+              <option value="alta" selected>Alta precisión</option>
+              <option value="equilibrada">Equilibrada</option>
+              <option value="sensible">Sensible</option>
+            </select>
           </label>
           <label class="cfg-row">
             <span>
@@ -574,6 +604,59 @@
         </div>
       </section>
 
+      <section class="card status-card vigil-card panel-section" id="vigilBox" data-show="vigil" data-state="idle">
+        <div class="status-top">
+          <p class="card-kicker">Vigilancia conductual</p>
+          <span class="status-pill" id="vigilPill">Standby</span>
+        </div>
+        <p class="card-title" id="vigilValue">En espera</p>
+        <p class="card-text" id="vigilSummary">Conectá una cámara fija o activá el servicio 24/7.</p>
+        <p class="card-meta" id="vigilSvcStatus"></p>
+      </section>
+
+      <section class="card panel-section" data-show="vigil" id="vigilAlertsBlock">
+        <p class="card-kicker">Alertas (zonas · conducta · caídas)</p>
+        <ul class="item-list alert-list" id="vigilAlertList">
+          <li class="muted">Sin alertas</li>
+        </ul>
+        <p class="card-meta">Zonas por cámara: 4 · Config → Zonas.</p>
+      </section>
+
+      <section class="card panel-section vigil-timeline-card" data-show="vigil" id="vigilTimelineBlock">
+        <div class="card-row vigil-timeline-head">
+          <p class="card-kicker">Timeline de eventos</p>
+          <button type="button" class="btn ghost btn-sm" id="btnVigilTimelineClear">Limpiar vista</button>
+        </div>
+        <div class="vigil-timeline-filters">
+          <label class="field inline">
+            <span>Cámara</span>
+            <select id="vigilFilterCamera">
+              <option value="">Todas</option>
+            </select>
+          </label>
+          <label class="field inline">
+            <span>Severidad</span>
+            <select id="vigilFilterSeverity">
+              <option value="">Todas</option>
+              <option value="critical">Crítica</option>
+              <option value="high">Alta</option>
+              <option value="medium">Media</option>
+              <option value="ok">Info</option>
+            </select>
+          </label>
+        </div>
+        <div class="vigil-timeline" id="vigilTimeline" role="log" aria-live="polite">
+          <p class="muted vigil-timeline-empty">Sin eventos — activá el servicio 24/7 o conectá una cámara en vivo</p>
+        </div>
+      </section>
+
+      <section class="card panel-section hidden-legacy" data-show="vigil" id="vigilEventsBlock" hidden>
+        <p class="card-kicker">Eventos del servicio 24/7</p>
+        <ul class="item-list" id="vigilEventsList">
+          <li class="muted">Servicio detenido</li>
+        </ul>
+      </section>
+
       <section class="card panel-section" data-show="reports" id="reportsSide">
         <p class="card-kicker">Centro de informes</p>
         <p class="card-text" id="repSideSummary">Estadísticas, exportación y alertas.</p>
@@ -589,6 +672,6 @@
     <span id="fpsLabel">— ms</span>
   </footer>
 
-  <script src="/assets/app.js?v=34"></script>
+  <script src="/assets/app.js?v=39"></script>
 </body>
 </html>

@@ -29,13 +29,16 @@ from . import notifications as notif_mod
 from . import paths as paths_mod
 from . import reports as reports_mod
 from . import zones as zones_mod
+from .behavior import evaluate_behavior
 from .compliance import evaluate
 from .detector import PPEDetector, decode_image_bytes, encode_jpeg
+from .precision import normalize_precision
 from .identity import IdentityRegistry, IdentityService
 from .profiles import get_profile, list_profiles, parse_required_list, PPE_CATALOG
 from .scanlog import ScanEvent, log_scan, recent_scans
 from .stream_rtsp import get_or_create_stream, stop_all, stop_stream
 from .teach import TeachStore
+from .vigil import VigilMonitor, auto_start_if_configured
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 logger = logging.getLogger("vigiepp")
@@ -44,11 +47,36 @@ FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 _last_scan_log: dict[str, tuple[float, bool]] = {}
 _SCAN_DEBOUNCE_S = float(os.getenv("VIGIEPP_SCAN_DEBOUNCE", "12"))
 _detect_lock = threading.Lock()
-# Render Free: YOLO+SFace en paralelo tumba el proceso (502). Una inferencia a la vez.
-_DETECT_IMGSZ_MAX = int(os.getenv("VIGIEPP_IMGSZ_MAX", "256"))
 
 
-BUILD_VERSION = "v34"
+def _on_render() -> bool:
+    return bool(os.getenv("RENDER") or os.getenv("RENDER_SERVICE_ID"))
+
+
+def _detect_imgsz_max() -> int:
+    default = "320" if _on_render() else "640"
+    try:
+        return max(224, min(1280, int(os.getenv("VIGIEPP_IMGSZ_MAX", default))))
+    except ValueError:
+        return 320 if _on_render() else 640
+
+
+def _max_side() -> int:
+    default = "512" if _on_render() else "960"
+    try:
+        return max(320, min(1600, int(os.getenv("VIGIEPP_MAX_SIDE", default))))
+    except ValueError:
+        return 512 if _on_render() else 960
+
+
+def _default_precision() -> str:
+    return normalize_precision(os.getenv("VIGIEPP_PRECISION", "alta"))
+
+
+# Tope de imgsz YOLO. En Render Free el default es 320; en local/Cloud Agent 640.
+_DETECT_IMGSZ_MAX = _detect_imgsz_max()
+
+BUILD_VERSION = "v39"
 
 
 @asynccontextmanager
@@ -83,6 +111,12 @@ async def lifespan(_: FastAPI):
         threading.Thread(target=_lazy_yolo, name="epp-lazy", daemon=True).start()
 
     threading.Thread(target=_warm, name="vigiepp-warm", daemon=True).start()
+    auto_start_if_configured()
+    if auth_mod.using_default_pins():
+        logger.warning(
+            "PIN de fábrica activo. Definí VIGIEPP_ADMIN_PIN y VIGIEPP_OPERATOR_PIN "
+            "antes de usarlo con un cliente."
+        )
     yield
     stop_all()
 
@@ -172,38 +206,44 @@ def _build_response(
     identity: dict[str, Any] | None = None,
     frame_wh: tuple[int, int] | None = None,
     required: list[str] | None = None,
+    camera_id: str | None = None,
+    context: str = "epp",
 ) -> dict[str, Any]:
-    compliance = evaluate(detections, profile, required_override=required)
+    """context=epp → Monitoreo (EPP + identidad). context=vigil → Conducta/zonas (sin EPP ni rostros)."""
+    ctx = (context or "epp").strip().lower()
+    if ctx not in ("epp", "vigil"):
+        ctx = "epp"
+
     fw = frame_wh[0] if frame_wh else 0
     fh = frame_wh[1] if frame_wh else 0
-    zone_eval = zones_mod.evaluate_zones(detections, fw, fh) if fw and fh else {"alerts": [], "hits": [], "zones": []}
-    alerts = list(compliance.alerts or [])
-    for a in zone_eval.get("alerts") or []:
-        if a not in alerts:
-            alerts.append(a)
 
-    # Si hay zona restringida / near-miss, no marcar como cumple global
-    zone_bad = bool(zone_eval.get("alerts"))
-    overall = bool(compliance.overall_compliant) and not zone_bad
+    if ctx == "vigil":
+        return _build_vigil_response(
+            detections,
+            annotated_jpeg,
+            profile,
+            frame_wh=frame_wh,
+            required=required,
+            camera_id=camera_id,
+        )
 
-    exposure = exposure_mod.update_exposure(overall, identity)
-
+    compliance = evaluate(detections, profile, required_override=required)
     persons = [asdict(p) for p in compliance.persons]
-    # Safety score en vivo 0–100 (promedio scores de personas; penaliza zonas)
+    overall = bool(compliance.overall_compliant)
+    exposure = exposure_mod.update_exposure(overall, identity)
+    alerts = list(compliance.alerts or [])
+
     if persons:
         avg = sum(float(p.get("score") or 0) for p in persons) / max(1, len(persons))
         live_score = int(round(avg * 100))
     elif detections:
-        live_score = 40 if zone_bad else 70
+        live_score = 70
     else:
         live_score = None
-    if zone_bad and live_score is not None:
-        live_score = max(0, live_score - 25)
     if exposure.get("active") and live_score is not None and int(exposure.get("seconds") or 0) > 30:
         live_score = max(0, live_score - 10)
     if identity and not identity.get("known") and int(identity.get("faces_detected") or 0) > 0:
         live_score = max(0, (live_score if live_score is not None else 55) - 15)
-    # Faltantes críticos pesan más en vivo
     if persons and live_score is not None:
         crit = {"casco", "hardhat", "helmet", "arnes", "chaleco", "safety vest", "vest"}
         miss = []
@@ -214,26 +254,107 @@ def _build_response(
 
     payload: dict[str, Any] = {
         "ok": True,
+        "context": "epp",
         "detections": detections,
         "compliance": {
             "profile_id": compliance.profile_id,
             "profile_name": compliance.profile_name,
             "overall_compliant": overall,
-            "summary": compliance.summary
-            if not zone_bad
-            else f"{compliance.summary} · alerta de zona",
+            "summary": compliance.summary,
             "alerts": alerts,
             "persons": persons,
             "required": required if required is not None else list(get_profile(profile)["required"]),
         },
         "identity": identity,
+        "zones": {"alerts": [], "hits": [], "defs": []},
+        "behavior": {"alerts": [], "events": [], "severity": "ok"},
+        "exposure": exposure,
+        "safety_score": live_score,
+        "model": PPEDetector.get().model_name,
+        "model_ready": PPEDetector.get().ready,
+        "model_warning": (PPEDetector.peek().error if PPEDetector.peek() else None),
+    }
+    if frame_wh:
+        payload["frame_width"] = frame_wh[0]
+        payload["frame_height"] = frame_wh[1]
+    if annotated_jpeg is not None:
+        payload["image_b64"] = base64.b64encode(annotated_jpeg).decode("ascii")
+    return payload
+
+
+def _build_vigil_response(
+    detections: list[dict],
+    annotated_jpeg: bytes | None,
+    profile: str,
+    *,
+    frame_wh: tuple[int, int] | None,
+    required: list[str] | None,
+    camera_id: str | None,
+) -> dict[str, Any]:
+    fw = frame_wh[0] if frame_wh else 0
+    fh = frame_wh[1] if frame_wh else 0
+    zone_eval = (
+        zones_mod.evaluate_zones(detections, fw, fh, camera_id=camera_id)
+        if fw and fh
+        else {"alerts": [], "hits": [], "zones": []}
+    )
+    # Cumplimiento interno solo para merodeo sin EPP en zona restringida (no se expone como panel EPP)
+    compliance = evaluate(detections, profile, required_override=required)
+    persons = [asdict(p) for p in compliance.persons]
+    behavior = (
+        evaluate_behavior(
+            detections,
+            zone_hits=zone_eval.get("hits"),
+            persons=persons,
+            frame_w=fw,
+            frame_h=fh,
+        )
+        if fw and fh
+        else {"alerts": [], "events": [], "severity": "ok"}
+    )
+    vigil_alerts: list[str] = []
+    for a in zone_eval.get("alerts") or []:
+        if a not in vigil_alerts:
+            vigil_alerts.append(a)
+    for a in behavior.get("alerts") or []:
+        if a not in vigil_alerts:
+            vigil_alerts.append(a)
+
+    severity = str(behavior.get("severity") or "ok")
+    person_count = int(behavior.get("person_count") or len(persons))
+    if severity == "critical":
+        summary = f"Alerta crítica · {person_count} persona(s) en encuadre"
+    elif severity == "high":
+        summary = f"Situación de riesgo · {person_count} persona(s)"
+    elif severity == "medium":
+        summary = f"Atención requerida · {person_count} persona(s)"
+    elif person_count:
+        summary = f"Vigilancia activa · {person_count} persona(s) · sin incidentes"
+    else:
+        summary = "Sin personas en encuadre"
+
+    payload: dict[str, Any] = {
+        "ok": True,
+        "context": "vigil",
+        "detections": detections,
+        "compliance": {
+            "overall_compliant": severity == "ok" and not vigil_alerts,
+            "summary": summary,
+            "alerts": vigil_alerts,
+            "persons": [],
+            "person_count": person_count,
+        },
+        "identity": None,
         "zones": {
             "alerts": zone_eval.get("alerts") or [],
             "hits": zone_eval.get("hits") or [],
             "defs": zone_eval.get("zones") or [],
+            "camera_id": zone_eval.get("camera_id"),
+            "source": zone_eval.get("zone_source"),
         },
-        "exposure": exposure,
-        "safety_score": live_score,
+        "behavior": behavior,
+        "exposure": {"active": False, "seconds": 0, "label": ""},
+        "safety_score": None,
         "model": PPEDetector.get().model_name,
         "model_ready": PPEDetector.get().ready,
         "model_warning": (PPEDetector.peek().error if PPEDetector.peek() else None),
@@ -446,7 +567,7 @@ def health() -> dict[str, Any]:
                 workers_ready += 1
     identity_ready = reg is not None
     epp_ready = bool(det and det.ready)
-    return {
+    payload: dict[str, Any] = {
         "status": "ok",
         "product": "VigiEPP",
         "build": BUILD_VERSION,
@@ -463,8 +584,19 @@ def health() -> dict[str, Any]:
         "data_ephemeral_risk": bool(ephemeral_risk and not durable),
         "cloud_backup": cloud,
         "default_pins": auth_mod.using_default_pins(),
+        "hosted_on_render": auth_mod.hosted_on_render(),
+        "detect_imgsz": _detect_imgsz_max(),
+        "detect_max_side": _max_side(),
+        "precision": _default_precision(),
         "email_transport": notif_mod.email_transport_status().get("mode"),
     }
+    if os.getenv("CURSOR_AGENT"):
+        payload["cloud_agent"] = True
+        payload["access_hint"] = (
+            "Abrí la app desde el panel del agente en Cursor → puerto VigiEPP 8000 (Open). "
+            "No uses 127.0.0.1 en tu PC."
+        )
+    return payload
 
 
 @app.get("/api/auth/status")
@@ -524,15 +656,23 @@ def ppe_catalog() -> dict[str, Any]:
 
 @app.post("/api/detect")
 async def detect_upload(
+    request: Request,
     file: UploadFile = File(...),
     profile: str = Form("general"),
     conf: float = Form(0.35),
     identify: bool = Form(False),
     return_image: bool = Form(False),
-    imgsz: int = Form(416),
+    imgsz: int = Form(0),
     threshold: float = Form(0.33),
     required: str = Form(""),
+    precision: str = Form(""),
+    full: bool = Form(False),
+    context: str = Form("epp"),
+    camera_id: str = Form(""),
 ) -> JSONResponse:
+    ctx = (context or "epp").strip().lower()
+    if ctx == "vigil":
+        auth_mod.require_admin(request)
     data = await file.read()
     if not data:
         raise HTTPException(400, "Archivo vacío")
@@ -551,6 +691,10 @@ async def detect_upload(
             imgsz=imgsz,
             threshold=threshold,
             required=parse_required_list(required),
+            precision=precision,
+            full=full,
+            context=ctx,
+            camera_id=camera_id.strip() or None,
         )
     finally:
         _detect_lock.release()
@@ -566,25 +710,78 @@ def _detect_frame(
     imgsz: int,
     threshold: float,
     required: list[str] | None = None,
+    precision: str = "",
+    full: bool = False,
+    context: str = "epp",
+    camera_id: str | None = None,
 ) -> JSONResponse:
+    ctx = (context or "epp").strip().lower()
+    if ctx not in ("epp", "vigil"):
+        ctx = "epp"
+
     try:
         frame = decode_image_bytes(data)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
     h, w = frame.shape[:2]
-    max_side = 384
+    max_side = _max_side()
     if max(h, w) > max_side:
         scale = max_side / max(h, w)
-        frame = cv2.resize(frame, (int(w * scale), int(h * scale)))
+        frame = cv2.resize(frame, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
 
     thr = max(0.25, min(0.7, float(threshold or 0.33)))
+    mode = normalize_precision(precision or _default_precision())
     identity = None
     detections: list = []
     annotated = frame
 
-    # YOLO y SFace NUNCA en el mismo request: en Render Free (512 MB) eso es 502/OOM.
-    if identify:
+    # Vigilancia: solo detección espacial/conducta — sin identidad facial
+    run_id = ctx == "epp" and bool(identify or (full and not _on_render()))
+    run_yolo = ctx == "vigil" or (not identify) or (full and not _on_render())
+    if ctx == "epp" and identify and _on_render():
+        run_yolo = False
+        run_id = True
+
+    if run_yolo:
+        det = PPEDetector.peek()
+        if det is None or not det.ready:
+            threading.Thread(target=PPEDetector.get, name="epp-load", daemon=True).start()
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "booting": True,
+                    "error": "Modelo IA cargando… reintentá en unos segundos.",
+                    "detections": [],
+                    "compliance": {"overall_compliant": False, "persons": [], "summary": "Cargando IA"},
+                },
+                status_code=503,
+            )
+        cap = _detect_imgsz_max()
+        requested = int(imgsz or cap)
+        imgsz_use = max(224, min(requested, cap))
+        try:
+            detections, annotated = det.predict(
+                frame,
+                conf=conf,
+                imgsz=imgsz_use,
+                annotate=return_image,
+                precision=mode,
+                enhance=True,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("Inferencia EPP falló")
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": "La IA falló en este frame. Reintentá.",
+                    "detections": [],
+                    "compliance": {"overall_compliant": False, "persons": [], "summary": "Error de inferencia"},
+                },
+                status_code=503,
+            )
+
+    if run_id:
         reg = IdentityRegistry.peek()
         if reg is None:
             threading.Thread(target=IdentityRegistry.get, name="id-load", daemon=True).start()
@@ -599,41 +796,10 @@ def _detect_frame(
             }
         else:
             identity = _identify_on_frame(frame, threshold=thr)
-        if identity and return_image:
+        if identity and return_image and not detections:
             annotated = _draw_identity(annotated, identity)
-    else:
-        det = PPEDetector.peek()
-        if det is None or not det.ready:
-            threading.Thread(target=PPEDetector.get, name="epp-load", daemon=True).start()
-            return JSONResponse(
-                {
-                    "ok": False,
-                    "booting": True,
-                    "error": "Modelo IA cargando… reintentá en unos segundos.",
-                    "detections": [],
-                    "compliance": {"overall_compliant": False, "persons": [], "summary": "Cargando IA"},
-                },
-                status_code=503,
-            )
 
-        imgsz_use = max(224, min(int(imgsz or _DETECT_IMGSZ_MAX), _DETECT_IMGSZ_MAX))
-        try:
-            detections, annotated = det.predict(
-                frame, conf=conf, imgsz=imgsz_use, annotate=return_image
-            )
-        except Exception:  # noqa: BLE001
-            logger.exception("Inferencia EPP falló")
-            return JSONResponse(
-                {
-                    "ok": False,
-                    "error": "La IA falló en este frame. Reintentá.",
-                    "detections": [],
-                    "compliance": {"overall_compliant": False, "persons": [], "summary": "Error de inferencia"},
-                },
-                status_code=503,
-            )
-
-    jpeg = encode_jpeg(annotated, quality=68) if return_image else None
+    jpeg = encode_jpeg(annotated, quality=72) if return_image else None
     payload = _build_response(
         detections,
         jpeg,
@@ -641,13 +807,27 @@ def _detect_frame(
         identity=identity,
         frame_wh=(frame.shape[1], frame.shape[0]),
         required=required,
+        camera_id=camera_id,
+        context=ctx,
     )
-    if identify and identity and identity.get("known"):
+    payload["precision"] = mode
+    payload["imgsz"] = int(imgsz or _detect_imgsz_max())
+    if ctx == "epp" and identify and identity and identity.get("known"):
         evid = _maybe_log(profile, payload["compliance"], identity, frame_bgr=annotated)
         if evid:
             payload["evidence_id"] = evid
-    elif identify and identity and not identity.get("known"):
+    elif ctx == "epp" and identify and identity and not identity.get("known"):
         _maybe_notify_unknown(profile, identity)
+    if ctx == "vigil":
+        try:
+            notif_mod.maybe_notify_zones(
+                None,
+                (payload.get("zones") or {}).get("alerts") or [],
+                profile,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("Notificación de vigilancia falló")
+        return JSONResponse(payload)
     try:
         notif_mod.maybe_notify_zones(
             identity,
@@ -666,8 +846,8 @@ def _detect_frame(
 
 
 @app.get("/api/zones")
-def zones_get() -> dict[str, Any]:
-    return zones_mod.get_zones()
+def zones_get(camera_id: str | None = None) -> dict[str, Any]:
+    return zones_mod.get_zones(camera_id or None)
 
 
 @app.get("/api/zones/presets")
@@ -676,9 +856,9 @@ def zones_presets() -> dict[str, Any]:
 
 
 @app.post("/api/zones/presets/{preset_id}")
-def zones_apply_preset(preset_id: str) -> dict[str, Any]:
+def zones_apply_preset(preset_id: str, camera_id: str | None = None) -> dict[str, Any]:
     try:
-        return zones_mod.apply_preset(preset_id)
+        return zones_mod.apply_preset(preset_id, camera_id=camera_id)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
@@ -686,10 +866,49 @@ def zones_apply_preset(preset_id: str) -> dict[str, Any]:
 @app.post("/api/zones")
 async def zones_save(request: Request) -> dict[str, Any]:
     body = await request.json()
-    zones = body.get("zones") if isinstance(body, dict) else body
+    if not isinstance(body, dict):
+        raise HTTPException(400, "JSON inválido")
+    zones = body.get("zones")
+    camera_id = body.get("camera_id")
     if not isinstance(zones, list):
-        raise HTTPException(400, "Se esperaba { zones: [...] }")
-    return zones_mod.save_zones(zones)
+        raise HTTPException(400, "Se esperaba { zones: [...], camera_id?: string }")
+    return zones_mod.save_zones(zones, camera_id=str(camera_id).strip() if camera_id else None)
+
+
+class VigilStartBody(BaseModel):
+    profile: str = "general"
+
+
+@app.get("/api/vigil/status")
+def vigil_status() -> dict[str, Any]:
+    return {"ok": True, **VigilMonitor.get().status()}
+
+
+@app.get("/api/vigil/events")
+def vigil_events(
+    limit: int = 80,
+    camera_id: str | None = None,
+    severity: str | None = None,
+) -> dict[str, Any]:
+    items = VigilMonitor.get().events(
+        limit=limit,
+        camera_id=camera_id,
+        severity=severity,
+    )
+    return {"ok": True, "events": items, "count": len(items)}
+
+
+@app.post("/api/vigil/start")
+def vigil_start(body: VigilStartBody | None = None) -> dict[str, Any]:
+    profile = (body.profile if body else None) or "general"
+    audit_mod.log("vigil_start", detail=profile)
+    return {"ok": True, **VigilMonitor.get().start(profile=profile)}
+
+
+@app.post("/api/vigil/stop")
+def vigil_stop() -> dict[str, Any]:
+    audit_mod.log("vigil_stop")
+    return {"ok": True, **VigilMonitor.get().stop()}
 
 
 @app.get("/api/scans/recent")
@@ -823,12 +1042,19 @@ def rtsp_start(body: RTSPStartRequest) -> dict[str, Any]:
 
 @app.get("/api/rtsp/frame")
 def rtsp_frame(
+    request: Request,
     url: str,
     profile: str = "general",
     conf: float = 0.35,
     identify: bool = False,
     required: str = "",
+    precision: str = "",
+    camera_id: str | None = None,
+    context: str = "epp",
 ) -> JSONResponse:
+    ctx = (context or "epp").strip().lower()
+    if ctx == "vigil":
+        auth_mod.require_admin(request)
     url = _validate_rtsp_url(url)
     stream = get_or_create_stream(url)
     frame = stream.read()
@@ -843,20 +1069,23 @@ def rtsp_frame(
         )
 
     h, w = frame.shape[:2]
-    if max(h, w) > 720:
-        scale = 720 / max(h, w)
-        frame = cv2.resize(frame, (int(w * scale), int(h * scale)))
+    max_side = min(720, _max_side())
+    if max(h, w) > max_side:
+        scale = max_side / max(h, w)
+        frame = cv2.resize(frame, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
 
     det = PPEDetector.get()
-    det = PPEDetector.get()
+    detections, _annotated = det.predict(
+        frame,
+        conf=conf,
+        imgsz=_detect_imgsz_max(),
+        annotate=False,
+        precision=normalize_precision(precision or _default_precision()),
+        enhance=True,
+    )
     identity = None
-    detections: list = []
-    if identify:
+    if ctx == "epp" and identify and not _on_render():
         identity = _identify_on_frame(frame)
-    else:
-        detections, _annotated = det.predict(
-            frame, conf=conf, imgsz=_DETECT_IMGSZ_MAX, annotate=False
-        )
     payload = _build_response(
         detections,
         None,
@@ -864,6 +1093,8 @@ def rtsp_frame(
         identity=identity,
         frame_wh=(frame.shape[1], frame.shape[0]),
         required=parse_required_list(required),
+        camera_id=camera_id,
+        context=ctx,
     )
     return JSONResponse(payload)
 
