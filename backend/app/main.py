@@ -31,6 +31,7 @@ from . import reports as reports_mod
 from . import zones as zones_mod
 from .compliance import evaluate
 from .detector import PPEDetector, decode_image_bytes, encode_jpeg
+from .precision import normalize_precision
 from .identity import IdentityRegistry, IdentityService
 from .profiles import get_profile, list_profiles, parse_required_list, PPE_CATALOG
 from .scanlog import ScanEvent, log_scan, recent_scans
@@ -44,11 +45,36 @@ FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 _last_scan_log: dict[str, tuple[float, bool]] = {}
 _SCAN_DEBOUNCE_S = float(os.getenv("VIGIEPP_SCAN_DEBOUNCE", "12"))
 _detect_lock = threading.Lock()
-# Render Free: YOLO+SFace en paralelo tumba el proceso (502). Una inferencia a la vez.
-_DETECT_IMGSZ_MAX = int(os.getenv("VIGIEPP_IMGSZ_MAX", "256"))
 
 
-BUILD_VERSION = "v35"
+def _on_render() -> bool:
+    return bool(os.getenv("RENDER") or os.getenv("RENDER_SERVICE_ID"))
+
+
+def _detect_imgsz_max() -> int:
+    default = "320" if _on_render() else "640"
+    try:
+        return max(224, min(1280, int(os.getenv("VIGIEPP_IMGSZ_MAX", default))))
+    except ValueError:
+        return 320 if _on_render() else 640
+
+
+def _max_side() -> int:
+    default = "512" if _on_render() else "960"
+    try:
+        return max(320, min(1600, int(os.getenv("VIGIEPP_MAX_SIDE", default))))
+    except ValueError:
+        return 512 if _on_render() else 960
+
+
+def _default_precision() -> str:
+    return normalize_precision(os.getenv("VIGIEPP_PRECISION", "alta"))
+
+
+# Tope de imgsz YOLO. En Render Free el default es 320; en local/Cloud Agent 640.
+_DETECT_IMGSZ_MAX = _detect_imgsz_max()
+
+BUILD_VERSION = "v36"
 
 
 @asynccontextmanager
@@ -469,6 +495,9 @@ def health() -> dict[str, Any]:
         "cloud_backup": cloud,
         "default_pins": auth_mod.using_default_pins(),
         "hosted_on_render": auth_mod.hosted_on_render(),
+        "detect_imgsz": _detect_imgsz_max(),
+        "detect_max_side": _max_side(),
+        "precision": _default_precision(),
         "email_transport": notif_mod.email_transport_status().get("mode"),
     }
 
@@ -535,9 +564,11 @@ async def detect_upload(
     conf: float = Form(0.35),
     identify: bool = Form(False),
     return_image: bool = Form(False),
-    imgsz: int = Form(416),
+    imgsz: int = Form(0),
     threshold: float = Form(0.33),
     required: str = Form(""),
+    precision: str = Form(""),
+    full: bool = Form(False),
 ) -> JSONResponse:
     data = await file.read()
     if not data:
@@ -557,6 +588,8 @@ async def detect_upload(
             imgsz=imgsz,
             threshold=threshold,
             required=parse_required_list(required),
+            precision=precision,
+            full=full,
         )
     finally:
         _detect_lock.release()
@@ -572,6 +605,8 @@ def _detect_frame(
     imgsz: int,
     threshold: float,
     required: list[str] | None = None,
+    precision: str = "",
+    full: bool = False,
 ) -> JSONResponse:
     try:
         frame = decode_image_bytes(data)
@@ -579,18 +614,64 @@ def _detect_frame(
         raise HTTPException(400, str(exc)) from exc
 
     h, w = frame.shape[:2]
-    max_side = 384
+    max_side = _max_side()
     if max(h, w) > max_side:
         scale = max_side / max(h, w)
-        frame = cv2.resize(frame, (int(w * scale), int(h * scale)))
+        frame = cv2.resize(frame, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
 
     thr = max(0.25, min(0.7, float(threshold or 0.33)))
+    mode = normalize_precision(precision or _default_precision())
     identity = None
     detections: list = []
     annotated = frame
 
-    # YOLO y SFace NUNCA en el mismo request: en Render Free (512 MB) eso es 502/OOM.
-    if identify:
+    # En Render Free no corremos YOLO+SFace en el mismo request (OOM).
+    # Fuera de Render, `full` hace EPP y luego identidad en serie.
+    run_id = bool(identify or (full and not _on_render()))
+    run_yolo = (not identify) or (full and not _on_render())
+    if identify and _on_render():
+        run_yolo = False
+        run_id = True
+
+    if run_yolo:
+        det = PPEDetector.peek()
+        if det is None or not det.ready:
+            threading.Thread(target=PPEDetector.get, name="epp-load", daemon=True).start()
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "booting": True,
+                    "error": "Modelo IA cargando… reintentá en unos segundos.",
+                    "detections": [],
+                    "compliance": {"overall_compliant": False, "persons": [], "summary": "Cargando IA"},
+                },
+                status_code=503,
+            )
+        cap = _detect_imgsz_max()
+        requested = int(imgsz or cap)
+        imgsz_use = max(224, min(requested, cap))
+        try:
+            detections, annotated = det.predict(
+                frame,
+                conf=conf,
+                imgsz=imgsz_use,
+                annotate=return_image,
+                precision=mode,
+                enhance=True,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("Inferencia EPP falló")
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": "La IA falló en este frame. Reintentá.",
+                    "detections": [],
+                    "compliance": {"overall_compliant": False, "persons": [], "summary": "Error de inferencia"},
+                },
+                status_code=503,
+            )
+
+    if run_id:
         reg = IdentityRegistry.peek()
         if reg is None:
             threading.Thread(target=IdentityRegistry.get, name="id-load", daemon=True).start()
@@ -605,41 +686,10 @@ def _detect_frame(
             }
         else:
             identity = _identify_on_frame(frame, threshold=thr)
-        if identity and return_image:
+        if identity and return_image and not detections:
             annotated = _draw_identity(annotated, identity)
-    else:
-        det = PPEDetector.peek()
-        if det is None or not det.ready:
-            threading.Thread(target=PPEDetector.get, name="epp-load", daemon=True).start()
-            return JSONResponse(
-                {
-                    "ok": False,
-                    "booting": True,
-                    "error": "Modelo IA cargando… reintentá en unos segundos.",
-                    "detections": [],
-                    "compliance": {"overall_compliant": False, "persons": [], "summary": "Cargando IA"},
-                },
-                status_code=503,
-            )
 
-        imgsz_use = max(224, min(int(imgsz or _DETECT_IMGSZ_MAX), _DETECT_IMGSZ_MAX))
-        try:
-            detections, annotated = det.predict(
-                frame, conf=conf, imgsz=imgsz_use, annotate=return_image
-            )
-        except Exception:  # noqa: BLE001
-            logger.exception("Inferencia EPP falló")
-            return JSONResponse(
-                {
-                    "ok": False,
-                    "error": "La IA falló en este frame. Reintentá.",
-                    "detections": [],
-                    "compliance": {"overall_compliant": False, "persons": [], "summary": "Error de inferencia"},
-                },
-                status_code=503,
-            )
-
-    jpeg = encode_jpeg(annotated, quality=68) if return_image else None
+    jpeg = encode_jpeg(annotated, quality=72) if return_image else None
     payload = _build_response(
         detections,
         jpeg,
@@ -648,6 +698,8 @@ def _detect_frame(
         frame_wh=(frame.shape[1], frame.shape[0]),
         required=required,
     )
+    payload["precision"] = mode
+    payload["imgsz"] = int(imgsz or _detect_imgsz_max())
     if identify and identity and identity.get("known"):
         evid = _maybe_log(profile, payload["compliance"], identity, frame_bgr=annotated)
         if evid:
@@ -834,6 +886,7 @@ def rtsp_frame(
     conf: float = 0.35,
     identify: bool = False,
     required: str = "",
+    precision: str = "",
 ) -> JSONResponse:
     url = _validate_rtsp_url(url)
     stream = get_or_create_stream(url)
@@ -849,20 +902,23 @@ def rtsp_frame(
         )
 
     h, w = frame.shape[:2]
-    if max(h, w) > 720:
-        scale = 720 / max(h, w)
-        frame = cv2.resize(frame, (int(w * scale), int(h * scale)))
+    max_side = min(720, _max_side())
+    if max(h, w) > max_side:
+        scale = max_side / max(h, w)
+        frame = cv2.resize(frame, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
 
     det = PPEDetector.get()
-    det = PPEDetector.get()
+    detections, _annotated = det.predict(
+        frame,
+        conf=conf,
+        imgsz=_detect_imgsz_max(),
+        annotate=False,
+        precision=normalize_precision(precision or _default_precision()),
+        enhance=True,
+    )
     identity = None
-    detections: list = []
-    if identify:
+    if identify and not _on_render():
         identity = _identify_on_frame(frame)
-    else:
-        detections, _annotated = det.predict(
-            frame, conf=conf, imgsz=_DETECT_IMGSZ_MAX, annotate=False
-        )
     payload = _build_response(
         detections,
         None,

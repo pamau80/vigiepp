@@ -10,7 +10,9 @@ from typing import Any
 import cv2
 import numpy as np
 
+from .compliance import category_of
 from .paths import custom_weights_path
+from .precision import enhance_bgr, normalize_precision, refine_detections
 
 logger = logging.getLogger("vigiepp.detector")
 
@@ -181,9 +183,11 @@ class PPEDetector:
     def predict(
         self,
         frame_bgr: np.ndarray,
-        conf: float = 0.35,
-        imgsz: int = 416,
+        conf: float = 0.22,
+        imgsz: int = 640,
         annotate: bool = True,
+        precision: str = "equilibrada",
+        enhance: bool = True,
     ) -> tuple[list[dict[str, Any]], np.ndarray]:
         if not self.ready or self.model is None:
             annotated = frame_bgr.copy()
@@ -198,21 +202,25 @@ class PPEDetector:
             )
             return [], annotated
 
+        source = enhance_bgr(frame_bgr) if enhance else frame_bgr
+        # conf bajo en YOLO: el piso real lo aplica refine_detections por clase
         results = self.model.predict(
-            source=frame_bgr,
-            conf=conf,
+            source=source,
+            conf=min(0.22, max(0.12, float(conf))),
             imgsz=imgsz,
+            iou=0.48,
+            max_det=40,
             verbose=False,
         )
         result = results[0]
         detections: list[dict[str, Any]] = []
         names = result.names or {}
+        fh, fw = frame_bgr.shape[:2]
 
         if result.boxes is not None:
             for box in result.boxes:
                 cls_id = int(box.cls[0])
                 label = names.get(cls_id, str(cls_id))
-                # En fallback COCO solo nos interesan personas (clase 0)
                 if "COCO" in self.model_name and label != "person":
                     continue
                 conf_v = float(box.conf[0])
@@ -220,13 +228,16 @@ class PPEDetector:
                 detections.append(
                     {
                         "label": label,
-                        "label_es": LABEL_ES.get(label, label),
+                        "label_es": LABEL_ES.get(label) or LABEL_ES.get(str(label).lower()) or label,
+                        "category": category_of(str(label)),
                         "confidence": round(conf_v, 3),
                         "box": xyxy,
                     }
                 )
 
-        # En monitoreo live no hace falta dibujar cajas en el servidor (el canvas del cliente lo hace).
+        detections = refine_detections(
+            detections, fw, fh, precision=normalize_precision(precision)
+        )
         annotated = self.draw(frame_bgr, detections) if annotate else frame_bgr
         return detections, annotated
 

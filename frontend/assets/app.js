@@ -104,6 +104,7 @@
     cfgIdentifyDefault: $("#cfgIdentifyDefault"),
     cfgIdThresh: $("#cfgIdThresh"),
     cfgIdThreshVal: $("#cfgIdThreshVal"),
+    cfgPrecision: $("#cfgPrecision"),
     cfgShowBoxes: $("#cfgShowBoxes"),
     cfgFullscreenDefault: $("#cfgFullscreenDefault"),
     cfgAudioAlerts: $("#cfgAudioAlerts"),
@@ -150,6 +151,7 @@
   let identifyingNow = false;
   let lastIdentifyAt = 0;
   let lastFrameSize = { w: 640, h: 480 };
+  let lastHealth = null;
   let lastIdentity = null;
   let lastFaceBox = null;
   let lastStats = null;
@@ -203,9 +205,10 @@
     autoAdvanceEnroll: true,
     poseAttempts: 8,
     identifyDefault: false,
-    showPpeBoxes: false,
+    showPpeBoxes: true,
     fullscreenDefault: false,
     identifyThreshold: 0.33,
+    precision: "alta",
     audioAlerts: true,
     audioAlertRepeats: 0,
     anonymizeFaces: true,
@@ -228,6 +231,9 @@
         0.25,
         Math.min(0.65, Number(settings.identifyThreshold) || 0.33)
       );
+      if (!["alta", "equilibrada", "sensible"].includes(settings.precision)) {
+        settings.precision = "equilibrada";
+      }
       // El 0.42 de “modo precisión” rechazaba al enrolado en webcam real
       if (!settings._idThreshV30) {
         settings.identifyThreshold = 0.33;
@@ -271,6 +277,7 @@
       els.cfgIdThresh.value = String(pct);
       if (els.cfgIdThreshVal) els.cfgIdThreshVal.textContent = `${pct}%`;
     }
+    if (els.cfgPrecision) els.cfgPrecision.value = settings.precision || "equilibrada";
     if (els.cfgShowBoxes) els.cfgShowBoxes.checked = !!settings.showPpeBoxes;
     if (els.cfgFullscreenDefault) els.cfgFullscreenDefault.checked = !!settings.fullscreenDefault;
     if (els.cfgAudioAlerts) els.cfgAudioAlerts.checked = !!settings.audioAlerts;
@@ -300,6 +307,10 @@
     if (els.cfgIdThresh) {
       settings.identifyThreshold = Math.max(0.25, Math.min(0.65, (Number(els.cfgIdThresh.value) || 33) / 100));
       if (els.cfgIdThreshVal) els.cfgIdThreshVal.textContent = `${Math.round(settings.identifyThreshold * 100)}%`;
+    }
+    if (els.cfgPrecision) {
+      const p = els.cfgPrecision.value;
+      settings.precision = ["alta", "equilibrada", "sensible"].includes(p) ? p : "equilibrada";
     }
     settings.showPpeBoxes = !!els.cfgShowBoxes?.checked;
     settings.fullscreenDefault = !!els.cfgFullscreenDefault?.checked;
@@ -1092,6 +1103,7 @@
 
   function applyHealth(health) {
     if (!health) return false;
+    lastHealth = health;
     const idOn = !!els.chkIdentify?.checked;
     const idReady = !!health.identity_ready;
     const eppReady = !!health.model_ready;
@@ -1171,7 +1183,7 @@
         regs.forEach((r) => r.unregister().catch(() => {}));
       });
       setTimeout(() => {
-        navigator.serviceWorker.register("/assets/sw.js?v=35").catch(() => {});
+        navigator.serviceWorker.register("/assets/sw.js?v=36").catch(() => {});
       }, 400);
     }
     const offlineBadge = $("#offlineBadge");
@@ -1596,6 +1608,16 @@
     els.personChipRut.textContent = els.identityRut.textContent;
   }
 
+  function detectImgsz() {
+    const n = Number(lastHealth?.detect_imgsz);
+    if (Number.isFinite(n) && n >= 224) return n;
+    return lastHealth?.hosted_on_render ? 320 : 640;
+  }
+
+  function detectBlobMaxW() {
+    return lastHealth?.hosted_on_render ? 480 : 720;
+  }
+
   async function detectBlob(blob, { identify = false, returnImage = false } = {}) {
     if (busy) return;
     busy = true;
@@ -1604,10 +1626,11 @@
       const fd = new FormData();
       fd.append("file", blob, "frame.jpg");
       fd.append("profile", els.profileSelect.value);
-      fd.append("conf", "0.35");
+      fd.append("conf", "0.22");
       fd.append("identify", identify ? "true" : "false");
       fd.append("return_image", returnImage ? "true" : "false");
-      fd.append("imgsz", "256");
+      fd.append("imgsz", String(detectImgsz()));
+      fd.append("precision", settings.precision || "equilibrada");
       fd.append("threshold", String(settings.identifyThreshold || 0.33));
       fd.append("required", requiredQueryValue());
       const data = await api("/api/detect", { method: "POST", body: fd }, 18000);
@@ -1799,7 +1822,7 @@
         }
         return;
       }
-      const blob = await captureBlob(0.42, 320);
+      const blob = await captureBlob(0.72, detectBlobMaxW());
       if (!blob) return;
       await detectBlob(blob, { identify: false, returnImage: false });
       eppStreak += 1;
@@ -1807,7 +1830,7 @@
     }
 
     eppStreak = 0;
-    const blob = await captureBlob(0.42, 320);
+    const blob = await captureBlob(0.72, detectBlobMaxW());
     if (!blob) return;
     await detectBlob(blob, { identify: false, returnImage: false });
   }
@@ -2085,13 +2108,12 @@
     document.body.classList.add("is-scanning");
     applyGuideMode();
     const poll = async () => {
-      const wantId = !!els.chkIdentify?.checked && Date.now() - lastIdentifyAt > 2200;
-      if (wantId) lastIdentifyAt = Date.now();
       const q = new URLSearchParams({
         url,
         profile: els.profileSelect.value,
-        conf: "0.35",
-        identify: String(wantId),
+        conf: "0.22",
+        identify: "false",
+        precision: settings.precision || "equilibrada",
         required: requiredQueryValue(),
       });
       try {
@@ -3402,6 +3424,7 @@
     els.cfgFaceGuide,
     els.cfgAutoAdvance,
     els.cfgIdentifyDefault,
+    els.cfgPrecision,
     els.cfgShowBoxes,
     els.cfgFullscreenDefault,
     els.cfgAudioAlerts,

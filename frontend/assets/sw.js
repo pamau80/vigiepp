@@ -1,5 +1,5 @@
-/* Service worker v35: aviso PIN de fábrica + README */
-const CACHE = "vigiepp-shell-v35";
+/* Service worker v36: detección EPP de alta precisión */
+const CACHE = "vigiepp-shell-v36";
 const ASSETS = ["/assets/styles.css", "/manifest.webmanifest", "/assets/icons/icon-192.png"];
 
 self.addEventListener("install", (event) => {

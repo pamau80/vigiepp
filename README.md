@@ -2,7 +2,7 @@
 
 Detección de EPP e identidad para faenas en Chile. Cámara o NVR → IA → cumplimiento, enrolamiento, informes y alerta (incluida baliza ESP32).
 
-Build actual: **v35**. Backend FastAPI + frontend estático. Demo comercial pensada para portería y supervisor.
+Build actual: **v36**. Backend FastAPI + frontend estático. Detección EPP pensada para portería (alta precisión por defecto).
 
 ## Qué hace
 
@@ -29,6 +29,23 @@ PIN de fábrica (solo local / Cloud Agent, cambialos en producción):
 5. **5 · Informes** → Safety Score y exportar CSV / consentimiento.
 
 La barra naranja avisa si seguís con PIN de fábrica. En Render Free también avisa si falta el backup durable.
+
+## Precisión de detección
+
+El modelo SafetyVision (YOLOv8s) distingue casco, chaleco, lentes, guantes, persona y las clases negativas (SIN casco, etc.). v36 aplica:
+
+- Inferencia a **640 px** en local / Cloud Agent (320 px en Render Free).
+- CLAHE para webcam con luz irregular.
+- Piso de confianza **por clase** (los “SIN casco” exigen más evidencia que un casco real).
+- Si casco y SIN casco se pisan, gana el de mayor confianza.
+- El casco solo cuenta si está en la cabeza de la persona, el chaleco en el torso.
+- Modo **Alta precisión** (default): Config → Monitoreo. Equilibrada / Sensible si hay más falsos negativos.
+
+| Variable | Default local | Efecto |
+| --- | --- | --- |
+| `VIGIEPP_PRECISION` | `alta` | `alta` / `equilibrada` / `sensible` |
+| `VIGIEPP_IMGSZ_MAX` | `640` | tope YOLO (`320` en Render) |
+| `VIGIEPP_MAX_SIDE` | `960` | resize previo (`512` en Render) |
 
 ## Arranque local
 

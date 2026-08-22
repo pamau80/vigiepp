@@ -21,7 +21,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/styles.css?v=35" />
+  <link rel="stylesheet" href="/assets/styles.css?v=36" />
 </head>
 <body>
   <div id="authGate" class="auth-gate hidden" aria-modal="true" role="dialog">
@@ -544,6 +544,17 @@
           </label>
           <label class="cfg-row">
             <span>
+              <strong>Precisión de detección EPP</strong>
+              <small>Alta = menos falsos positivos (recomendado en portería). Sensible = detecta más, con más ruido.</small>
+            </span>
+            <select id="cfgPrecision">
+              <option value="alta" selected>Alta precisión</option>
+              <option value="equilibrada">Equilibrada</option>
+              <option value="sensible">Sensible</option>
+            </select>
+          </label>
+          <label class="cfg-row">
+            <span>
               <strong>Identificar rostro en piso</strong>
               <small>Apagado = solo EPP (recomendado). Encendido = portería / kiosk</small>
             </span>
@@ -590,6 +601,6 @@
     <span id="fpsLabel">— ms</span>
   </footer>
 
-  <script src="/assets/app.js?v=35"></script>
+  <script src="/assets/app.js?v=36"></script>
 </body>
 </html>
