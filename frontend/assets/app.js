@@ -73,6 +73,8 @@
     btnTeachSample: $("#btnTeachSample"),
     btnTeachTrain: $("#btnTeachTrain"),
     btnTeachActivate: $("#btnTeachActivate"),
+    btnTeachDeactivate: $("#btnTeachDeactivate"),
+    teachPreview: $("#teachPreview"),
     teachHint: $("#teachHint"),
     teachStats: $("#teachStats"),
     teachPhotos: $("#teachPhotos"),
@@ -1083,6 +1085,8 @@
       } else {
         els.modelStatusText.textContent = health.warning || "Cargando ID+EPP…";
       }
+    } else if (health.using_custom_model) {
+      els.modelStatusText.textContent = `IA personalizada · ${health.model || "custom"}`;
     } else if (ready) {
       els.modelStatusText.textContent = `IA lista · ${health.model || "EPP"}`;
     } else {
@@ -1403,6 +1407,11 @@
       els.complianceValue.textContent = "Fuera de silueta";
       els.complianceSummary.textContent =
         "Encajá el cuerpo completo en la guía vertical para validar EPP e identidad.";
+    } else if (payload.epp_skipped) {
+      els.complianceBox.dataset.state = "idle";
+      els.complianceValue.textContent = "EPP no evaluado";
+      els.complianceSummary.textContent =
+        c.summary || "Solo se evaluó identidad en esta llamada. Subí foto otra vez o activá inferencia combinada.";
     } else {
       els.complianceBox.dataset.state = hasPeople ? (ok ? "ok" : "bad") : "idle";
       els.complianceValue.textContent = !hasPeople ? "Sin persona" : ok ? "Cumple" : "No cumple";
@@ -1411,6 +1420,7 @@
     const pill = $("#statusPill");
     if (pill) {
       if (gateOn && !aligned && hasPeople) pill.textContent = "Fuera";
+      else if (payload.epp_skipped) pill.textContent = "ID";
       else if (!hasPeople) pill.textContent = "Standby";
       else pill.textContent = ok ? "OK" : "Alerta";
     }
@@ -1567,7 +1577,7 @@
     els.personChipRut.textContent = els.identityRut.textContent;
   }
 
-  async function detectBlob(blob, { identify = false, returnImage = false } = {}) {
+  async function detectBlob(blob, { identify = false, returnImage = false, combined = false } = {}) {
     if (busy) return;
     busy = true;
     const t0 = performance.now();
@@ -1575,8 +1585,9 @@
       const fd = new FormData();
       fd.append("file", blob, "frame.jpg");
       fd.append("profile", els.profileSelect.value);
-      fd.append("conf", "0.35");
+      fd.append("conf", "0.25");
       fd.append("identify", identify ? "true" : "false");
+      fd.append("combined", combined ? "true" : "false");
       fd.append("return_image", returnImage ? "true" : "false");
       fd.append("imgsz", "256");
       fd.append("threshold", String(settings.identifyThreshold || 0.33));
@@ -1620,7 +1631,7 @@
         return;
       }
       updateUi(data);
-      if (identify && data.identity?.known) maybeRefreshScans();
+      if ((identify || combined) && data.identity?.known) maybeRefreshScans();
       if (identify && data.identity?.booting) {
         els.identityName.textContent = "ID cargando…";
         els.identityRut.textContent = "El reconocimiento facial aún inicia";
@@ -2061,8 +2072,9 @@
       const q = new URLSearchParams({
         url,
         profile: els.profileSelect.value,
-        conf: "0.35",
+        conf: "0.25",
         identify: String(wantId),
+        combined: String(wantId),
         required: requiredQueryValue(),
       });
       try {
@@ -3266,7 +3278,7 @@
   els.fileInput.addEventListener("change", async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    await detectBlob(file, { identify: true, returnImage: true });
+    await detectBlob(file, { identify: true, returnImage: true, combined: true });
   });
   els.btnEnroll.addEventListener("click", enrollWorker);
   els.btnCancelEnroll.addEventListener("click", () => {
@@ -3345,10 +3357,53 @@
     }
   });
   els.btnTeachActivate.addEventListener("click", async () => {
-    const data = await api("/api/teach/activate", { method: "POST" });
-    els.modelStatusText.textContent = `IA lista · ${data.model}`;
-    els.teachHint.textContent = "Modelo personalizado activado";
+    if (
+      !window.confirm(
+        "Esto reemplaza el detector EPP de TODA la planta. Si el entrenamiento tiene pocas muestras, la detección puede degradarse. ¿Activar igual?"
+      )
+    ) {
+      return;
+    }
+    try {
+      const data = await api("/api/teach/activate", { method: "POST" });
+      els.modelStatusText.textContent = `IA personalizada · ${data.model}`;
+      els.teachHint.textContent = data.message || "Modelo personalizado activado. Usá «Modelo de fábrica» para revertir.";
+    } catch (err) {
+      els.teachHint.textContent = err.message;
+    }
   });
+  if (els.btnTeachDeactivate) {
+    els.btnTeachDeactivate.addEventListener("click", async () => {
+      if (!window.confirm("¿Volver al modelo de fábrica SafetyVision?")) return;
+      try {
+        const data = await api("/api/teach/deactivate", { method: "POST" });
+        els.modelStatusText.textContent = `IA lista · ${data.model}`;
+        els.teachHint.textContent = data.message || "Modelo de fábrica restaurado";
+      } catch (err) {
+        els.teachHint.textContent = err.message;
+      }
+    });
+  }
+  if (els.teachPreview) {
+    els.teachPreview.addEventListener("change", async (e) => {
+      const file = e.target.files?.[0];
+      e.target.value = "";
+      if (!file) return;
+      els.teachHint.textContent = "Probando modelo personalizado (no cambia el detector de planta)…";
+      try {
+        const fd = new FormData();
+        fd.append("file", file, file.name || "preview.jpg");
+        fd.append("profile", els.profileSelect.value);
+        fd.append("conf", "0.25");
+        const data = await api("/api/teach/preview", { method: "POST", body: fd }, 60000);
+        const n = (data.detections || []).length;
+        els.teachHint.textContent = `Vista previa: ${n} detección(es) · la planta sigue con ${data.production_model || "el modelo actual"}. No se activó.`;
+        if (data?.ok) updateUi(data);
+      } catch (err) {
+        els.teachHint.textContent = err.message;
+      }
+    });
+  }
   window.addEventListener("resize", () => {
     if (mediaStream) syncCanvasSize();
   });
