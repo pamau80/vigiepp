@@ -1,4 +1,4 @@
-"""API VigiEPP — demo comercial de detección de EPP con IA."""
+"""API VigiEPP — control de EPP e identidad para faena, portería y supervisión."""
 
 from __future__ import annotations
 
@@ -83,7 +83,7 @@ def _want_combined(identify: bool, combined_raw: str | bool | None) -> bool:
     return combined_inference_default()
 
 
-BUILD_VERSION = "v35"
+BUILD_VERSION = "v36"
 
 
 @asynccontextmanager

@@ -1,18 +1,24 @@
 {
-  "name": "VigiEPP — Control de EPP",
+  "name": "VigiEPP — Control de EPP e identidad",
   "short_name": "VigiEPP",
-  "description": "Detección de EPP e identidad en faena",
+  "description": "Aliado de control de EPP e identidad para faena, portería y supervisión",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
   "display_override": ["standalone", "fullscreen"],
-  "background_color": "#101512",
-  "theme_color": "#e85d04",
+  "background_color": "#0b1218",
+  "theme_color": "#0b1218",
   "lang": "es-CL",
-  "categories": ["business", "productivity"],
+  "categories": ["business", "productivity", "security"],
   "prefer_related_applications": false,
   "icons": [
+    {
+      "src": "/assets/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
     {
       "src": "/assets/favicon.png",
       "sizes": "192x192",

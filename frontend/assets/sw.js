@@ -1,6 +1,6 @@
-/* Service worker v34: ciclo de detección más rápido */
-const CACHE = "vigiepp-shell-v34";
-const ASSETS = ["/assets/styles.css", "/manifest.webmanifest", "/assets/icons/icon-192.png"];
+/* Service worker v36: puesto de control enterprise */
+const CACHE = "vigiepp-shell-v36";
+const ASSETS = ["/assets/styles.css?v=36", "/assets/logo.svg", "/assets/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));

@@ -130,9 +130,15 @@
     btnRepRefresh: $("#btnRepRefresh"),
     repSideSummary: $("#repSideSummary"),
     repSideList: $("#repSideList"),
+    liveClock: $("#liveClock"),
+    sessionChip: $("#sessionChip"),
+    siteNameLabel: $("#siteNameLabel"),
+    cfgSiteName: $("#cfgSiteName"),
+    decisionMeta: $("#decisionMeta"),
+    verdictStamp: $("#verdictStamp"),
   };
 
-  const APP_BUILD = "v34";
+  const APP_BUILD = "v36";
 
   let profiles = [];
   let ppeCatalog = [];
@@ -155,7 +161,7 @@
   let lastIdentity = null;
   let lastFaceBox = null;
   let lastStats = null;
-  let currentRep = "overview";
+  let currentRep = "safety_score";
   let notifConfig = null;
   let preferredFacing = "user";
 
@@ -182,8 +188,8 @@
       }
       if (hint) {
         hint.textContent = isIOS()
-          ? "iPhone/iPad · Safari o “Agregar a inicio”"
-          : "Android · podés instalar como app";
+          ? "iPhone/iPad · Safari o «Agregar a inicio»"
+          : "Android · se puede instalar como app del puesto";
       }
     }
     syncViewportHeight();
@@ -214,6 +220,7 @@
     showZones: true,
     kioskMode: false,
     ppeByProfile: {},
+    siteName: "",
   });
   let settings = defaultSettings();
 
@@ -285,8 +292,10 @@
     }
     if (els.cfgAnonymize) els.cfgAnonymize.checked = !!settings.anonymizeFaces;
     if (els.cfgShowZones) els.cfgShowZones.checked = !!settings.showZones;
+    if (els.cfgSiteName) els.cfgSiteName.value = settings.siteName || "";
     if (els.chkIdentify) els.chkIdentify.checked = !!settings.identifyDefault;
     if (els.chkFullscreen) els.chkFullscreen.checked = !!settings.fullscreenDefault;
+    applyEnterpriseChrome();
   }
 
   function readSettingsFromForm() {
@@ -313,6 +322,9 @@
     }
     settings.anonymizeFaces = !!els.cfgAnonymize?.checked;
     settings.showZones = !!els.cfgShowZones?.checked;
+    if (els.cfgSiteName) {
+      settings.siteName = String(els.cfgSiteName.value || "").trim().slice(0, 80);
+    }
     if (els.cfgBodyScaleVal) els.cfgBodyScaleVal.textContent = `${settings.bodyScale}%`;
     if (els.cfgFaceScaleVal) els.cfgFaceScaleVal.textContent = `${settings.faceScale}%`;
     if (els.cfgGuideYVal)
@@ -321,6 +333,7 @@
     if (els.chkFullscreen) els.chkFullscreen.checked = settings.fullscreenDefault;
     saveSettings();
     applyGuideMode();
+    applyEnterpriseChrome();
   }
 
   /** body | face según modo y settings */
@@ -576,8 +589,55 @@
       setAppMode("monitor");
       setKioskMode(true);
     }
-    const tag = $(".brand-tag");
-    if (tag) tag.textContent = isOp ? "Portería · operador" : "EPP + identidad · Chile";
+    applyEnterpriseChrome();
+  }
+
+  function siteLabel() {
+    const name = (settings.siteName || "").trim();
+    return name || "Control de EPP · Chile";
+  }
+
+  function applyEnterpriseChrome() {
+    const isOp = userRole === "operator";
+    const site = siteLabel();
+    if (els.siteNameLabel) {
+      els.siteNameLabel.textContent = isOp ? `Portería · ${site}` : site;
+    }
+    if (els.sessionChip) {
+      els.sessionChip.classList.remove("hidden");
+      els.sessionChip.dataset.role = userRole;
+      els.sessionChip.textContent = isOp ? "Portería" : "Administración";
+    }
+    document.title = `${site} · VigiEPP`;
+  }
+
+  function tickClock() {
+    const el = els.liveClock;
+    if (!el) return;
+    const now = new Date();
+    el.dateTime = now.toISOString();
+    el.textContent = now.toLocaleString("es-CL", {
+      weekday: "short",
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+  }
+
+  function stampVerdict(extra = "") {
+    const now = new Date();
+    if (els.verdictStamp) {
+      els.verdictStamp.dateTime = now.toISOString();
+      els.verdictStamp.textContent = `Registro ${now.toLocaleTimeString("es-CL", { hour12: false })}`;
+    }
+    if (els.decisionMeta) {
+      const p = profiles.find((x) => x.id === els.profileSelect?.value);
+      const bits = [p?.name || "", extra].filter(Boolean);
+      els.decisionMeta.textContent = bits.join(" · ");
+    }
   }
 
   async function ensureAuth(force = false) {
@@ -609,7 +669,7 @@
     }
 
     return new Promise((resolve) => {
-      showAuthGate(true, "PIN admin o portería (operador)");
+      showAuthGate(true, "PIN de administración o portería");
       const form = $("#authForm");
       const onSubmit = async (e) => {
         e.preventDefault();
@@ -1077,23 +1137,23 @@
     els.modelStatus.classList.toggle("error", !ready && !!health.warning);
     if (idOn) {
       if (idReady && eppReady) {
-        els.modelStatusText.textContent = `ID+EPP listos · ${health.workers_ready || 0} persona(s)`;
+        els.modelStatusText.textContent = `ID + EPP listos · ${health.workers_ready || 0} persona(s)`;
       } else if (idReady) {
-        els.modelStatusText.textContent = "ID lista · EPP cargando (10–30 s)…";
+        els.modelStatusText.textContent = "Identidad lista · EPP cargando…";
       } else if (eppReady) {
-        els.modelStatusText.textContent = "EPP lista · ID cargando…";
+        els.modelStatusText.textContent = "EPP listo · identidad cargando…";
       } else {
-        els.modelStatusText.textContent = health.warning || "Cargando ID+EPP…";
+        els.modelStatusText.textContent = health.warning || "Cargando identidad y EPP…";
       }
     } else if (health.using_custom_model) {
-      els.modelStatusText.textContent = `IA personalizada · ${health.model || "custom"}`;
+      els.modelStatusText.textContent = `Modelo de planta · ${health.model || "personalizado"}`;
     } else if (ready) {
-      els.modelStatusText.textContent = `IA lista · ${health.model || "EPP"}`;
+      els.modelStatusText.textContent = `IA de planta lista · ${health.model || "EPP"}`;
     } else {
       els.modelStatusText.textContent = health.warning || "Cargando IA…";
     }
     if (els.fpsLabel && health.build) {
-      els.fpsLabel.textContent = `${health.build} · ${idOn ? "ID+EPP" : "EPP"}`;
+      els.fpsLabel.textContent = `${health.build} · ${APP_BUILD} · ${idOn ? "ID+EPP" : "EPP"}`;
     }
     showPersistBanner(health);
     return ready;
@@ -1150,7 +1210,7 @@
         regs.forEach((r) => r.unregister().catch(() => {}));
       });
       setTimeout(() => {
-        navigator.serviceWorker.register("/assets/sw.js?v=34").catch(() => {});
+        navigator.serviceWorker.register("/assets/sw.js?v=36").catch(() => {});
       }, 400);
     }
     const offlineBadge = $("#offlineBadge");
@@ -1174,6 +1234,9 @@
       syncCanvasSize();
     });
     window.addEventListener("resize", syncViewportHeight);
+    tickClock();
+    setInterval(tickClock, 1000);
+    applyEnterpriseChrome();
   }
 
   function renderProfile() {
@@ -1248,14 +1311,14 @@
     if (ctx) {
       ctx.textContent =
         mode === "monitor"
-          ? "Resultado del escaneo en vivo"
+          ? "Veredicto del puesto en vivo"
           : mode === "identity"
-            ? "Enrolar e identificar personas"
+            ? "Alta e identificación de personas"
             : mode === "teach"
-              ? "Entrenar ropa y EPP del modelo"
+              ? "Entrenamiento del modelo EPP de planta"
               : mode === "reports"
-                ? "Estadísticas, informes y notificaciones"
-                : "Ajustes de silueta, rostro y monitoreo";
+                ? "Tablero, exportación y alertas"
+                : "Ajustes del puesto, zonas y bitácora";
     }
     if (mode === "monitor") {
       setSource(
@@ -1280,7 +1343,7 @@
     }
     if (mode === "reports") {
       fillRepProfiles();
-      openReport(currentRep || "overview");
+      openReport(currentRep || "safety_score");
     }
     requestAnimationFrame(() => syncCanvasSize());
   }
@@ -1311,8 +1374,8 @@
     if (els.speedHint) {
       els.speedHint.classList.toggle("hidden", mode === "identity" || mode === "teach");
       if (mode === "camera") els.speedHint.textContent = "Lectura vertical · cuerpo completo";
-      else if (mode === "identity") els.speedHint.textContent = "Guía facial · 4 poses";
-      else if (mode === "teach") els.speedHint.textContent = "Foto o video de la prenda";
+      else if (mode === "identity") els.speedHint.textContent = "Guía facial · 4 poses de calidad";
+      else if (mode === "teach") els.speedHint.textContent = "Recolectá, entrená y probá antes de activar";
     }
 
     if (mode === "identity" || mode === "teach") {
@@ -1328,7 +1391,9 @@
             ? "Registrá el rostro acá. El EPP se evalúa en Monitoreo."
             : "Enseñá prendas acá. El cumplimiento se ve en Monitoreo.";
       }
-      if (els.statusPill) els.statusPill.textContent = "Modo entrenamiento";
+      if (els.statusPill) els.statusPill.textContent = "Fuera de línea";
+      if (els.decisionMeta) els.decisionMeta.textContent = "";
+      if (els.verdictStamp) els.verdictStamp.textContent = "";
       if (els.detList) els.detList.innerHTML = `<li class="muted">Sin escaneo EPP en este modo</li>`;
       if (els.alertList) els.alertList.innerHTML = `<li class="muted">Sin alertas de faena</li>`;
     } else if (mode === "config") {
@@ -1344,9 +1409,11 @@
       if (els.complianceSummary) {
         els.complianceSummary.textContent = els.chkIdentify?.checked
           ? "Iniciá el monitoreo para evaluar EPP e identidad."
-          : "Marcá «Identificar rostro» abajo para reconocer personas enroladas.";
+          : "Activá «Identificar persona» para reconocer a quienes están enrolados.";
       }
-      if (els.statusPill) els.statusPill.textContent = "Standby";
+      if (els.statusPill) els.statusPill.textContent = "En espera";
+      if (els.decisionMeta) els.decisionMeta.textContent = "";
+      if (els.verdictStamp) els.verdictStamp.textContent = "";
       if (els.detList) els.detList.innerHTML = `<li class="muted">Sin detecciones</li>`;
       if (els.alertList) els.alertList.innerHTML = `<li class="muted">Sin alertas</li>`;
       if (appMode === "monitor" && mediaStream && !detectLoopOn) {
@@ -1406,23 +1473,26 @@
       els.complianceBox.dataset.state = "bad";
       els.complianceValue.textContent = "Fuera de silueta";
       els.complianceSummary.textContent =
-        "Encajá el cuerpo completo en la guía vertical para validar EPP e identidad.";
+        "Alineá el cuerpo completo en la guía vertical para validar EPP e identidad.";
     } else if (payload.epp_skipped) {
       els.complianceBox.dataset.state = "idle";
       els.complianceValue.textContent = "EPP no evaluado";
       els.complianceSummary.textContent =
-        c.summary || "Solo se evaluó identidad en esta llamada. Subí foto otra vez o activá inferencia combinada.";
+        c.summary || "Solo se evaluó identidad. Subí la foto de nuevo o activá inferencia combinada.";
     } else {
       els.complianceBox.dataset.state = hasPeople ? (ok ? "ok" : "bad") : "idle";
       els.complianceValue.textContent = !hasPeople ? "Sin persona" : ok ? "Cumple" : "No cumple";
       els.complianceSummary.textContent = c.summary || "—";
     }
+    stampVerdict(
+      payload.epp_skipped ? "solo identidad" : !hasPeople ? "sin persona en encuadre" : ok ? "acceso conforme" : "incumplimiento"
+    );
     const pill = $("#statusPill");
     if (pill) {
       if (gateOn && !aligned && hasPeople) pill.textContent = "Fuera";
       else if (payload.epp_skipped) pill.textContent = "ID";
-      else if (!hasPeople) pill.textContent = "Standby";
-      else pill.textContent = ok ? "OK" : "Alerta";
+      else if (!hasPeople) pill.textContent = "En espera";
+      else pill.textContent = ok ? "Cumple" : "Alerta";
     }
     updateKioskBanner(payload);
 
@@ -1498,13 +1568,13 @@
         }, 2800);
       }
     } else if (appMode === "monitor" && !els.chkIdentify?.checked) {
-      els.identityName.textContent = "ID apagada";
-      els.identityRut.textContent = "Marcá «Identificar rostro» abajo";
+      els.identityName.textContent = "Identidad apagada";
+      els.identityRut.textContent = "Activá «Identificar persona» en la barra inferior";
       if (els.identityMethod) els.identityMethod.textContent = "";
     }
 
     const ms = Math.round(performance.now() - t0);
-    els.fpsLabel.textContent = `${ms} ms UI`;
+    els.fpsLabel.textContent = `${APP_BUILD} · ${ms} ms`;
   }
 
   /** Títulos médicos → término de faena (expertos SSO / EPP). */
@@ -1523,7 +1593,7 @@
   function setIdentityCard(identity) {
     if (!identity) {
       els.identityName.textContent = "Sin identificar";
-      els.identityRut.textContent = "Enrola personas en Enrolar personas";
+      els.identityRut.textContent = "Registrá personas en el módulo Personas";
       els.identityMethod.textContent = "";
       els.personChip.classList.add("hidden");
       return;
@@ -2235,9 +2305,9 @@
     }
     el.classList.remove("hidden");
     el.innerHTML =
-      "<strong>Falta volumen durable:</strong> Render Free no guarda disco. " +
-      "Solución gratis: corré <code>activate-free-durable.ps1</code> (Hugging Face, sin pago). " +
-      "Las personas quedan en un dataset privado y sobreviven al sleep.";
+      "<strong>Almacenamiento no persistente:</strong> este puesto no tiene disco durable. " +
+      "Antes de producción, exportá un backup en Personas o configurá almacenamiento durable. " +
+      "Sin eso, las fichas se pierden al reiniciar el servidor.";
   }
 
   function renderWorkerList() {
@@ -2430,7 +2500,7 @@
   }
 
   async function requestAdminPinToExitKiosk() {
-    const pin = window.prompt("Salir de portería requiere PIN de administrador:");
+    const pin = window.prompt("Salir de portería requiere PIN de administración:");
     if (pin == null) return false;
     if (!String(pin).trim()) return false;
     try {
@@ -2476,9 +2546,9 @@
     const overlay = $("#kioskOverlay");
     if (!res || !overlay) return;
     overlay.dataset.state = !hasPeople ? "idle" : ok ? "ok" : "bad";
-    res.textContent = !hasPeople ? "En espera" : ok ? "CUMPLE" : "NO CUMPLE";
+    res.textContent = !hasPeople ? "EN ESPERA" : ok ? "CUMPLE" : "NO CUMPLE";
     if (name) {
-      name.textContent = id?.known && id?.name ? displayPersonName(id.name) : hasPeople ? "Sin identificar" : "Acercá a la cámara";
+      name.textContent = id?.known && id?.name ? displayPersonName(id.name) : hasPeople ? "Sin identificar" : "Acercá a la cámara de cuerpo completo";
     }
     if (detail) {
       const miss = (c.persons?.[0]?.missing || []).slice(0, 3).join(", ");
@@ -2891,7 +2961,8 @@
           (a, b) => (b.safety_score || 0) - (a.safety_score || 0)
         );
         els.reportsContent.innerHTML = `
-          <h3 class="rep-section-title">Safety Score</h3>
+          <h3 class="rep-section-title">Tablero ejecutivo</h3>
+          <p class="card-meta">${siteLabel()} · últimos ${days} días · nota de cumplimiento para gerencia y SSO.</p>
           <div class="rep-hero">
             <div class="rep-metric"><b>${score}</b><span>Nota global /100</span></div>
             <div class="rep-metric"><b>${stats.totals?.compliance_rate || 0}%</b><span>Cumplimiento</span></div>
@@ -3359,7 +3430,7 @@
   els.btnTeachActivate.addEventListener("click", async () => {
     if (
       !window.confirm(
-        "Esto reemplaza el detector EPP de TODA la planta. Si el entrenamiento tiene pocas muestras, la detección puede degradarse. ¿Activar igual?"
+        "Activar reemplaza el detector EPP de TODA la faena.\n\nSi hay pocas muestras, la detección de planta puede degradarse. Se puede volver al modelo de fábrica.\n\n¿Activar en producción?"
       )
     ) {
       return;
@@ -3374,7 +3445,7 @@
   });
   if (els.btnTeachDeactivate) {
     els.btnTeachDeactivate.addEventListener("click", async () => {
-      if (!window.confirm("¿Volver al modelo de fábrica SafetyVision?")) return;
+      if (!window.confirm("¿Volver al modelo de fábrica SafetyVision en toda la faena?")) return;
       try {
         const data = await api("/api/teach/deactivate", { method: "POST" });
         els.modelStatusText.textContent = `IA lista · ${data.model}`;
@@ -3435,6 +3506,13 @@
   });
   if (els.cfgPoseAttempts) {
     els.cfgPoseAttempts.addEventListener("change", readSettingsFromForm);
+  }
+  if (els.cfgSiteName) {
+    els.cfgSiteName.addEventListener("change", readSettingsFromForm);
+    els.cfgSiteName.addEventListener("input", () => {
+      settings.siteName = String(els.cfgSiteName.value || "").trim().slice(0, 80);
+      applyEnterpriseChrome();
+    });
   }
   if (els.chkIdentify) {
     els.chkIdentify.addEventListener("change", () => {
