@@ -196,8 +196,13 @@ def evaluate_zones(
     detections: list[dict[str, Any]],
     frame_w: int,
     frame_h: int,
+    person_boxes: list[list[float]] | None = None,
 ) -> dict[str, Any]:
-    """Evalúa personas dentro de zonas habilitadas."""
+    """Evalúa personas dentro de zonas habilitadas.
+
+    person_boxes: cuadros de persona ya resueltos (incluye persona implícita
+    de compliance). Si no se pasan, se infieren de las detecciones.
+    """
     data = get_zones()
     zones = [z for z in data.get("zones") or [] if z.get("enabled")]
     alerts: list[str] = []
@@ -205,15 +210,22 @@ def evaluate_zones(
     if not zones or frame_w <= 0 or frame_h <= 0:
         return {"alerts": alerts, "hits": hits, "zones": data.get("zones") or []}
 
-    persons = [d for d in detections if _is_person(d) and d.get("box")]
-    # Si no hay clase persona, usar cajas grandes como proxy de cuerpo
-    if not persons:
+    if person_boxes:
         persons = [
-            d
-            for d in detections
-            if d.get("box")
-            and (d["box"][2] - d["box"][0]) * (d["box"][3] - d["box"][1]) > (frame_w * frame_h * 0.04)
+            {"label": "Person", "label_es": "Persona", "box": box}
+            for box in person_boxes
+            if isinstance(box, (list, tuple)) and len(box) == 4
         ]
+    else:
+        persons = [d for d in detections if _is_person(d) and d.get("box")]
+        # Si no hay clase persona, usar cajas grandes como proxy de cuerpo
+        if not persons:
+            persons = [
+                d
+                for d in detections
+                if d.get("box")
+                and (d["box"][2] - d["box"][0]) * (d["box"][3] - d["box"][1]) > (frame_w * frame_h * 0.04)
+            ]
 
     for z in zones:
         for d in persons:

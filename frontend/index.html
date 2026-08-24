@@ -244,8 +244,13 @@
           <input id="teachVideo" type="file" accept="video/*,.mp4,.mov,.webm" hidden />
         </label>
         <button id="btnTeachTrain" class="btn secondary" type="button">Entrenar modelo</button>
+        <label class="btn ghost file-btn" title="Evalúa el modelo custom sin reemplazar el de planta">
+          Probar sin activar
+          <input id="teachPreview" type="file" accept="image/*" hidden />
+        </label>
         <button id="btnTeachActivate" class="btn ghost" type="button">Activar modelo</button>
-        <p class="hint" id="teachHint">Fotos + videos · 30–80 ejemplos por prenda</p>
+        <button id="btnTeachDeactivate" class="btn ghost" type="button">Modelo de fábrica</button>
+        <p class="hint" id="teachHint">Fotos + videos · 30–80 ejemplos por prenda. Activar reemplaza el detector de toda la planta.</p>
       </div>
 
       <div class="controls control-bar hidden" id="teachExtraControls">
