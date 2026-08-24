@@ -1694,7 +1694,15 @@ body.auth-locked .topbar {
   .zone-row { grid-template-columns: 1fr 1fr; }
 }
 
-/* ——— Capa enterprise: puesto de control ——— */
+body[data-source="upload"] .silhouette-guide,
+body[data-source="upload"] .align-badge,
+body[data-source="upload"] .sil-zoom,
+body[data-source="upload"] .sil-hint,
+body[data-source="rtsp"] .silhouette-guide,
+body[data-source="rtsp"] .align-badge,
+body[data-source="rtsp"] .sil-zoom {
+  display: none !important;
+}
 .skip-link {
   position: absolute;
   left: 0.75rem;

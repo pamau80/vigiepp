@@ -1211,7 +1211,7 @@
         regs.forEach((r) => r.unregister().catch(() => {}));
       });
       setTimeout(() => {
-        navigator.serviceWorker.register("/assets/sw.js?v=36").catch(() => {});
+        navigator.serviceWorker.register("/assets/sw.js?v=37").catch(() => {});
       }, 400);
     }
     const offlineBadge = $("#offlineBadge");
@@ -1364,6 +1364,7 @@
 
   function setSource(mode) {
     sourceMode = mode;
+    document.body.dataset.source = mode;
     $$(".tab").forEach((t) => {
       if (t.dataset.source) t.classList.toggle("active", t.dataset.source === mode);
     });
