@@ -343,7 +343,8 @@
     // Óvalo facial SOLO en Personas / enrolar — nunca en Monitoreo
     const wantFace = enrolling || appMode === "identity";
     const scanning = document.body.classList.contains("is-scanning") && appMode === "monitor";
-    const enabled = !scanning && (!!settings.silhouetteEnabled || wantFace);
+    const evidenceView = sourceMode === "upload" || sourceMode === "rtsp" || !!els.annotatedImg?.src && !els.annotatedImg?.hidden;
+    const enabled = !scanning && !evidenceView && (!!settings.silhouetteEnabled || wantFace);
     guide.classList.toggle("is-off", !enabled);
     if (els.alignBadge) els.alignBadge.classList.toggle("is-off", !enabled || enrolling || scanning);
     guide.dataset.guide = wantFace ? "face" : "body";
@@ -1308,6 +1309,19 @@
     const panel = $("#sidePanel");
     if (panel) panel.dataset.mode = mode;
     const ctx = $("#panelContext");
+    const title = $(".panel-title");
+    if (title) {
+      title.textContent =
+        mode === "monitor"
+          ? "Decisión"
+          : mode === "identity"
+            ? "Personas"
+            : mode === "teach"
+              ? "Modelo"
+              : mode === "reports"
+                ? "Informes"
+                : "Ajustes";
+    }
     if (ctx) {
       ctx.textContent =
         mode === "monitor"
@@ -1421,6 +1435,11 @@
       }
     } else if (mode === "rtsp") {
       stopCamera();
+    } else if (mode === "upload") {
+      stopDetectLoop();
+      if (els.silhouetteGuide) els.silhouetteGuide.classList.add("is-off");
+      if (els.alignBadge) els.alignBadge.classList.add("is-off");
+      if (els.silZoom) els.silZoom.classList.add("hidden");
     } else {
       stopDetectLoop();
     }
@@ -1448,6 +1467,9 @@
       els.overlayCanvas.hidden = true;
       els.annotatedImg.hidden = false;
       els.annotatedImg.src = `data:image/jpeg;base64,${payload.image_b64}`;
+      if (els.silhouetteGuide) els.silhouetteGuide.classList.add("is-off");
+      if (els.alignBadge) els.alignBadge.classList.add("is-off");
+      if (els.silZoom) els.silZoom.classList.add("hidden");
     } else {
       showLive();
       drawDetections(
@@ -1461,7 +1483,11 @@
 
     if (payload.zones?.defs) zonesCache = payload.zones.defs;
 
-    const gateOn = !!settings.silhouetteGate && !!settings.silhouetteEnabled && appMode === "monitor";
+    const gateOn =
+      !!settings.silhouetteGate &&
+      !!settings.silhouetteEnabled &&
+      appMode === "monitor" &&
+      sourceMode === "camera";
     const aligned = gateOn
       ? evaluateAlignment(payload.detections || [], lastFrameSize.w, lastFrameSize.h)
       : true;
