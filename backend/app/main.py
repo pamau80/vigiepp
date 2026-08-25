@@ -1,4 +1,4 @@
-"""API VigiEPP — demo comercial de detección de EPP con IA."""
+"""API VigiEPP — control de EPP e identidad para faena, portería y supervisión."""
 
 from __future__ import annotations
 
@@ -48,7 +48,42 @@ _detect_lock = threading.Lock()
 _DETECT_IMGSZ_MAX = int(os.getenv("VIGIEPP_IMGSZ_MAX", "256"))
 
 
-BUILD_VERSION = "v34"
+def combined_inference_default() -> bool:
+    """YOLO+SFace en el mismo request. En Render Free (512 MB) el default es off."""
+    raw = os.getenv("VIGIEPP_COMBINED_INFERENCE", "").strip().lower()
+    if raw in ("0", "false", "no", "off"):
+        return False
+    if raw in ("1", "true", "yes", "on"):
+        return True
+    on_render = bool(os.getenv("RENDER") or os.getenv("RENDER_SERVICE_ID"))
+    return not on_render
+
+
+def _parse_combined_flag(raw: str | bool | None) -> bool | None:
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        return raw
+    text = str(raw).strip().lower()
+    if not text:
+        return None
+    if text in ("1", "true", "yes", "on"):
+        return True
+    if text in ("0", "false", "no", "off"):
+        return False
+    return None
+
+
+def _want_combined(identify: bool, combined_raw: str | bool | None) -> bool:
+    if not identify:
+        return False
+    override = _parse_combined_flag(combined_raw)
+    if override is not None:
+        return override
+    return combined_inference_default()
+
+
+BUILD_VERSION = "v36"
 
 
 @asynccontextmanager
@@ -176,7 +211,12 @@ def _build_response(
     compliance = evaluate(detections, profile, required_override=required)
     fw = frame_wh[0] if frame_wh else 0
     fh = frame_wh[1] if frame_wh else 0
-    zone_eval = zones_mod.evaluate_zones(detections, fw, fh) if fw and fh else {"alerts": [], "hits": [], "zones": []}
+    person_boxes = [list(p.box) for p in compliance.persons if p.box]
+    zone_eval = (
+        zones_mod.evaluate_zones(detections, fw, fh, person_boxes=person_boxes)
+        if fw and fh
+        else {"alerts": [], "hits": [], "zones": []}
+    )
     alerts = list(compliance.alerts or [])
     for a in zone_eval.get("alerts") or []:
         if a not in alerts:
@@ -302,10 +342,11 @@ def _maybe_log(
     summary = str(compliance_block.get("summary") or "")
     summary_l = summary.lower()
 
-    # No loguear standby / frames vacíos
+    # No loguear standby / frames vacíos — sí registrar identidad conocida
+    # aunque no haya EPP en el mismo cuadro (portería / close-up de rostro).
     if not persons and not known:
         return None
-    if "sin persona" in summary_l and not persons:
+    if "sin persona" in summary_l and not persons and not known:
         return None
     if not identity and not persons:
         return None
@@ -341,6 +382,8 @@ def _maybe_log(
         missing: list[str] = []
         for p in persons:
             missing.extend(p.get("missing") or [])
+        if known and not persons:
+            missing = missing or ["epp_no_evaluado"]
         log_scan(
             ScanEvent(
                 ts=datetime.now(timezone.utc).isoformat(),
@@ -464,6 +507,8 @@ def health() -> dict[str, Any]:
         "cloud_backup": cloud,
         "default_pins": auth_mod.using_default_pins(),
         "email_transport": notif_mod.email_transport_status().get("mode"),
+        "using_custom_model": bool(det and det.using_custom),
+        "combined_inference_default": combined_inference_default(),
     }
 
 
@@ -532,6 +577,7 @@ async def detect_upload(
     imgsz: int = Form(416),
     threshold: float = Form(0.33),
     required: str = Form(""),
+    combined: str = Form(""),
 ) -> JSONResponse:
     data = await file.read()
     if not data:
@@ -551,6 +597,7 @@ async def detect_upload(
             imgsz=imgsz,
             threshold=threshold,
             required=parse_required_list(required),
+            combined=_want_combined(identify, combined),
         )
     finally:
         _detect_lock.release()
@@ -566,6 +613,7 @@ def _detect_frame(
     imgsz: int,
     threshold: float,
     required: list[str] | None = None,
+    combined: bool = False,
 ) -> JSONResponse:
     try:
         frame = decode_image_bytes(data)
@@ -582,26 +630,11 @@ def _detect_frame(
     identity = None
     detections: list = []
     annotated = frame
+    run_epp = (not identify) or combined
+    epp_skipped = identify and not run_epp
 
-    # YOLO y SFace NUNCA en el mismo request: en Render Free (512 MB) eso es 502/OOM.
-    if identify:
-        reg = IdentityRegistry.peek()
-        if reg is None:
-            threading.Thread(target=IdentityRegistry.get, name="id-load", daemon=True).start()
-            identity = {
-                "known": False,
-                "booting": True,
-                "name": None,
-                "rut": None,
-                "method": None,
-                "faces_detected": 0,
-                "reject_reason": "identity_loading",
-            }
-        else:
-            identity = _identify_on_frame(frame, threshold=thr)
-        if identity and return_image:
-            annotated = _draw_identity(annotated, identity)
-    else:
+    def _run_epp() -> JSONResponse | None:
+        nonlocal detections, annotated
         det = PPEDetector.peek()
         if det is None or not det.ready:
             threading.Thread(target=PPEDetector.get, name="epp-load", daemon=True).start()
@@ -615,7 +648,6 @@ def _detect_frame(
                 },
                 status_code=503,
             )
-
         imgsz_use = max(224, min(int(imgsz or _DETECT_IMGSZ_MAX), _DETECT_IMGSZ_MAX))
         try:
             detections, annotated = det.predict(
@@ -632,6 +664,35 @@ def _detect_frame(
                 },
                 status_code=503,
             )
+        return None
+
+    # En Render Free YOLO+SFace en paralelo tumba el proceso. Combined corre
+    # ambos en serie (una inferencia a la vez) cuando el hosting lo permite.
+    if identify:
+        reg = IdentityRegistry.peek()
+        if reg is None:
+            threading.Thread(target=IdentityRegistry.get, name="id-load", daemon=True).start()
+            identity = {
+                "known": False,
+                "booting": True,
+                "name": None,
+                "rut": None,
+                "method": None,
+                "faces_detected": 0,
+                "reject_reason": "identity_loading",
+            }
+        else:
+            identity = _identify_on_frame(frame, threshold=thr)
+        if run_epp:
+            err = _run_epp()
+            if err is not None:
+                return err
+        if identity and return_image:
+            annotated = _draw_identity(annotated, identity)
+    else:
+        err = _run_epp()
+        if err is not None:
+            return err
 
     jpeg = encode_jpeg(annotated, quality=68) if return_image else None
     payload = _build_response(
@@ -642,6 +703,13 @@ def _detect_frame(
         frame_wh=(frame.shape[1], frame.shape[0]),
         required=required,
     )
+    payload["combined_inference"] = bool(identify and run_epp)
+    payload["epp_skipped"] = bool(epp_skipped)
+    if epp_skipped:
+        payload["compliance"]["summary"] = (
+            "Identidad evaluada · EPP no se infirió en esta llamada "
+            "(activá combined o usá Docker Edge / VIGIEPP_COMBINED_INFERENCE=1)"
+        )
     if identify and identity and identity.get("known"):
         evid = _maybe_log(profile, payload["compliance"], identity, frame_bgr=annotated)
         if evid:
@@ -828,6 +896,7 @@ def rtsp_frame(
     conf: float = 0.35,
     identify: bool = False,
     required: str = "",
+    combined: str = "",
 ) -> JSONResponse:
     url = _validate_rtsp_url(url)
     stream = get_or_create_stream(url)
@@ -848,23 +917,35 @@ def rtsp_frame(
         frame = cv2.resize(frame, (int(w * scale), int(h * scale)))
 
     det = PPEDetector.get()
-    det = PPEDetector.get()
     identity = None
     detections: list = []
+    run_epp = (not identify) or _want_combined(identify, combined)
     if identify:
         identity = _identify_on_frame(frame)
-    else:
+    if run_epp:
         detections, _annotated = det.predict(
             frame, conf=conf, imgsz=_DETECT_IMGSZ_MAX, annotate=False
         )
+    # Frame crudo (sin cajas quemadas): "Cámara IP" antes no mandaba imagen
+    # alguna y el frontend dibujaba zonas/alertas sobre un lienzo negro.
+    # El frontend superpone zonas y difuminado de rostro sobre esta imagen,
+    # igual que hace con la webcam en vivo (mismo criterio de "video limpio").
+    jpeg = encode_jpeg(frame, quality=62)
     payload = _build_response(
         detections,
-        None,
+        jpeg,
         profile,
         identity=identity,
         frame_wh=(frame.shape[1], frame.shape[0]),
         required=parse_required_list(required),
     )
+    payload["combined_inference"] = bool(identify and run_epp)
+    payload["epp_skipped"] = bool(identify and not run_epp)
+    if identify and not run_epp:
+        payload["compliance"]["summary"] = (
+            "Identidad evaluada · EPP no se infirió en esta llamada "
+            "(activá combined o usá VIGIEPP_COMBINED_INFERENCE=1)"
+        )
     return JSONResponse(payload)
 
 
@@ -1327,7 +1408,57 @@ def teach_train(epochs: int = 40) -> dict[str, Any]:
     result = TeachStore.get().start_training(epochs=epochs)
     if not result.get("ok"):
         raise HTTPException(400, result.get("error", "No se pudo entrenar"))
+    det = PPEDetector.peek()
+    if det is not None:
+        det.invalidate_preview()
+    from . import audit as audit_mod
+
+    audit_mod.log("teach_train", detail=f"epochs={epochs} samples={result.get('samples')}")
     return result
+
+
+@app.post("/api/teach/preview")
+async def teach_preview(
+    file: UploadFile = File(...),
+    conf: float = Form(0.25),
+    imgsz: int = Form(416),
+    profile: str = Form("general"),
+) -> JSONResponse:
+    """Evalúa el modelo personalizado SIN reemplazar el detector de producción."""
+    data = await file.read()
+    if not data:
+        raise HTTPException(400, "Archivo vacío")
+    if not _detect_lock.acquire(blocking=False):
+        return JSONResponse(
+            {"ok": False, "busy": True, "error": "IA ocupada, esperá un momento."},
+            status_code=429,
+        )
+    try:
+        try:
+            frame = decode_image_bytes(data)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        h, w = frame.shape[:2]
+        max_side = 384
+        if max(h, w) > max_side:
+            scale = max_side / max(h, w)
+            frame = cv2.resize(frame, (int(w * scale), int(h * scale)))
+        meta, detections = PPEDetector.get().preview_predict(frame, conf=conf, imgsz=min(int(imgsz or 416), 640))
+        if not meta.get("ok"):
+            raise HTTPException(400, meta.get("error", "Modelo no disponible"))
+        payload = _build_response(
+            detections,
+            None,
+            profile,
+            frame_wh=(frame.shape[1], frame.shape[0]),
+        )
+        payload["preview"] = True
+        payload["model"] = meta.get("model")
+        payload["production_model"] = meta.get("production_model")
+        payload["using_custom"] = meta.get("using_custom")
+        return JSONResponse(payload)
+    finally:
+        _detect_lock.release()
 
 
 @app.post("/api/teach/activate")
@@ -1335,6 +1466,18 @@ def teach_activate() -> dict[str, Any]:
     result = PPEDetector.get().load_custom_model()
     if not result.get("ok"):
         raise HTTPException(400, result.get("error", "Modelo no disponible"))
+    from . import audit as audit_mod
+
+    audit_mod.log("teach_activate", detail=result.get("model") or "")
+    return result
+
+
+@app.post("/api/teach/deactivate")
+def teach_deactivate() -> dict[str, Any]:
+    result = PPEDetector.get().deactivate_custom_model()
+    from . import audit as audit_mod
+
+    audit_mod.log("teach_deactivate", detail=result.get("model") or "")
     return result
 
 
