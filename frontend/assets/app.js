@@ -217,7 +217,7 @@
     audioAlerts: true,
     audioAlertRepeats: 0,
     anonymizeFaces: true,
-    showZones: true,
+    showZones: false,
     kioskMode: false,
     ppeByProfile: {},
     siteName: "",
@@ -241,6 +241,16 @@
       if (!settings._idThreshV30) {
         settings.identifyThreshold = 0.33;
         settings._idThreshV30 = true;
+        try {
+          localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+        } catch (_) {}
+      }
+      // Video en vivo saturado por defecto: zonas dibujadas siempre encima
+      // de cámara IP / webcam. Debe ser opt-in desde Ajustes → Zonas, no
+      // venir predefinido en on.
+      if (!settings._zonesOffV38) {
+        settings.showZones = false;
+        settings._zonesOffV38 = true;
         try {
           localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
         } catch (_) {}
