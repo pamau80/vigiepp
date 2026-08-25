@@ -926,9 +926,14 @@ def rtsp_frame(
         detections, _annotated = det.predict(
             frame, conf=conf, imgsz=_DETECT_IMGSZ_MAX, annotate=False
         )
+    # Frame crudo (sin cajas quemadas): "Cámara IP" antes no mandaba imagen
+    # alguna y el frontend dibujaba zonas/alertas sobre un lienzo negro.
+    # El frontend superpone zonas y difuminado de rostro sobre esta imagen,
+    # igual que hace con la webcam en vivo (mismo criterio de "video limpio").
+    jpeg = encode_jpeg(frame, quality=62)
     payload = _build_response(
         detections,
-        None,
+        jpeg,
         profile,
         identity=identity,
         frame_wh=(frame.shape[1], frame.shape[0]),

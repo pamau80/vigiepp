@@ -1462,7 +1462,23 @@
     if (payload.identity?.face_box) lastFaceBox = payload.identity.face_box;
 
     // Preferir video vivo + canvas (rápido). Solo usar imagen si viene y no hay video.
-    if (payload.image_b64 && !mediaStream) {
+    if (payload.image_b64 && !mediaStream && sourceMode === "rtsp") {
+      // Cámara IP: no hay <video> real (el frame viene por polling del backend).
+      // Mostramos la imagen cruda y dibujamos zonas / blur encima, igual que
+      // en la webcam en vivo — el video de la faena tiene que verse siempre.
+      els.overlayHint.hidden = true;
+      els.liveVideo.hidden = true;
+      els.overlayCanvas.hidden = false;
+      els.annotatedImg.hidden = false;
+      els.annotatedImg.src = `data:image/jpeg;base64,${payload.image_b64}`;
+      drawDetections(
+        payload.detections,
+        lastFrameSize.w,
+        lastFrameSize.h,
+        payload.identity || lastIdentity,
+        payload.zones?.hits || []
+      );
+    } else if (payload.image_b64 && !mediaStream) {
       els.overlayHint.hidden = true;
       els.liveVideo.hidden = true;
       els.overlayCanvas.hidden = true;
@@ -2776,16 +2792,25 @@
     }
   }
 
-  async function refreshTeach() {
+  async function refreshTeach({ keepHint = false } = {}) {
     try {
       const guide = await api("/api/teach/guide");
       const classes = guide.classes || [];
+      // Preservar la clase elegida: rearmar el <select> resetea su value al
+      // primer ítem, así que sin esto la próxima foto/video podía subirse
+      // en silencio a OTRA clase distinta de la que el operador eligió.
+      const prevSelected = els.teachClass.value;
       els.teachClass.innerHTML = classes
         .map((c) => `<option value="${c.id}">${c.name} (${c.count})</option>`)
         .join("");
+      if (prevSelected && classes.some((c) => c.id === prevSelected)) {
+        els.teachClass.value = prevSelected;
+      }
       els.teachStats.textContent = `${guide.stats?.total_samples || 0} ejemplos · ${guide.stats?.class_count || classes.length} clases`;
       const sel = classes.find((c) => c.id === els.teachClass.value);
-      if (sel) els.teachHint.textContent = sel.hint;
+      // keepHint: recién subimos algo y el mensaje de resultado (data.message)
+      // ya está en pantalla — no lo pises con el hint genérico de la clase.
+      if (sel && !keepHint) els.teachHint.textContent = sel.hint;
       if (els.teachClassList) {
         const top = [...classes].sort((a, b) => (b.count || 0) - (a.count || 0)).slice(0, 12);
         els.teachClassList.innerHTML = top.length
@@ -2808,7 +2833,7 @@
     fd.append("class_id", els.teachClass.value);
     const data = await api("/api/teach/sample", { method: "POST", body: fd });
     els.teachHint.textContent = data.message;
-    await refreshTeach();
+    await refreshTeach({ keepHint: true });
   }
 
   async function uploadTeachPhotos(fileList) {
@@ -2826,7 +2851,7 @@
     try {
       const data = await api("/api/teach/samples", { method: "POST", body: fd }, 120000);
       els.teachHint.textContent = data.message;
-      await refreshTeach();
+      await refreshTeach({ keepHint: true });
     } catch (err) {
       els.teachHint.textContent = err.message;
     }
@@ -2848,7 +2873,7 @@
     try {
       const data = await api("/api/teach/video", { method: "POST", body: fd }, 300000);
       els.teachHint.textContent = data.message;
-      await refreshTeach();
+      await refreshTeach({ keepHint: true });
     } catch (err) {
       els.teachHint.textContent = err.message;
     }
