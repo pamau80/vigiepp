@@ -132,7 +132,15 @@
     repSideList: $("#repSideList"),
   };
 
-  const APP_BUILD = "v35";
+  const APP_BUILD = "v36";
+
+  function isLiveMode() {
+    return appMode === "live" || appMode === "monitor";
+  }
+
+  function isViewportMode() {
+    return isLiveMode() || appMode === "identity" || appMode === "teach";
+  }
 
   let profiles = [];
   let ppeCatalog = [];
@@ -145,7 +153,7 @@
   let rtspTimer = null;
   let busy = false;
   let sourceMode = "camera";
-  let appMode = "monitor";
+  let appMode = "live";
   let enrollAbort = false;
   let enrolling = false;
   let capturePoseResolver = null;
@@ -329,7 +337,7 @@
     if (!guide) return;
     // Óvalo facial SOLO en Personas / enrolar — nunca en Monitoreo
     const wantFace = enrolling || appMode === "identity";
-    const scanning = document.body.classList.contains("is-scanning") && appMode === "monitor";
+    const scanning = document.body.classList.contains("is-scanning") && appMode === "live";
     const enabled = !scanning && (!!settings.silhouetteEnabled || wantFace);
     guide.classList.toggle("is-off", !enabled);
     if (els.alignBadge) els.alignBadge.classList.toggle("is-off", !enabled || enrolling || scanning);
@@ -568,12 +576,12 @@
     const isOp = userRole === "operator";
     $$(".mode-btn").forEach((b) => {
       const mode = b.dataset.mode;
-      const allow = !isOp || mode === "monitor";
+      const allow = !isOp || mode === "live" || mode === "monitor";
       b.classList.toggle("hidden", !allow);
       b.disabled = !allow;
     });
     if (isOp) {
-      setAppMode("monitor");
+      setAppMode("live");
       setKioskMode(true);
     }
     const tag = $(".brand-tag");
@@ -768,7 +776,7 @@
   }
 
   function setAlignment(state, text) {
-    if (!settings.silhouetteEnabled && !faceGuideActive() && !(settings.faceGuide && appMode === "monitor")) {
+    if (!settings.silhouetteEnabled && !faceGuideActive() && !(settings.faceGuide && appMode === "live")) {
       if (els.alignBadge) {
         els.alignBadge.dataset.state = "idle";
         els.alignBadge.textContent = "Guía off";
@@ -803,7 +811,7 @@
 
   function evaluateAlignment(detections, frameW, frameH) {
     const guideActive =
-      settings.silhouetteEnabled || faceGuideActive() || (!!settings.faceGuide && appMode === "monitor");
+      settings.silhouetteEnabled || faceGuideActive() || (!!settings.faceGuide && appMode === "live");
     if (!guideActive) {
       setAlignment("idle", "Guía off");
       return true; // no bloquea
@@ -1282,7 +1290,7 @@
     drawZonesOverlay(ctx, frameW, frameH, cover, zoneHits || []);
 
     // Monitoreo limpio: las faltas van al panel — no cajas rojas sobre la cara
-    const drawBoxes = settings.showPpeBoxes && appMode === "monitor";
+    const drawBoxes = settings.showPpeBoxes && appMode === "live";
     if (drawBoxes) {
       const badOnly = (detections || [])
         .filter((d) => {
@@ -1317,7 +1325,7 @@
     if (
       faceBox &&
       settings.anonymizeFaces &&
-      appMode === "monitor" &&
+      appMode === "live" &&
       !(identity && identity.known)
     ) {
       blurFaceOnCanvas(ctx, faceBox, frameW, frameH, cover);
@@ -1412,7 +1420,7 @@
     syncSettingsForm();
     applyMobileChrome();
     applyGuideMode();
-    setAppMode("monitor");
+    setAppMode("live");
     if (settings.kioskMode) setKioskMode(true);
     hideLiveVideo();
     await refreshCameraPermissionHint();
@@ -1464,7 +1472,7 @@
   }
 
   function setConfigSection(sec) {
-    const id = ["guides", "audio", "zones", "monitor", "audit"].includes(sec) ? sec : "guides";
+    const id = ["guides", "audio", "zones", "monitor", "privacy", "audit"].includes(sec) ? sec : "guides";
     try {
       localStorage.setItem("vigiepp-cfg-sec", id);
     } catch (_) {}
@@ -1509,49 +1517,82 @@
 
   function setAppMode(mode) {
     const prevMode = appMode;
+    if (mode === "monitor") mode = "live";
     appMode = mode;
+
+    if (mode !== "mass") stopMassLoop();
+    if (mode !== "live" && mode !== "identity" && mode !== "teach") {
+      stopDetectLoop();
+      if (mode !== "live") stopRtsp();
+    }
+
     document.body.classList.remove(
+      "mode-live",
       "mode-monitor",
+      "mode-mass",
+      "mode-devices",
       "mode-identity",
       "mode-teach",
       "mode-config",
       "mode-reports"
     );
     document.body.classList.add(`mode-${mode}`);
+
     $$(".mode-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === mode));
-    els.monitorToolbar.classList.toggle("hidden", mode !== "monitor");
+
+    els.monitorToolbar?.classList.toggle("hidden", mode !== "live");
+    $("#massToolbar")?.classList.toggle("hidden", mode !== "mass");
+
+    $("#liveWorkspace")?.classList.toggle("hidden", !isViewportMode());
+    $("#massWorkspace")?.classList.toggle("hidden", mode !== "mass");
+    $("#devicesWorkspace")?.classList.toggle("hidden", mode !== "devices");
+
     const stage = $(".stage");
     if (stage) stage.classList.toggle("is-reports", mode === "reports");
     if (els.reportsDesk) els.reportsDesk.classList.toggle("hidden", mode !== "reports");
+
     const panel = $("#sidePanel");
     if (panel) panel.dataset.mode = mode;
     const ctx = $("#panelContext");
     if (ctx) {
-      ctx.textContent =
-        mode === "monitor"
-          ? "Resultado del escaneo en vivo"
-          : mode === "identity"
-            ? "Enrolar e identificar personas"
-            : mode === "teach"
-              ? "Entrenar ropa y EPP del modelo"
-              : mode === "reports"
-                ? "Estadísticas, informes y notificaciones"
-                : "Ajustes de silueta, rostro y monitoreo";
+      const labels = {
+        live: "Vigilancia en vivo · un canal o webcam",
+        mass: "Vigilancia masiva · NVR / multi-cámara",
+        devices: "Equipos de video · NVR Dahua / Hikvision",
+        identity: "Enrolar e identificar personas",
+        teach: "Entrenar ropa y EPP del modelo",
+        reports: "Estadísticas, informes y notificaciones",
+        config: "Ajustes de silueta, audio, zonas y privacidad",
+      };
+      ctx.textContent = labels[mode] || labels.config;
     }
-    if (mode === "monitor") {
+
+    $$(".panel-section").forEach((el) => {
+      const show = el.getAttribute("data-show");
+      if (!show) return;
+      el.classList.toggle("hidden", show !== mode);
+    });
+
+    $$("[data-live-only]").forEach((el) => {
+      el.classList.toggle("hidden", !isLiveMode());
+    });
+
+    if (mode === "live") {
       setSource(
         sourceMode === "identity" || sourceMode === "teach" || sourceMode === "config" || sourceMode === "reports"
           ? "camera"
           : sourceMode
       );
-      // Tras enrolar en Personas, activar ID al volver a Monitoreo
       if (prevMode === "identity" && hasReadyWorkers()) {
         enableIdentifyForPorteria("Identificación ON · volviste de Personas");
       }
     } else if (mode === "identity") setSource("identity");
     else if (mode === "teach") setSource("teach");
     else if (mode === "reports") setSource("reports");
-    else setSource("config");
+    else if (mode === "config") setSource("config");
+    else if (mode === "mass") setSource("mass");
+    else if (mode === "devices") setSource("devices");
+
     applyGuideMode();
     if (mode === "identity") refreshWorkers();
     if (mode === "teach") refreshTeach();
@@ -1560,6 +1601,15 @@
       setConfigSection(localStorage.getItem("vigiepp-cfg-sec") || "guides");
     } else {
       stopZonesCanvasLoop();
+    }
+    if (mode === "mass") {
+      fillMassProfiles();
+      refreshWatchlistUi();
+      renderMassGridPlaceholder();
+    }
+    if (mode === "devices") {
+      refreshNvrDevices();
+      refreshWatchlistUi();
     }
     if (mode === "reports") {
       fillRepProfiles();
@@ -1581,6 +1631,12 @@
     if (els.teachControls) els.teachControls.classList.toggle("hidden", mode !== "teach");
     if (els.teachExtraControls) els.teachExtraControls.classList.toggle("hidden", mode !== "teach");
     if (els.configControls) els.configControls.classList.toggle("hidden", mode !== "config");
+    $("#massToolbar")?.classList.toggle("hidden", mode !== "mass");
+
+    if (mode === "mass" || mode === "devices") {
+      stopDetectLoop();
+      stopRtsp();
+    }
 
     // En Personas: ocultar toggles de monitoreo (identificar / fullscreen)
     if (els.chkIdentify?.closest?.("label")) {
@@ -1632,7 +1688,7 @@
       if (els.statusPill) els.statusPill.textContent = "Standby";
       if (els.detList) els.detList.innerHTML = `<li class="muted">Sin detecciones</li>`;
       if (els.alertList) els.alertList.innerHTML = `<li class="muted">Sin alertas</li>`;
-      if (appMode === "monitor" && mediaStream && !detectLoopOn) {
+      if (appMode === "live" && mediaStream && !detectLoopOn) {
         startDetectLoop();
       }
     } else if (mode === "rtsp") {
@@ -1677,7 +1733,7 @@
 
     if (payload.zones?.defs) zonesCache = payload.zones.defs;
 
-    const gateOn = !!settings.silhouetteGate && !!settings.silhouetteEnabled && appMode === "monitor";
+    const gateOn = !!settings.silhouetteGate && !!settings.silhouetteEnabled && appMode === "live";
     const aligned = gateOn
       ? evaluateAlignment(payload.detections || [], lastFrameSize.w, lastFrameSize.h)
       : true;
@@ -1719,7 +1775,7 @@
     }
 
     // Audio en piso — máx. 2 veces por incumplimiento; se reinicia al cumplir / sin persona
-    if (appMode === "monitor" && hasPeople && !ok) {
+    if (appMode === "live" && hasPeople && !ok) {
       const zoneAlert = (payload.zones?.alerts || [])[0];
       const miss = (c.persons?.[0]?.missing || []).slice(0, 2).join(" y ");
       if (zoneAlert) speakAlert(zoneAlert.replace("Near-miss:", "Cuidado.").replace("Zona restringida:", "Zona restringida."));
@@ -1763,7 +1819,7 @@
     if (payload.identity) {
       lastIdentity = payload.identity;
       setIdentityCard(payload.identity);
-      if (payload.identity.faces_detected > 0 && settings.faceGuide && appMode === "monitor") {
+      if (payload.identity.faces_detected > 0 && settings.faceGuide && appMode === "live") {
         identifyingNow = true;
         applyGuideMode();
         clearTimeout(window.__vigieppFaceGuideTimer);
@@ -1774,7 +1830,7 @@
           }
         }, 2800);
       }
-    } else if (appMode === "monitor" && !els.chkIdentify?.checked) {
+    } else if (appMode === "live" && !els.chkIdentify?.checked) {
       els.identityName.textContent = "ID apagada";
       els.identityRut.textContent = "Marcá «Identificar rostro» abajo";
       if (els.identityMethod) els.identityMethod.textContent = "";
@@ -2035,7 +2091,7 @@
   }
 
   async function tickDetect() {
-    if (appMode !== "monitor" || sourceMode !== "camera") return;
+    if (!isLiveMode() || sourceMode !== "camera") return;
     const wantId = !!els.chkIdentify?.checked;
     const now = Date.now();
 
@@ -2152,7 +2208,7 @@
       els.btnStopCam.disabled = false;
       if (els.btnFlipCam) els.btnFlipCam.disabled = false;
       stopDetectLoop();
-      if (!opts.silentDetect && appMode === "monitor" && sourceMode === "camera") {
+      if (!opts.silentDetect && appMode === "live" && sourceMode === "camera") {
         startDetectLoop();
       }
     } catch (err) {
@@ -2232,7 +2288,7 @@
       showLive();
       els.btnStartCam.disabled = true;
       els.btnStopCam.disabled = false;
-      if (wasScanning && appMode === "monitor" && sourceMode === "camera") {
+      if (wasScanning && appMode === "live" && sourceMode === "camera") {
         startDetectLoop();
       }
       const hint = $("#speedHint");
@@ -2696,7 +2752,7 @@
     const btn = $("#btnKiosk");
     if (btn) btn.classList.toggle("active", settings.kioskMode);
     if (settings.kioskMode) {
-      setAppMode("monitor");
+      setAppMode("live");
       if (els.chkIdentify) {
         els.chkIdentify.checked = true;
         settings.identifyDefault = true;
@@ -3845,6 +3901,235 @@
     } catch (err) {
       if (els.workerListHint) els.workerListHint.textContent = err.message || "Restore falló";
     }
+  });
+
+  // ── Vigilancia masiva + NVR / DVR ─────────────────────────────────────────
+  let massLoopOn = false;
+  let massTimer = null;
+  let watchlistCache = [];
+  let nvrDevicesCache = [];
+
+  function fillMassProfiles() {
+    const massSel = $("#massProfileSelect");
+    const src = els.profileSelect;
+    if (!massSel || !src) return;
+    massSel.innerHTML = src.innerHTML;
+    if (src.value) massSel.value = src.value;
+  }
+
+  function renderMassGridPlaceholder() {
+    const grid = $("#massGrid");
+    if (!grid || watchlistCache.length) return;
+    grid.innerHTML = `<p class="muted mass-empty">Agregá canales en <b>Equipos</b> o importá un NVR Dahua/Hikvision.</p>`;
+  }
+
+  function renderMassGrid(cells) {
+    const grid = $("#massGrid");
+    if (!grid) return;
+    if (!cells?.length) {
+      renderMassGridPlaceholder();
+      return;
+    }
+    grid.innerHTML = cells
+      .map((c) => {
+        const cls = !c.connected ? "offline" : c.compliant ? "ok" : c.ok ? "bad" : "offline";
+        const status = !c.connected
+          ? "Sin señal"
+          : c.compliant
+            ? "Cumple"
+            : `Falta: ${(c.missing || []).join(", ") || "EPP"}`;
+        const thumb = c.thumb ? `data:image/jpeg;base64,${c.thumb}` : "";
+        return `<div class="mass-cell ${cls}" data-mass-id="${escapeHtml(c.id || "")}">
+          ${thumb ? `<img src="${thumb}" alt="" />` : `<div class="mass-cell-meta" style="top:40%">Sin imagen</div>`}
+          <div class="mass-cell-meta"><strong>${escapeHtml(c.name || "Canal")}</strong> · ${escapeHtml(status)}</div>
+        </div>`;
+      })
+      .join("");
+    const sum = $("#massSummaryText");
+    if (sum) {
+      const online = cells.filter((c) => c.connected).length;
+      const alerts = cells.filter((c) => c.connected && !c.compliant).length;
+      sum.textContent = `${cells.length} canales · ${online} en línea · ${alerts} alertas EPP`;
+    }
+  }
+
+  async function refreshWatchlistUi() {
+    try {
+      const data = await api("/api/watchlist");
+      watchlistCache = data.channels || [];
+      const list = $("#watchlistList");
+      if (list) {
+        list.innerHTML =
+          watchlistCache.length
+            ? watchlistCache
+                .map(
+                  (c) =>
+                    `<li><span>${escapeHtml(c.name)}</span><span class="conf">${c.enabled ? "ON" : "off"} · ${escapeHtml((c.url || "").slice(0, 42))}…</span></li>`
+                )
+                .join("")
+            : `<li class="muted">Sin canales</li>`;
+      }
+    } catch (err) {
+      const list = $("#watchlistList");
+      if (list) list.innerHTML = `<li class="muted">${escapeHtml(err.message)}</li>`;
+    }
+  }
+
+  async function refreshNvrDevices() {
+    try {
+      const data = await api("/api/nvr/devices");
+      nvrDevicesCache = data.devices || [];
+      const list = $("#nvrDeviceList");
+      if (!list) return;
+      list.innerHTML =
+        nvrDevicesCache.length
+          ? nvrDevicesCache
+              .map(
+                (d) =>
+                  `<li><span>${escapeHtml(d.name)} (${escapeHtml(d.vendor)})</span><span class="conf">${d.channel_count || 0} ch · ${escapeHtml(d.host || "")}</span></li>`
+              )
+              .join("")
+          : `<li class="muted">Sin NVR registrados</li>`;
+    } catch (err) {
+      const list = $("#nvrDeviceList");
+      if (list) list.innerHTML = `<li class="muted">${escapeHtml(err.message)}</li>`;
+    }
+  }
+
+  async function runMassScan() {
+    const profile = $("#massProfileSelect")?.value || els.profileSelect?.value || "general";
+    const q = new URLSearchParams({ profile, required: requiredQueryValue() });
+    const data = await api(`/api/surveillance/mass/scan?${q}`, { method: "POST" });
+    renderMassGrid(data.cells || []);
+    return data;
+  }
+
+  function startMassLoop() {
+    if (massLoopOn) return;
+    massLoopOn = true;
+    $("#btnMassStart")?.setAttribute("disabled", "true");
+    $("#btnMassStop")?.removeAttribute("disabled");
+    const tick = async () => {
+      if (!massLoopOn) return;
+      try {
+        await runMassScan();
+      } catch (err) {
+        const hint = $("#massStatusHint");
+        if (hint) hint.textContent = err.message || "Error en barrido";
+      }
+      if (massLoopOn) massTimer = setTimeout(tick, 4000);
+    };
+    tick();
+  }
+
+  function stopMassLoop() {
+    massLoopOn = false;
+    if (massTimer) {
+      clearTimeout(massTimer);
+      massTimer = null;
+    }
+    $("#btnMassStart")?.removeAttribute("disabled");
+    $("#btnMassStop")?.setAttribute("disabled", "true");
+  }
+
+  $("#btnMassStart")?.addEventListener("click", () => startMassLoop());
+  $("#btnMassStop")?.addEventListener("click", () => stopMassLoop());
+  $("#btnMassRefresh")?.addEventListener("click", () => runMassScan().catch((e) => alert(e.message)));
+
+  $("#btnNvrProbe")?.addEventListener("click", async () => {
+    const hint = $("#nvrProbeHint");
+    if (hint) hint.textContent = "Probando…";
+    try {
+      const body = {
+        vendor: $("#nvrVendor")?.value || "dahua",
+        host: $("#nvrHost")?.value?.trim(),
+        username: $("#nvrUser")?.value || "",
+        password: $("#nvrPass")?.value || "",
+        port: Number($("#nvrPort")?.value) || 554,
+        channel_count: Number($("#nvrChannelCount")?.value) || 8,
+        subtype: Number($("#nvrSubtype")?.value) || 0,
+      };
+      const data = await api("/api/nvr/probe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (hint) {
+        hint.textContent = `${data.device_name || data.host} · ${data.channel_count} canales RTSP generados${data.probe_note ? ` · ${data.probe_note}` : ""}`;
+      }
+    } catch (err) {
+      if (hint) hint.textContent = err.message;
+    }
+  });
+
+  $("#btnNvrSave")?.addEventListener("click", async () => {
+    const hint = $("#nvrProbeHint");
+    try {
+      const body = {
+        vendor: $("#nvrVendor")?.value || "dahua",
+        host: $("#nvrHost")?.value?.trim(),
+        name: $("#nvrName")?.value?.trim(),
+        username: $("#nvrUser")?.value || "",
+        password: $("#nvrPass")?.value || "",
+        port: Number($("#nvrPort")?.value) || 554,
+        channel_count: Number($("#nvrChannelCount")?.value) || 8,
+        subtype: Number($("#nvrSubtype")?.value) || 0,
+      };
+      await api("/api/nvr/devices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      await refreshNvrDevices();
+      if (hint) hint.textContent = "NVR guardado";
+    } catch (err) {
+      if (hint) hint.textContent = err.message;
+    }
+  });
+
+  $("#btnNvrImportWatch")?.addEventListener("click", async () => {
+    const hint = $("#nvrProbeHint");
+    try {
+      let deviceId = nvrDevicesCache[0]?.id;
+      if (!deviceId) {
+        const saved = await api("/api/nvr/devices", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            vendor: $("#nvrVendor")?.value || "dahua",
+            host: $("#nvrHost")?.value?.trim(),
+            name: $("#nvrName")?.value?.trim(),
+            username: $("#nvrUser")?.value || "",
+            password: $("#nvrPass")?.value || "",
+            port: Number($("#nvrPort")?.value) || 554,
+            channel_count: Number($("#nvrChannelCount")?.value) || 8,
+            subtype: Number($("#nvrSubtype")?.value) || 0,
+          }),
+        });
+        deviceId = saved.device?.id;
+        await refreshNvrDevices();
+      }
+      if (!deviceId) throw new Error("Guardá el NVR primero");
+      const res = await api(`/api/nvr/devices/${deviceId}/import-watchlist?replace=false`, { method: "POST" });
+      await refreshWatchlistUi();
+      if (hint) hint.textContent = `Importados ${res.imported} canales a Masivo`;
+      if (appMode === "mass") renderMassGridPlaceholder();
+    } catch (err) {
+      if (hint) hint.textContent = err.message;
+    }
+  });
+
+  $("#btnDevicesSaveCam")?.addEventListener("click", async () => {
+    const url = $("#devicesRtspUrl")?.value?.trim();
+    const name = $("#devicesCameraName")?.value?.trim() || "Canal";
+    if (!url) return alert("URL RTSP requerida");
+    await api("/api/cameras", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, url }),
+    });
+    await refreshCameras();
+    alert("Canal guardado para Vivo (máx. 4)");
   });
 
   boot();

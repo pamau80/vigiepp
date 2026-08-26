@@ -48,7 +48,7 @@ _detect_lock = threading.Lock()
 _DETECT_IMGSZ_MAX = int(os.getenv("VIGIEPP_IMGSZ_MAX", "256"))
 
 
-BUILD_VERSION = "v34"
+BUILD_VERSION = "v36"
 
 
 @asynccontextmanager
@@ -126,6 +126,37 @@ class CameraBody(BaseModel):
     name: str = ""
     url: str
     id: str | None = None
+
+
+class NVRProbeBody(BaseModel):
+    vendor: str = "dahua"
+    host: str
+    username: str = ""
+    password: str = ""
+    port: int = 554
+    http_port: int = 80
+    channel_count: int = 8
+    subtype: int = 0
+
+
+class NVRRegisterBody(NVRProbeBody):
+    name: str = ""
+    id: str | None = None
+
+
+class WatchChannelBody(BaseModel):
+    name: str = ""
+    url: str
+    id: str | None = None
+    vendor: str = ""
+    nvr_id: str = ""
+    channel: int | None = None
+    enabled: bool = True
+
+
+class WatchImportBody(BaseModel):
+    channels: list[dict[str, Any]] = Field(default_factory=list)
+    replace: bool = False
 
 
 class AuthLoginRequest(BaseModel):
@@ -904,6 +935,269 @@ def cameras_delete(camera_id: str) -> dict[str, Any]:
         raise HTTPException(404, "Cámara no encontrada")
     audit_mod.log("camera_delete", detail=camera_id)
     return {"ok": True, "deleted": camera_id}
+
+
+# ── NVR / DVR (Dahua, Hikvision, Uniview) ───────────────────────────────────
+
+
+@app.get("/api/nvr/vendors")
+def nvr_vendors() -> dict[str, Any]:
+    from . import nvr as nvr_mod
+
+    return {"ok": True, "vendors": nvr_mod.list_vendors()}
+
+
+@app.post("/api/nvr/probe")
+def nvr_probe(body: NVRProbeBody) -> dict[str, Any]:
+    from . import nvr as nvr_mod
+
+    try:
+        result = nvr_mod.probe_device(
+            body.vendor,
+            body.host,
+            username=body.username,
+            password=body.password,
+            port=body.port,
+            http_port=body.http_port,
+            channel_count=body.channel_count,
+            subtype=body.subtype,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, **result}
+
+
+@app.get("/api/nvr/devices")
+def nvr_devices_list() -> dict[str, Any]:
+    from . import nvr as nvr_mod
+
+    return {"ok": True, "devices": nvr_mod.list_devices()}
+
+
+@app.post("/api/nvr/devices")
+def nvr_devices_register(body: NVRRegisterBody) -> dict[str, Any]:
+    from . import audit as audit_mod
+    from . import nvr as nvr_mod
+
+    try:
+        device = nvr_mod.register_device(
+            body.vendor,
+            body.host,
+            body.name,
+            username=body.username,
+            password=body.password,
+            port=body.port,
+            http_port=body.http_port,
+            channel_count=body.channel_count,
+            subtype=body.subtype,
+            device_id=body.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    audit_mod.log("nvr_register", detail=device.get("name") or device.get("host"))
+    return {"ok": True, "device": device}
+
+
+@app.delete("/api/nvr/devices/{device_id}")
+def nvr_devices_delete(device_id: str) -> dict[str, Any]:
+    from . import audit as audit_mod
+    from . import nvr as nvr_mod
+
+    ok = nvr_mod.delete_device(device_id)
+    if not ok:
+        raise HTTPException(404, "NVR no encontrado")
+    audit_mod.log("nvr_delete", detail=device_id)
+    return {"ok": True, "deleted": device_id}
+
+
+@app.post("/api/nvr/devices/{device_id}/import-watchlist")
+def nvr_import_watchlist(device_id: str, replace: bool = False) -> dict[str, Any]:
+    from . import nvr as nvr_mod
+    from . import watchlist as watch_mod
+
+    devices = nvr_mod.list_devices()
+    device = next((d for d in devices if d.get("id") == device_id), None)
+    if not device:
+        raise HTTPException(404, "NVR no encontrado")
+    entries = []
+    for ch in device.get("channels") or []:
+        entries.append(
+            {
+                "name": f"{device.get('name')} · {ch.get('name')}",
+                "url": ch.get("url"),
+                "vendor": device.get("vendor"),
+                "nvr_id": device_id,
+                "channel": ch.get("channel"),
+                "enabled": True,
+            }
+        )
+    channels = watch_mod.import_channels(entries, replace=replace)
+    return {"ok": True, "imported": len(entries), "channels": channels, "max": watch_mod.MAX_WATCH}
+
+
+# ── Vigilancia masiva (watchlist) ───────────────────────────────────────────
+
+
+@app.get("/api/watchlist")
+def watchlist_list() -> dict[str, Any]:
+    from . import watchlist as watch_mod
+
+    return {"ok": True, "channels": watch_mod.list_channels(), "max": watch_mod.MAX_WATCH}
+
+
+@app.post("/api/watchlist")
+def watchlist_upsert(body: WatchChannelBody) -> dict[str, Any]:
+    from . import watchlist as watch_mod
+
+    try:
+        ch = watch_mod.upsert(
+            body.name,
+            body.url,
+            channel_id=body.id,
+            vendor=body.vendor,
+            nvr_id=body.nvr_id,
+            channel_num=body.channel,
+            enabled=body.enabled,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "channel": ch}
+
+
+@app.post("/api/watchlist/import")
+def watchlist_import(body: WatchImportBody) -> dict[str, Any]:
+    from . import watchlist as watch_mod
+
+    try:
+        channels = watch_mod.import_channels(body.channels, replace=body.replace)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "channels": channels, "max": watch_mod.MAX_WATCH}
+
+
+@app.delete("/api/watchlist/{channel_id}")
+def watchlist_delete(channel_id: str) -> dict[str, Any]:
+    from . import watchlist as watch_mod
+
+    ok = watch_mod.delete(channel_id)
+    if not ok:
+        raise HTTPException(404, "Canal no encontrado")
+    return {"ok": True, "deleted": channel_id}
+
+
+def _resize_frame(frame: np.ndarray, max_dim: int = 720) -> np.ndarray:
+    h, w = frame.shape[:2]
+    if max(h, w) <= max_dim:
+        return frame
+    scale = max_dim / max(h, w)
+    return cv2.resize(frame, (int(w * scale), int(h * scale)))
+
+
+def _thumb_b64(frame: np.ndarray, max_w: int = 320) -> str:
+    h, w = frame.shape[:2]
+    if w > max_w:
+        scale = max_w / w
+        frame = cv2.resize(frame, (max_w, int(h * scale)))
+    jpeg = encode_jpeg(frame, quality=72)
+    return base64.b64encode(jpeg).decode("ascii")
+
+
+@app.get("/api/rtsp/jpeg")
+def rtsp_jpeg(url: str, max_w: int = 480) -> Response:
+    url = _validate_rtsp_url(url)
+    stream = get_or_create_stream(url)
+    frame = stream.read()
+    if frame is None:
+        raise HTTPException(202, stream.last_error or "Esperando frame RTSP")
+    h, w = frame.shape[:2]
+    if w > max_w:
+        scale = max_w / w
+        frame = cv2.resize(frame, (max_w, int(h * scale)))
+    return Response(content=encode_jpeg(frame, quality=80), media_type="image/jpeg")
+
+
+@app.post("/api/surveillance/mass/scan")
+def surveillance_mass_scan(
+    profile: str = "general",
+    conf: float = 0.35,
+    required: str = "",
+) -> dict[str, Any]:
+    """Analiza EPP en todos los canales activos de la watchlist."""
+    from . import watchlist as watch_mod
+
+    enabled = [c for c in watch_mod.list_channels() if c.get("enabled")]
+    if not enabled:
+        return {"ok": True, "cells": [], "summary": {"total": 0, "alerts": 0}}
+
+    det = PPEDetector.get()
+    req = parse_required_list(required)
+    cells: list[dict[str, Any]] = []
+    alert_count = 0
+
+    for ch in enabled:
+        url = ch.get("url") or ""
+        cell: dict[str, Any] = {
+            "id": ch.get("id"),
+            "name": ch.get("name"),
+            "url": url,
+            "ok": False,
+            "connected": False,
+            "compliant": None,
+            "missing": [],
+            "alerts": [],
+            "thumb": None,
+            "error": None,
+        }
+        if not url:
+            cell["error"] = "Sin URL"
+            cells.append(cell)
+            continue
+        try:
+            url = _validate_rtsp_url(url)
+        except HTTPException as exc:
+            cell["error"] = str(exc.detail)
+            cells.append(cell)
+            continue
+
+        stream = get_or_create_stream(url)
+        frame = stream.read()
+        if frame is None:
+            cell["error"] = stream.last_error or "Sin frame"
+            cell["connected"] = stream.connected
+            cells.append(cell)
+            continue
+
+        frame = _resize_frame(frame, 480)
+        with _detect_lock:
+            detections, _ = det.predict(frame, conf=conf, imgsz=_DETECT_IMGSZ_MAX, annotate=False)
+        payload = _build_response(
+            detections,
+            None,
+            profile,
+            frame_wh=(frame.shape[1], frame.shape[0]),
+            required=req,
+        )
+        comp = payload.get("compliance") or {}
+        cell.update(
+            {
+                "ok": True,
+                "connected": True,
+                "compliant": comp.get("compliant"),
+                "missing": comp.get("missing") or [],
+                "alerts": payload.get("alerts") or [],
+                "thumb": _thumb_b64(frame),
+                "safety_score": payload.get("safety_score"),
+            }
+        )
+        if not comp.get("compliant"):
+            alert_count += 1
+        cells.append(cell)
+
+    return {
+        "ok": True,
+        "cells": cells,
+        "summary": {"total": len(cells), "alerts": alert_count, "online": sum(1 for c in cells if c.get("connected"))},
+    }
 
 
 @app.get("/api/audit")

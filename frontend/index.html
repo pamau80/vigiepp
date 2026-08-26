@@ -21,7 +21,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/styles.css?v=35" />
+  <link rel="stylesheet" href="/assets/styles.css?v=36" />
 </head>
 <body>
   <div id="authGate" class="auth-gate hidden" aria-modal="true" role="dialog">
@@ -45,21 +45,27 @@
         <p class="brand-tag">EPP + identidad · Chile</p>
       </div>
     </div>
-    <nav class="mode-nav" role="tablist" aria-label="Secciones">
-      <button class="mode-btn active" data-mode="monitor" type="button" title="Monitoreo">
-        <span class="mode-full">1 · Monitoreo</span><span class="mode-short" aria-hidden="true">1</span>
+    <nav class="mode-nav" role="tablist" aria-label="Módulos VigiEPP">
+      <button class="mode-btn active" data-mode="live" type="button" title="Vigilancia en vivo">
+        <span class="mode-full">Vivo</span><span class="mode-short" aria-hidden="true">▶</span>
+      </button>
+      <button class="mode-btn" data-mode="mass" type="button" title="Vigilancia masiva NVR">
+        <span class="mode-full">Masivo</span><span class="mode-short" aria-hidden="true">⊞</span>
+      </button>
+      <button class="mode-btn" data-mode="devices" type="button" title="NVR / DVR / cámaras">
+        <span class="mode-full">Equipos</span><span class="mode-short" aria-hidden="true">⎔</span>
       </button>
       <button class="mode-btn" data-mode="identity" type="button" title="Personas">
-        <span class="mode-full">2 · Personas</span><span class="mode-short" aria-hidden="true">2</span>
+        <span class="mode-full">Personas</span><span class="mode-short" aria-hidden="true">👤</span>
       </button>
       <button class="mode-btn" data-mode="teach" type="button" title="Ropa / EPP">
-        <span class="mode-full">3 · Ropa / EPP</span><span class="mode-short" aria-hidden="true">3</span>
+        <span class="mode-full">EPP</span><span class="mode-short" aria-hidden="true">⛨</span>
       </button>
-      <button class="mode-btn" data-mode="config" type="button" title="Config">
-        <span class="mode-full">4 · Config</span><span class="mode-short" aria-hidden="true">4</span>
+      <button class="mode-btn" data-mode="config" type="button" title="Configuración">
+        <span class="mode-full">Config</span><span class="mode-short" aria-hidden="true">⚙</span>
       </button>
       <button class="mode-btn" data-mode="reports" type="button" title="Informes">
-        <span class="mode-full">5 · Informes</span><span class="mode-short" aria-hidden="true">5</span>
+        <span class="mode-full">Informes</span><span class="mode-short" aria-hidden="true">📊</span>
       </button>
     </nav>
     <div class="top-status" id="modelStatus">
@@ -72,12 +78,12 @@
 
   <main class="layout">
     <section class="stage">
-      <div class="stage-toolbar" id="monitorToolbar">
+      <div class="stage-toolbar" id="monitorToolbar" data-workspace="live">
         <div class="source-group">
-          <span class="toolbar-label">Fuente</span>
+          <span class="toolbar-label">Fuente en vivo</span>
           <div class="tabs" role="tablist">
             <button class="tab active" data-source="camera" type="button">Webcam</button>
-            <button class="tab" data-source="rtsp" type="button">IP / NVR</button>
+            <button class="tab" data-source="rtsp" type="button">Un canal IP</button>
             <button class="tab" data-source="upload" type="button">Foto</button>
           </div>
         </div>
@@ -87,6 +93,20 @@
         </label>
         <button type="button" class="btn secondary" id="btnKiosk">Modo portería</button>
       </div>
+
+      <div class="stage-toolbar hidden" id="massToolbar" data-workspace="mass">
+        <p class="toolbar-label">Vigilancia masiva · NVR/DVR / multi-cámara</p>
+        <label class="field inline profile-field">
+          <span>Perfil faena</span>
+          <select id="massProfileSelect"></select>
+        </label>
+        <button type="button" class="btn primary" id="btnMassStart">Iniciar barrido</button>
+        <button type="button" class="btn ghost" id="btnMassStop" disabled>Detener</button>
+        <button type="button" class="btn secondary" id="btnMassRefresh">Actualizar ahora</button>
+        <span class="hint" id="massStatusHint">Hasta 16 canales · Dahua · Hikvision · RTSP</span>
+      </div>
+
+      <div class="workspace-shell" id="liveWorkspace" data-workspace="live">
 
       <div id="kioskOverlay" class="kiosk-overlay hidden" aria-live="polite">
         <p class="kiosk-brand">VigiEPP</p>
@@ -203,6 +223,92 @@
           <input id="fileInput" type="file" accept="image/*" hidden />
         </label>
       </div>
+      </div><!-- liveWorkspace -->
+
+      <div class="workspace-shell hidden" id="massWorkspace" data-workspace="mass">
+        <div class="mass-summary" id="massSummary">
+          <span id="massSummaryText">Sin barrido activo</span>
+        </div>
+        <div class="mass-grid" id="massGrid" aria-label="Grid de vigilancia masiva">
+          <p class="muted mass-empty">Agregá canales en Equipos o importá un NVR Dahua/Hikvision.</p>
+        </div>
+      </div>
+
+      <div class="workspace-shell hidden" id="devicesWorkspace" data-workspace="devices">
+        <div class="devices-desk">
+          <section class="devices-panel">
+            <p class="card-kicker">Conectar NVR / DVR</p>
+            <p class="card-meta">Dahua · Hikvision · Uniview · URLs RTSP por canal.</p>
+            <div class="devices-form">
+              <label class="field">
+                <span>Fabricante</span>
+                <select id="nvrVendor">
+                  <option value="dahua">Dahua</option>
+                  <option value="hikvision">Hikvision</option>
+                  <option value="uniview">Uniview</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>IP / host</span>
+                <input id="nvrHost" type="text" placeholder="192.168.1.64" autocomplete="off" />
+              </label>
+              <label class="field">
+                <span>Usuario</span>
+                <input id="nvrUser" type="text" placeholder="admin" autocomplete="off" />
+              </label>
+              <label class="field">
+                <span>Contraseña</span>
+                <input id="nvrPass" type="password" autocomplete="off" />
+              </label>
+              <label class="field">
+                <span>RTSP puerto</span>
+                <input id="nvrPort" type="number" value="554" min="1" max="65535" />
+              </label>
+              <label class="field">
+                <span>Canales</span>
+                <input id="nvrChannelCount" type="number" value="8" min="1" max="32" />
+              </label>
+              <label class="field">
+                <span>Stream</span>
+                <select id="nvrSubtype">
+                  <option value="0">Principal</option>
+                  <option value="1">Secundario (liviano)</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Nombre equipo</span>
+                <input id="nvrName" type="text" placeholder="NVR Portería" />
+              </label>
+            </div>
+            <div class="devices-actions">
+              <button type="button" class="btn secondary" id="btnNvrProbe">Probar conexión</button>
+              <button type="button" class="btn primary" id="btnNvrSave">Guardar NVR</button>
+              <button type="button" class="btn primary" id="btnNvrImportWatch">Importar a masivo</button>
+            </div>
+            <p class="hint" id="nvrProbeHint"></p>
+            <ul class="item-list" id="nvrDeviceList">
+              <li class="muted">Sin NVR registrados</li>
+            </ul>
+          </section>
+          <section class="devices-panel">
+            <p class="card-kicker">Canales vigilancia masiva</p>
+            <p class="card-meta">Máx. 16 canales para el módulo Masivo.</p>
+            <ul class="item-list" id="watchlistList">
+              <li class="muted">Sin canales</li>
+            </ul>
+            <p class="card-kicker">Canal rápido (vivo)</p>
+            <label class="field">
+              <span>URL RTSP</span>
+              <input id="devicesRtspUrl" type="text" placeholder="rtsp://usuario:clave@IP:554/..." />
+            </label>
+            <label class="field">
+              <span>Nombre</span>
+              <input id="devicesCameraName" type="text" placeholder="Portería" />
+            </label>
+            <button type="button" class="btn secondary" id="btnDevicesSaveCam">Guardar canal vivo</button>
+          </section>
+        </div>
+      </div>
 
       <div class="controls control-bar hidden" id="identityControls">
         <label class="field">
@@ -263,6 +369,7 @@
           <button type="button" class="cfg-nav-btn" data-cfg-sec="audio">Audio</button>
           <button type="button" class="cfg-nav-btn" data-cfg-sec="zones">Zonas</button>
           <button type="button" class="cfg-nav-btn" data-cfg-sec="monitor">Monitoreo</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="privacy">Privacidad</button>
           <button type="button" class="cfg-nav-btn" data-cfg-sec="audit">Bitácora</button>
         </nav>
         <p class="hint">Elegí una sección arriba o en el panel. Los cambios se aplican al instante.</p>
@@ -334,7 +441,7 @@
         <p class="panel-sub" id="panelContext">Resultado del escaneo en vivo</p>
       </div>
 
-      <section class="card status-card" id="complianceBox" data-state="idle" data-monitor-only>
+      <section class="card status-card" id="complianceBox" data-state="idle" data-live-only>
         <div class="status-top">
           <p class="card-kicker">Resultado</p>
           <span class="status-pill" id="statusPill">Standby</span>
@@ -352,7 +459,7 @@
         <p class="card-meta" id="identityMethod"></p>
       </section>
 
-      <section class="card" data-monitor-only>
+      <section class="card" data-live-only>
         <div class="card-row">
           <p class="card-kicker">EPP requerido</p>
           <p class="card-meta" id="profileDesc">—</p>
@@ -366,14 +473,28 @@
         </ul>
       </section>
 
-      <section class="card" data-monitor-only>
+      <section class="card" data-live-only>
         <p class="card-kicker">Alertas</p>
         <ul class="item-list alert-list" id="alertList">
           <li class="muted">Sin alertas</li>
         </ul>
       </section>
 
-      <section class="card panel-section" data-show="monitor" id="registryCard">
+      <section class="card panel-section hidden" data-show="mass" id="massSidePanel">
+        <p class="card-kicker">Vigilancia masiva</p>
+        <p class="card-meta">Barrido EPP sobre todos los canales importados del NVR/DVR.</p>
+        <ul class="item-list" id="massAlertList">
+          <li class="muted">Iniciá el barrido para ver alertas por canal</li>
+        </ul>
+      </section>
+
+      <section class="card panel-section hidden" data-show="devices" id="devicesSidePanel">
+        <p class="card-kicker">Equipos de video</p>
+        <p class="card-meta">Dahua · Hikvision · Uniview · RTSP ONVIF-compatible.</p>
+        <p class="hint">El servidor VigiEPP debe estar en la misma red LAN que el NVR.</p>
+      </section>
+
+      <section class="card panel-section" data-show="live" id="registryCard">
         <p class="card-kicker">Últimos registros</p>
         <ul class="item-list" id="scanList">
           <li class="muted">Aún no hay escaneos con identidad</li>
@@ -430,7 +551,9 @@
           <button type="button" class="cfg-nav-btn" data-cfg-sec="audio">2 · Audio</button>
           <button type="button" class="cfg-nav-btn" data-cfg-sec="zones">3 · Zonas</button>
           <button type="button" class="cfg-nav-btn" data-cfg-sec="monitor">4 · Monitoreo</button>
-          <button type="button" class="cfg-nav-btn" data-cfg-sec="audit">5 · Bitácora</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="privacy">5 · Privacidad</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="privacy">6 · Privacidad</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="audit">7 · Bitácora</button>
         </nav>
 
         <div class="cfg-section" data-cfg-section="guides">
@@ -568,6 +691,26 @@
           <p class="card-meta" id="cfgSavedHint">Los cambios se guardan en este navegador.</p>
         </div>
 
+        <div class="cfg-section hidden" data-cfg-section="privacy">
+          <p class="card-kicker">Privacidad · Ley 21.719</p>
+          <p class="card-meta">Datos biométricos sensibles · vigencia fiscalización dic. 2026.</p>
+          <label class="cfg-row">
+            <span>
+              <strong>Modo solo QR/RUT (sin facial)</strong>
+              <small>Alternativa no biométrica para portería</small>
+            </span>
+            <input type="checkbox" id="cfgQrOnlyMode" />
+          </label>
+          <label class="cfg-row cfg-slider-row">
+            <span>
+              <strong>Retención evidencia (días)</strong>
+              <small>Fotos de incumplimiento en servidor · <b id="cfgRetentionVal">90</b></small>
+            </span>
+            <input type="range" id="cfgRetentionDays" min="7" max="365" value="90" step="1" />
+          </label>
+          <p class="card-meta">Exportá consentimiento en Personas. Anonimización de rostros desconocidos en Audio/Privacidad.</p>
+        </div>
+
         <div class="cfg-section hidden" data-cfg-section="audit">
           <p class="card-kicker">Bitácora administrativa</p>
           <p class="card-meta">Altas, bajas, cámaras y enrolamientos. Retención local en el servidor.</p>
@@ -593,6 +736,6 @@
     <span id="fpsLabel">— ms</span>
   </footer>
 
-  <script src="/assets/app.js?v=35"></script>
+  <script src="/assets/app.js?v=36"></script>
 </body>
 </html>
