@@ -734,12 +734,28 @@
           </div>
           <p class="card-meta" id="cfgCombinedHint">Inferencia combinada ID+EPP: según servidor.</p>
           <p class="card-meta" id="cfgEnterpriseHint">—</p>
+          <p class="card-kicker" style="margin-top:1rem">Conectores EHS</p>
+          <p class="card-meta">Exporta incidentes EPP a webhook, SafetyCloud o SAP EWM.</p>
+          <label class="cfg-row">
+            <span><strong>Webhook EHS</strong><small>URL POST JSON</small></span>
+            <input type="url" id="cfgEhsWebhookUrl" placeholder="https://..." />
+          </label>
+          <label class="cfg-row cfg-toggle-row">
+            <span><strong>Webhook activo</strong></span>
+            <input type="checkbox" id="cfgEhsWebhookEnabled" />
+          </label>
+          <div class="rep-actions" style="margin:0.5rem 0">
+            <button type="button" class="btn secondary" id="btnEhsSave">Guardar EHS</button>
+            <button type="button" class="btn ghost" id="btnEhsTest">Probar webhook</button>
+          </div>
+          <p class="card-meta" id="cfgEhsHint">—</p>
         </div>
 
         <div class="cfg-section hidden" data-cfg-section="audit">
           <p class="card-kicker">Bitácora administrativa</p>
           <p class="card-meta">Altas, bajas, cámaras y enrolamientos. Retención local en el servidor.</p>
           <button type="button" class="btn secondary" id="btnAuditRefresh">Actualizar</button>
+          <a class="btn ghost" href="/api/audit/export.csv" id="btnAuditExport" download>Export CSV</a>
           <ul class="item-list" id="auditList">
             <li class="muted">Sin eventos</li>
           </ul>
@@ -761,6 +777,7 @@
     <span id="fpsLabel">— ms</span>
   </footer>
 
-  <script src="/assets/app.js?v=38"></script>
+  <script src="/assets/lib/constants.js?v=39"></script>
+  <script src="/assets/app.js?v=39"></script>
 </body>
 </html>

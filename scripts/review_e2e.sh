@@ -17,11 +17,11 @@ export PYTHONPATH="${PYTHONPATH:-}:$ROOT/backend"
 ok() { echo "✓ $1"; PASS=$((PASS+1)); }
 bad() { echo "✗ $1"; FAIL=$((FAIL+1)); }
 
-echo "=== VigiEPP E2E Review v38 ==="
+echo "=== VigiEPP E2E Review v39 ==="
 
 # Health
 H=$(curl -s "$BASE/api/health")
-echo "$H" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['build']=='v38'; assert 'default_pins' not in d; assert 'privacy' in d" && ok "health v38 sin default_pins" || bad "health"
+echo "$H" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['build']=='v39'; assert 'default_pins' not in d; assert 'privacy' in d" && ok "health v39 sin default_pins" || bad "health"
 
 # Auth login
 curl -s -c "$COOKIE" -X POST "$BASE/api/auth/login" -H 'Content-Type: application/json' -d '{"pin":"vigiepp"}' | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('ok')" && ok "auth login" || bad "auth login"
@@ -73,11 +73,14 @@ assert t and decrypt_text(t)=='secret-pass'
 
 # Compliance helper
 $PY -c "
-from app.main import _compliance_cell_fields
+from app.detect_pipeline import compliance_cell_fields
 p={'compliance':{'overall_compliant':False,'alerts':['a'],'persons':[{'missing':['casco']}]}}
-f=_compliance_cell_fields(p)
+f=compliance_cell_fields(p)
 assert f['compliant'] is False and 'casco' in f['missing']
 " && ok "mass compliance helper" || bad "compliance helper"
+
+# EHS config
+curl -s -b "$COOKIE" "$BASE/api/ehs/config" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('ok') and 'webhook' in d['config']['connectors']" && ok "ehs config" || bad "ehs config"
 
 echo "=== RESULT: $PASS passed, $FAIL failed ==="
 [ "$FAIL" -eq 0 ]

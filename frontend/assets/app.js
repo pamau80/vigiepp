@@ -132,7 +132,7 @@
     repSideList: $("#repSideList"),
   };
 
-  const APP_BUILD = "v38";
+  const APP_BUILD = globalThis.VIGIEPP_BUILD || "v39";
 
   function isLiveMode() {
     return appMode === "live" || appMode === "monitor";
@@ -1460,6 +1460,33 @@
     }
   }
 
+  async function refreshEhsUi() {
+    const hint = $("#cfgEhsHint");
+    const urlEl = $("#cfgEhsWebhookUrl");
+    const enEl = $("#cfgEhsWebhookEnabled");
+    if (!urlEl) return;
+    try {
+      const data = await api("/api/ehs/config");
+      const w = data.config?.connectors?.webhook || {};
+      urlEl.value = w.url || "";
+      if (enEl) enEl.checked = !!w.enabled;
+      if (hint) hint.textContent = w.enabled ? "Webhook EHS activo" : "Webhook EHS desactivado";
+    } catch (e) {
+      if (hint) hint.textContent = String(e.message || e);
+    }
+  }
+
+  async function saveEhsConfig() {
+    const url = ($("#cfgEhsWebhookUrl")?.value || "").trim();
+    const enabled = !!$("#cfgEhsWebhookEnabled")?.checked;
+    await api("/api/ehs/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ connectors: { webhook: { url, enabled } } }),
+    });
+    await refreshEhsUi();
+  }
+
   async function boot() {
     await ensureAuth();
     try {
@@ -1572,7 +1599,10 @@
     const block = $("#configBlock");
     if (block) block.scrollTop = 0;
     if (id === "audit") refreshAudit();
-    if (id === "enterprise") refreshSitesUi();
+    if (id === "enterprise") {
+      refreshSitesUi();
+      refreshEhsUi();
+    }
     if (id === "zones") {
       bindZonesCanvasEvents();
       requestAnimationFrame(() => {
@@ -3829,6 +3859,22 @@
       if (data.url) window.location.href = data.url;
     } catch (err) {
       els.repSideSummary.textContent = err.message || "SSO no disponible";
+    }
+  });
+  $("#btnEhsSave")?.addEventListener("click", async () => {
+    try {
+      await saveEhsConfig();
+      els.repSideSummary.textContent = "Conectores EHS guardados";
+    } catch (err) {
+      els.repSideSummary.textContent = err.message || "Error EHS";
+    }
+  });
+  $("#btnEhsTest")?.addEventListener("click", async () => {
+    try {
+      const r = await api("/api/ehs/test/webhook", { method: "POST" });
+      els.repSideSummary.textContent = r.ok ? `EHS test OK: ${r.detail || ""}` : "EHS test falló";
+    } catch (err) {
+      els.repSideSummary.textContent = err.message || "EHS test falló";
     }
   });
   els.fileInput.addEventListener("change", async (e) => {

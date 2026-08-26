@@ -66,3 +66,23 @@ def recent(limit: int = 80) -> list[dict[str, Any]]:
             continue
     out.reverse()
     return out
+
+
+def export_csv(limit: int = 500) -> str:
+    import csv
+    import io
+
+    rows = recent(limit=limit)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["ts", "action", "actor", "detail"])
+    for row in rows:
+        writer.writerow(
+            [
+                row.get("ts") or "",
+                row.get("action") or "",
+                row.get("actor") or "",
+                row.get("detail") or "",
+            ]
+        )
+    return buf.getvalue()
