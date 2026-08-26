@@ -21,7 +21,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/styles.css?v=32" />
+  <link rel="stylesheet" href="/assets/styles.css?v=35" />
 </head>
 <body>
   <div id="authGate" class="auth-gate hidden" aria-modal="true" role="dialog">
@@ -516,6 +516,10 @@
           </label>
           <div id="zonesEditor" class="zones-editor">
             <p class="card-meta">Zonas (activá y ajustá). Tipo «vía» = near-miss peatón.</p>
+            <div class="zones-preview" id="zonesPreview" aria-label="Lienzo de zonas">
+              <canvas id="zonesCanvas" role="img" aria-label="Editor visual de zonas"></canvas>
+              <p class="hint zones-preview-hint" id="zonesPreviewHint">Tocá una zona para seleccionar · arrastrá para mover · esquinas para tamaño</p>
+            </div>
             <div class="zone-presets">
               <button type="button" class="btn secondary" data-zone-preset="faena">Preset faena</button>
               <button type="button" class="btn secondary" data-zone-preset="porteria">Preset portería</button>
@@ -589,6 +593,6 @@
     <span id="fpsLabel">— ms</span>
   </footer>
 
-  <script src="/assets/app.js?v=34"></script>
+  <script src="/assets/app.js?v=35"></script>
 </body>
 </html>

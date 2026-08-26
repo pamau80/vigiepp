@@ -113,6 +113,8 @@
     cfgShowZones: $("#cfgShowZones"),
     zonesList: $("#zonesList"),
     zonesHint: $("#zonesHint"),
+    zonesCanvas: $("#zonesCanvas"),
+    zonesPreviewHint: $("#zonesPreviewHint"),
     btnZoneAdd: $("#btnZoneAdd"),
     btnZoneSave: $("#btnZoneSave"),
     safetyScoreLive: $("#safetyScoreLive"),
@@ -130,7 +132,7 @@
     repSideList: $("#repSideList"),
   };
 
-  const APP_BUILD = "v34";
+  const APP_BUILD = "v35";
 
   let profiles = [];
   let ppeCatalog = [];
@@ -861,6 +863,10 @@
   let speakCount = 0;
   const SPEAK_GAP_MS = 5500;
   let zonesCache = [];
+  let selectedZoneIndex = -1;
+  let zonesCanvasRaf = 0;
+  let zonesCanvasDrag = null;
+  const ZONES_CANVAS_HANDLE = 10;
   let lastAccessAllow = null;
 
   function resetSpeakIncident() {
@@ -941,6 +947,273 @@
     }
   }
 
+  function syncZonesCanvasSize() {
+    const canvas = els.zonesCanvas;
+    if (!canvas) return;
+    const frame = canvas.parentElement;
+    if (!frame) return;
+    const rect = frame.getBoundingClientRect();
+    canvas.width = Math.max(1, Math.round(rect.width));
+    canvas.height = Math.max(1, Math.round(rect.height));
+  }
+
+  function zoneCanvasRect(z, cw, ch) {
+    return {
+      x: (z.x || 0) * cw,
+      y: (z.y || 0) * ch,
+      w: (z.w || 0.2) * cw,
+      h: (z.h || 0.2) * ch,
+    };
+  }
+
+  function clampZoneNorm(z) {
+    const min = 0.05;
+    z.w = Math.max(min, Math.min(0.95, z.w || min));
+    z.h = Math.max(min, Math.min(0.95, z.h || min));
+    z.x = Math.max(0, Math.min(1 - z.w, z.x || 0));
+    z.y = Math.max(0, Math.min(1 - z.h, z.y || 0));
+  }
+
+  function drawZonesEditorCanvas() {
+    const canvas = els.zonesCanvas;
+    if (!canvas) return;
+    syncZonesCanvasSize();
+    const ctx = canvas.getContext("2d");
+    const cw = canvas.width;
+    const ch = canvas.height;
+    ctx.clearRect(0, 0, cw, ch);
+
+    const video = els.liveVideo;
+    if (video && video.videoWidth > 0 && !video.hidden) {
+      const cover = videoCoverSize(video.videoWidth, video.videoHeight, cw, ch);
+      ctx.drawImage(
+        video,
+        cover.ox,
+        cover.oy,
+        cover.w,
+        cover.h
+      );
+    } else {
+      ctx.fillStyle = "#0a0e0c";
+      ctx.fillRect(0, 0, cw, ch);
+      ctx.strokeStyle = "rgba(255,255,255,0.04)";
+      ctx.lineWidth = 1;
+      for (let x = 0; x <= cw; x += cw / 8) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, ch);
+        ctx.stroke();
+      }
+      for (let y = 0; y <= ch; y += ch / 8) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(cw, y);
+        ctx.stroke();
+      }
+      ctx.font = "500 11px Source Sans 3, sans-serif";
+      ctx.fillStyle = "rgba(238,243,239,0.45)";
+      ctx.textAlign = "center";
+      ctx.fillText("Iniciá la cámara en Monitoreo para ver la vista previa", cw / 2, ch / 2);
+      ctx.textAlign = "left";
+    }
+
+    const zones = zonesCache || [];
+    for (let i = 0; i < zones.length; i++) {
+      const z = zones[i];
+      if (!z.enabled) continue;
+      const { x, y, w, h } = zoneCanvasRect(z, cw, ch);
+      const selected = i === selectedZoneIndex;
+      ctx.fillStyle = selected ? "rgba(232,93,4,0.22)" : "rgba(232,93,4,0.1)";
+      ctx.strokeStyle = selected ? "rgba(232,93,4,0.95)" : (z.color || "rgba(232,93,4,0.75)");
+      ctx.lineWidth = selected ? 2 : 1.25;
+      ctx.setLineDash(z.type === "vehicle_lane" ? [6, 4] : []);
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeRect(x, y, w, h);
+      ctx.setLineDash([]);
+      ctx.font = "600 10px Source Sans 3, sans-serif";
+      ctx.fillStyle = "rgba(238,243,239,0.92)";
+      const label = z.name || `Zona ${i + 1}`;
+      ctx.fillText(label, x + 5, y + 12);
+      if (selected) {
+        const hs = ZONES_CANVAS_HANDLE;
+        ctx.fillStyle = "rgba(232,93,4,0.95)";
+        for (const hx of [x, x + w]) {
+          for (const hy of [y, y + h]) {
+            ctx.fillRect(hx - hs / 2, hy - hs / 2, hs, hs);
+          }
+        }
+      }
+    }
+
+    if (els.zonesPreviewHint) {
+      const hasVideo = video && video.videoWidth > 0 && !video.hidden;
+      els.zonesPreviewHint.textContent = hasVideo
+        ? "Tocá una zona · arrastrá para mover · esquinas para tamaño"
+        : "Sin cámara: ajustá con el lienzo o los deslizadores abajo";
+    }
+  }
+
+  function zonesCanvasPoint(ev) {
+    const canvas = els.zonesCanvas;
+    const rect = canvas.getBoundingClientRect();
+    const clientX = ev.touches?.[0]?.clientX ?? ev.clientX;
+    const clientY = ev.touches?.[0]?.clientY ?? ev.clientY;
+    const px = ((clientX - rect.left) / rect.width) * canvas.width;
+    const py = ((clientY - rect.top) / rect.height) * canvas.height;
+    return { px, py, nx: px / canvas.width, ny: py / canvas.height };
+  }
+
+  function zonesCanvasHit(px, py) {
+    const canvas = els.zonesCanvas;
+    const cw = canvas.width;
+    const ch = canvas.height;
+    const hs = ZONES_CANVAS_HANDLE;
+    for (let i = zonesCache.length - 1; i >= 0; i--) {
+      const z = zonesCache[i];
+      if (!z.enabled) continue;
+      const r = zoneCanvasRect(z, cw, ch);
+      if (i === selectedZoneIndex) {
+        const corners = [
+          { edge: "nw", cx: r.x, cy: r.y },
+          { edge: "ne", cx: r.x + r.w, cy: r.y },
+          { edge: "sw", cx: r.x, cy: r.y + r.h },
+          { edge: "se", cx: r.x + r.w, cy: r.y + r.h },
+        ];
+        for (const c of corners) {
+          if (Math.abs(px - c.cx) <= hs && Math.abs(py - c.cy) <= hs) {
+            return { index: i, mode: "resize", edge: c.edge };
+          }
+        }
+      }
+      if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) {
+        return { index: i, mode: "move" };
+      }
+    }
+    return null;
+  }
+
+  function syncZoneSlidersFromCache(index) {
+    const row = els.zonesList?.querySelector(`[data-zi="${index}"]`);
+    if (!row) return;
+    const z = zonesCache[index];
+    if (!z) return;
+    const set = (attr, val) => {
+      const el = row.querySelector(`[data-z="${attr}"]`);
+      if (el) el.value = String(Math.round(val * 100));
+    };
+    set("x", z.x || 0);
+    set("y", z.y || 0);
+    set("w", z.w || 0.2);
+    set("h", z.h || 0.2);
+  }
+
+  function startZonesCanvasLoop() {
+    stopZonesCanvasLoop();
+    const tick = () => {
+      if (appMode !== "config" || document.querySelector("[data-cfg-section='zones']:not(.hidden)") == null) {
+        zonesCanvasRaf = 0;
+        return;
+      }
+      drawZonesEditorCanvas();
+      zonesCanvasRaf = requestAnimationFrame(tick);
+    };
+    zonesCanvasRaf = requestAnimationFrame(tick);
+  }
+
+  function stopZonesCanvasLoop() {
+    if (zonesCanvasRaf) {
+      cancelAnimationFrame(zonesCanvasRaf);
+      zonesCanvasRaf = 0;
+    }
+  }
+
+  function bindZonesCanvasEvents() {
+    const canvas = els.zonesCanvas;
+    if (!canvas || canvas.dataset.bound) return;
+    canvas.dataset.bound = "1";
+
+    const onDown = (ev) => {
+      if (ev.button !== undefined && ev.button !== 0) return;
+      ev.preventDefault();
+      zonesCache = readZonesFromEditor();
+      const { px, py } = zonesCanvasPoint(ev);
+      const hit = zonesCanvasHit(px, py);
+      if (!hit) {
+        selectedZoneIndex = -1;
+        drawZonesEditorCanvas();
+        return;
+      }
+      selectedZoneIndex = hit.index;
+      const z = zonesCache[hit.index];
+      zonesCanvasDrag = {
+        mode: hit.mode,
+        edge: hit.edge,
+        index: hit.index,
+        startX: z.x,
+        startY: z.y,
+        startW: z.w,
+        startH: z.h,
+        originPx: px,
+        originPy: py,
+      };
+      drawZonesEditorCanvas();
+    };
+
+    const onMove = (ev) => {
+      if (!zonesCanvasDrag) return;
+      ev.preventDefault();
+      const { px, py } = zonesCanvasPoint(ev);
+      const canvasEl = els.zonesCanvas;
+      const cw = canvasEl.width;
+      const ch = canvasEl.height;
+      const dx = (px - zonesCanvasDrag.originPx) / cw;
+      const dy = (py - zonesCanvasDrag.originPy) / ch;
+      const z = zonesCache[zonesCanvasDrag.index];
+      if (!z) return;
+
+      if (zonesCanvasDrag.mode === "move") {
+        z.x = zonesCanvasDrag.startX + dx;
+        z.y = zonesCanvasDrag.startY + dy;
+      } else {
+        const edge = zonesCanvasDrag.edge;
+        let x1 = zonesCanvasDrag.startX;
+        let y1 = zonesCanvasDrag.startY;
+        let x2 = zonesCanvasDrag.startX + zonesCanvasDrag.startW;
+        let y2 = zonesCanvasDrag.startY + zonesCanvasDrag.startH;
+        if (edge.includes("n")) y1 = zonesCanvasDrag.startY + dy;
+        if (edge.includes("s")) y2 = zonesCanvasDrag.startY + zonesCanvasDrag.startH + dy;
+        if (edge.includes("w")) x1 = zonesCanvasDrag.startX + dx;
+        if (edge.includes("e")) x2 = zonesCanvasDrag.startX + zonesCanvasDrag.startW + dx;
+        if (x2 - x1 < 0.05) {
+          if (edge.includes("w")) x1 = x2 - 0.05;
+          else x2 = x1 + 0.05;
+        }
+        if (y2 - y1 < 0.05) {
+          if (edge.includes("n")) y1 = y2 - 0.05;
+          else y2 = y1 + 0.05;
+        }
+        z.x = x1;
+        z.y = y1;
+        z.w = x2 - x1;
+        z.h = y2 - y1;
+      }
+      clampZoneNorm(z);
+      syncZoneSlidersFromCache(zonesCanvasDrag.index);
+      drawZonesEditorCanvas();
+    };
+
+    const onUp = () => {
+      zonesCanvasDrag = null;
+    };
+
+    canvas.addEventListener("mousedown", onDown);
+    canvas.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    canvas.addEventListener("touchstart", onDown, { passive: false });
+    canvas.addEventListener("touchmove", onMove, { passive: false });
+    window.addEventListener("touchend", onUp);
+  }
+
   async function loadZones() {
     try {
       const data = await api("/api/zones");
@@ -973,6 +1246,8 @@
         </div>`
       )
       .join("") || "<p class='muted'>Sin zonas</p>";
+    bindZonesCanvasEvents();
+    requestAnimationFrame(() => drawZonesEditorCanvas());
   }
 
   function readZonesFromEditor() {
@@ -1204,6 +1479,16 @@
     const block = $("#configBlock");
     if (block) block.scrollTop = 0;
     if (id === "audit") refreshAudit();
+    if (id === "zones") {
+      bindZonesCanvasEvents();
+      requestAnimationFrame(() => {
+        syncZonesCanvasSize();
+        drawZonesEditorCanvas();
+        startZonesCanvasLoop();
+      });
+    } else {
+      stopZonesCanvasLoop();
+    }
   }
 
   function enableIdentifyForPorteria(reason = "") {
@@ -1273,6 +1558,8 @@
     if (mode === "config") {
       loadZones();
       setConfigSection(localStorage.getItem("vigiepp-cfg-sec") || "guides");
+    } else {
+      stopZonesCanvasLoop();
     }
     if (mode === "reports") {
       fillRepProfiles();
@@ -3409,6 +3696,7 @@
       h: 0.35,
       color: "#e85d04",
     });
+    selectedZoneIndex = zonesCache.length - 1;
     renderZonesEditor();
   });
   els.btnZoneSave?.addEventListener("click", async () => {
@@ -3446,7 +3734,24 @@
     if (!btn) return;
     const i = Number(btn.getAttribute("data-z-del"));
     zonesCache = readZonesFromEditor().filter((_, idx) => idx !== i);
+    if (selectedZoneIndex === i) selectedZoneIndex = -1;
+    else if (selectedZoneIndex > i) selectedZoneIndex -= 1;
     renderZonesEditor();
+  });
+  els.zonesList?.addEventListener("input", (e) => {
+    if (!e.target.matches("[data-z]")) return;
+    zonesCache = readZonesFromEditor();
+    const row = e.target.closest(".zone-row");
+    if (row) {
+      const i = Number(row.getAttribute("data-zi"));
+      if (!Number.isNaN(i)) selectedZoneIndex = i;
+    }
+    drawZonesEditorCanvas();
+  });
+  els.zonesList?.addEventListener("change", (e) => {
+    if (!e.target.matches("[data-z='en'], [data-z='type'], [data-z='name']")) return;
+    zonesCache = readZonesFromEditor();
+    drawZonesEditorCanvas();
   });
 
   $("#btnKiosk")?.addEventListener("click", () => {
