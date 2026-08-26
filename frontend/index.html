@@ -370,6 +370,7 @@
           <button type="button" class="cfg-nav-btn" data-cfg-sec="zones">Zonas</button>
           <button type="button" class="cfg-nav-btn" data-cfg-sec="monitor">Monitoreo</button>
           <button type="button" class="cfg-nav-btn" data-cfg-sec="privacy">Privacidad</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="enterprise">Enterprise</button>
           <button type="button" class="cfg-nav-btn" data-cfg-sec="audit">Bitácora</button>
         </nav>
         <p class="hint">Elegí una sección arriba o en el panel. Los cambios se aplican al instante.</p>
@@ -552,7 +553,7 @@
           <button type="button" class="cfg-nav-btn" data-cfg-sec="zones">3 · Zonas</button>
           <button type="button" class="cfg-nav-btn" data-cfg-sec="monitor">4 · Monitoreo</button>
           <button type="button" class="cfg-nav-btn" data-cfg-sec="privacy">5 · Privacidad</button>
-          <button type="button" class="cfg-nav-btn" data-cfg-sec="privacy">6 · Privacidad</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="enterprise">6 · Enterprise</button>
           <button type="button" class="cfg-nav-btn" data-cfg-sec="audit">7 · Bitácora</button>
         </nav>
 
@@ -711,6 +712,30 @@
           <p class="card-meta">Exportá consentimiento en Personas. Anonimización de rostros desconocidos en Audio/Privacidad.</p>
         </div>
 
+        <div class="cfg-section hidden" data-cfg-section="enterprise">
+          <p class="card-kicker">Multi-faena / Enterprise</p>
+          <label class="cfg-row">
+            <span>
+              <strong>Sitio activo</strong>
+              <small>Datos aislados por faena (personas, zonas, informes)</small>
+            </span>
+            <select id="cfgSiteSelect" aria-label="Sitio activo"></select>
+          </label>
+          <label class="cfg-row">
+            <span>
+              <strong>Nueva faena</strong>
+              <small>Crear sitio con datos separados</small>
+            </span>
+            <input type="text" id="cfgSiteNewName" placeholder="Ej. Faena Norte" maxlength="80" />
+          </label>
+          <div class="rep-actions" style="margin:0.5rem 0">
+            <button type="button" class="btn secondary" id="btnSiteCreate">Crear faena</button>
+            <button type="button" class="btn ghost" id="btnOidcLogin" hidden>Iniciar con SSO</button>
+          </div>
+          <p class="card-meta" id="cfgCombinedHint">Inferencia combinada ID+EPP: según servidor.</p>
+          <p class="card-meta" id="cfgEnterpriseHint">—</p>
+        </div>
+
         <div class="cfg-section hidden" data-cfg-section="audit">
           <p class="card-kicker">Bitácora administrativa</p>
           <p class="card-meta">Altas, bajas, cámaras y enrolamientos. Retención local en el servidor.</p>
@@ -736,6 +761,6 @@
     <span id="fpsLabel">— ms</span>
   </footer>
 
-  <script src="/assets/app.js?v=36"></script>
+  <script src="/assets/app.js?v=37"></script>
 </body>
 </html>

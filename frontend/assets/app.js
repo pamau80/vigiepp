@@ -132,7 +132,7 @@
     repSideList: $("#repSideList"),
   };
 
-  const APP_BUILD = "v36";
+  const APP_BUILD = "v37";
 
   function isLiveMode() {
     return appMode === "live" || appMode === "monitor";
@@ -166,6 +166,8 @@
   let currentRep = "overview";
   let notifConfig = null;
   let preferredFacing = "user";
+  let combinedInference = false;
+  let lastHealth = null;
 
   const isIOS = () =>
     /iPad|iPhone|iPod/.test(navigator.userAgent) ||
@@ -1350,6 +1352,8 @@
 
   function applyHealth(health) {
     if (!health) return false;
+    lastHealth = health;
+    combinedInference = !!health.combined_inference;
     const idOn = !!els.chkIdentify?.checked;
     const idReady = !!health.identity_ready;
     const eppReady = !!health.model_ready;
@@ -1372,10 +1376,48 @@
       els.modelStatusText.textContent = health.warning || "Cargando IA…";
     }
     if (els.fpsLabel && health.build) {
-      els.fpsLabel.textContent = `${health.build} · ${idOn ? "ID+EPP" : "EPP"}`;
+      const mode =
+        idOn && combinedInference ? "ID+EPP·1" : idOn ? "ID+EPP" : "EPP";
+      els.fpsLabel.textContent = `${health.build} · ${mode}`;
     }
+    updateEnterpriseHints(health);
     showPersistBanner(health);
     return ready;
+  }
+
+  function updateEnterpriseHints(health) {
+    const hint = $("#cfgCombinedHint");
+    const ent = $("#cfgEnterpriseHint");
+    if (hint) {
+      hint.textContent = combinedInference
+        ? "Inferencia combinada activa: ID + EPP en el mismo frame (edge / volumen persistente)."
+        : "Inferencia separada: alterna EPP e identidad para evitar OOM en cloud.";
+    }
+    if (ent && health) {
+      const site = health.active_site?.name || "Faena principal";
+      ent.textContent = `Sitio activo: ${site} · datos en ${health.data_dir || "—"}`;
+    }
+    const oidcBtn = $("#btnOidcLogin");
+    if (oidcBtn) {
+      const oidcOn = !!health?.oidc?.enabled;
+      oidcBtn.hidden = !oidcOn;
+    }
+  }
+
+  async function refreshSitesUi() {
+    const sel = $("#cfgSiteSelect");
+    if (!sel) return;
+    try {
+      const data = await api("/api/sites");
+      sel.innerHTML = (data.sites || [])
+        .map(
+          (s) =>
+            `<option value="${s.id}" ${s.id === data.active_site_id ? "selected" : ""}>${s.name}</option>`
+        )
+        .join("");
+    } catch (_) {
+      sel.innerHTML = `<option value="default">Faena principal</option>`;
+    }
   }
 
   async function boot() {
@@ -1472,7 +1514,9 @@
   }
 
   function setConfigSection(sec) {
-    const id = ["guides", "audio", "zones", "monitor", "privacy", "audit"].includes(sec) ? sec : "guides";
+    const id = ["guides", "audio", "zones", "monitor", "privacy", "enterprise", "audit"].includes(sec)
+      ? sec
+      : "guides";
     try {
       localStorage.setItem("vigiepp-cfg-sec", id);
     } catch (_) {}
@@ -1487,6 +1531,7 @@
     const block = $("#configBlock");
     if (block) block.scrollTop = 0;
     if (id === "audit") refreshAudit();
+    if (id === "enterprise") refreshSitesUi();
     if (id === "zones") {
       bindZonesCanvasEvents();
       requestAnimationFrame(() => {
@@ -2095,7 +2140,22 @@
     const wantId = !!els.chkIdentify?.checked;
     const now = Date.now();
 
-    // 2 escaneos EPP + 1 ID: más fluido y sin cargar YOLO+SFace juntos
+    if (wantId && combinedInference) {
+      const blob = await captureBlob(0.42, 320);
+      if (!blob) return;
+      try {
+        await detectBlob(blob, { identify: true, returnImage: false });
+        detectBackoffMs = Math.min(detectBackoffMs || 0, 400);
+      } catch (err) {
+        const msg = String(err?.message || err || "");
+        if (/502|503|caído|agotado|timeout|ocupado/i.test(msg)) {
+          detectBackoffMs = Math.min(10000, Math.max(3500, (detectBackoffMs || 2000) * 1.35));
+        }
+      }
+      return;
+    }
+
+    // 2 escaneos EPP + 1 ID: más fluido y sin cargar YOLO+SFace juntos (cloud)
     if (wantId) {
       const dueId = eppStreak >= 2 && now - lastIdentifyAt >= 2800;
       if (dueId) {
@@ -3315,6 +3375,10 @@
 
     if (key === "notif_setup") {
       const ac = notifConfig.access_control || {};
+      const gate = ac.gate || {};
+      const mb = gate.modbus || {};
+      const hd = gate.http_dual || {};
+      const wg = gate.wiegand || {};
       const et = notifConfig.email_transport || {};
       const emailHint =
         et.mode === "resend"
@@ -3322,6 +3386,7 @@
           : et.mode === "smtp"
             ? `Email real vía SMTP (${et.smtp_host || "host"})`
             : "Sin SMTP/Resend → solo abre mailto en el navegador";
+      const driver = gate.driver || "esp32";
       els.reportsContent.innerHTML = `
         <h3 class="rep-section-title">Canales de notificación</h3>
         <p class="card-meta">${emailHint}</p>
@@ -3334,34 +3399,75 @@
             <input type="checkbox" id="nWaEn" ${ch.whatsapp_webhook?.enabled ? "checked" : ""}/> Activar
             <input type="url" id="nWaUrl" placeholder="https://..." value="${ch.whatsapp_webhook?.url || ""}"/>
           </label>
+          <label><span>WhatsApp Business Cloud (Meta)</span>
+            <input type="checkbox" id="nWaCloudEn" ${ch.whatsapp_cloud?.enabled ? "checked" : ""}/> Activar
+            <small class="card-meta">Token en WHATSAPP_TOKEN / VIGIEPP_WHATSAPP_TOKEN del servidor</small>
+            <input type="text" id="nWaCloudPhoneId" placeholder="Phone number ID" value="${ch.whatsapp_cloud?.phone_number_id || ""}"/>
+            <input type="text" id="nWaCloudTo" placeholder="+56912345678 o varios separados por coma" value="${ch.whatsapp_cloud?.to || ""}"/>
+          </label>
           <label><span>Email</span>
             <input type="checkbox" id="nEmEn" ${ch.email?.enabled ? "checked" : ""}/> Activar
             <input type="email" id="nEmTo" placeholder="seguridad@empresa.cl" value="${ch.email?.to || ""}"/>
             <input type="email" id="nEmCc" placeholder="cc opcional" value="${ch.email?.cc || ""}"/>
           </label>
-          <p class="card-kicker">Alarma ESP32 (baliza + sirena)</p>
-          <label><span>Hardware VigiEPP Alarm</span>
-            <input type="checkbox" id="nHwEn" ${ac.hardware?.enabled ? "checked" : ""}/> Activar
-            <small class="card-meta">Llama a http://IP_ESP32/alarma (deny) y /ok (allow). El servidor VigiEPP debe estar en la misma red que el ESP32.</small>
-            <input type="url" id="nHwUrl" placeholder="http://192.168.1.50" value="${ac.hardware?.base_url || ""}"/>
-            <label class="check"><input type="checkbox" id="nHwBad" ${ac.hardware?.on_non_compliant !== false ? "checked" : ""}/> Alarma en incumplimiento EPP</label>
-            <label class="check"><input type="checkbox" id="nHwUnk" ${ac.hardware?.on_unknown_face !== false ? "checked" : ""}/> Alarma en rostro desconocido</label>
-            <label class="check"><input type="checkbox" id="nHwOk" ${ac.hardware?.auto_ok !== false ? "checked" : ""}/> /ok automático si EPP cumple</label>
+          <p class="card-kicker">Driver de acceso físico</p>
+          <label><span>Torniquete / relé / Wiegand</span>
+            <select id="nGateDriver">
+              <option value="esp32" ${driver === "esp32" ? "selected" : ""}>ESP32 HTTP (/ok /alarma)</option>
+              <option value="modbus" ${driver === "modbus" ? "selected" : ""}>Modbus TCP (coils)</option>
+              <option value="http_dual" ${driver === "http_dual" ? "selected" : ""}>HTTP dual (allow/deny URL)</option>
+              <option value="wiegand" ${driver === "wiegand" ? "selected" : ""}>Gateway Wiegand HTTP</option>
+            </select>
+            <input type="checkbox" id="nGateHwEn" ${gate.enabled ? "checked" : ""}/> Activar driver
           </label>
+          <div id="nGateEsp32" class="${driver === "esp32" ? "" : "hidden"}">
+            <p class="card-kicker">ESP32 / baliza</p>
+            <input type="url" id="nHwUrl" placeholder="http://192.168.1.50" value="${gate.esp32?.base_url || ac.hardware?.base_url || ""}"/>
+            <label class="check"><input type="checkbox" id="nHwBad" ${gate.on_non_compliant !== false ? "checked" : ""}/> Alarma en incumplimiento EPP</label>
+            <label class="check"><input type="checkbox" id="nHwUnk" ${gate.on_unknown_face !== false ? "checked" : ""}/> Alarma en rostro desconocido</label>
+            <label class="check"><input type="checkbox" id="nHwOk" ${gate.auto_ok !== false ? "checked" : ""}/> /ok automático si EPP cumple</label>
+          </div>
+          <div id="nGateModbus" class="${driver === "modbus" ? "" : "hidden"}">
+            <p class="card-kicker">Modbus TCP</p>
+            <input type="text" id="nMbHost" placeholder="192.168.1.20" value="${mb.host || ""}"/>
+            <input type="number" id="nMbPort" placeholder="502" value="${mb.port || 502}"/>
+            <input type="number" id="nMbUnit" placeholder="Unit ID" value="${mb.unit_id || 1}"/>
+            <input type="number" id="nMbCoilAllow" placeholder="Coil allow" value="${mb.coil_allow || 0}"/>
+            <input type="number" id="nMbCoilDeny" placeholder="Coil deny" value="${mb.coil_deny || 1}"/>
+          </div>
+          <div id="nGateHttp" class="${driver === "http_dual" ? "" : "hidden"}">
+            <p class="card-kicker">HTTP dual</p>
+            <input type="url" id="nHdAllow" placeholder="URL allow" value="${hd.allow_url || ""}"/>
+            <input type="url" id="nHdDeny" placeholder="URL deny" value="${hd.deny_url || ""}"/>
+          </div>
+          <div id="nGateWiegand" class="${driver === "wiegand" ? "" : "hidden"}">
+            <p class="card-kicker">Wiegand gateway</p>
+            <input type="url" id="nWgBase" placeholder="http://192.168.1.30" value="${wg.base_url || ""}"/>
+            <input type="text" id="nWgAllow" placeholder="/open" value="${wg.allow_path || "/open"}"/>
+            <input type="text" id="nWgDeny" placeholder="/close" value="${wg.deny_path || "/close"}"/>
+          </div>
           <div class="rep-actions" style="margin:0.5rem 0 1rem">
-            <button type="button" class="btn secondary" id="btnHwAlarma">Probar /alarma</button>
-            <button type="button" class="btn secondary" id="btnHwOk">Probar /ok</button>
+            <button type="button" class="btn secondary" id="btnHwAlarma">Probar deny</button>
+            <button type="button" class="btn secondary" id="btnHwOk">Probar allow</button>
           </div>
           <pre class="rep-pre" id="hwTestOut" style="display:none">—</pre>
-          <p class="card-kicker">Abrir acceso (torniquete / gate)</p>
+          <p class="card-kicker">Abrir acceso (portería lógica)</p>
           <label><span>Control de acceso</span>
             <input type="checkbox" id="nAcEn" ${ac.enabled ? "checked" : ""}/> Activar gate
-            <small class="card-meta">Allow solo si identidad conocida + EPP OK. Con hardware activo: allow→/ok, deny→/alarma.</small>
+            <small class="card-meta">Allow solo si identidad conocida + EPP OK. Driver físico según selección arriba.</small>
             <label class="check"><input type="checkbox" id="nAcId" ${ac.require_identity !== false ? "checked" : ""}/> Exigir identidad</label>
             <label class="check"><input type="checkbox" id="nAcNf" ${ac.notify !== false ? "checked" : ""}/> Notificar decisión</label>
           </label>
           <button class="btn primary" type="submit">Guardar canales</button>
         </form>`;
+      const toggleGatePanels = () => {
+        const d = $("#nGateDriver")?.value || "esp32";
+        $("#nGateEsp32")?.classList.toggle("hidden", d !== "esp32");
+        $("#nGateModbus")?.classList.toggle("hidden", d !== "modbus");
+        $("#nGateHttp")?.classList.toggle("hidden", d !== "http_dual");
+        $("#nGateWiegand")?.classList.toggle("hidden", d !== "wiegand");
+      };
+      $("#nGateDriver")?.addEventListener("change", toggleGatePanels);
       const hwTest = async (action) => {
         const out = $("#hwTestOut");
         if (out) out.style.display = "block";
@@ -3385,6 +3491,11 @@
           channels: {
             webhook: { enabled: $("#nWhEn").checked, url: $("#nWhUrl").value.trim() },
             whatsapp_webhook: { enabled: $("#nWaEn").checked, url: $("#nWaUrl").value.trim() },
+            whatsapp_cloud: {
+              enabled: $("#nWaCloudEn").checked,
+              phone_number_id: $("#nWaCloudPhoneId").value.trim(),
+              to: $("#nWaCloudTo").value.trim(),
+            },
             email: {
               enabled: $("#nEmEn").checked,
               to: $("#nEmTo").value.trim(),
@@ -3396,7 +3507,7 @@
             require_identity: $("#nAcId").checked,
             notify: $("#nAcNf").checked,
             hardware: {
-              enabled: $("#nHwEn").checked,
+              enabled: $("#nGateDriver").value === "esp32" && $("#nGateHwEn").checked,
               base_url: $("#nHwUrl").value.trim(),
               alarma_path: "/alarma",
               ok_path: "/ok",
@@ -3404,6 +3515,36 @@
               on_non_compliant: $("#nHwBad").checked,
               on_unknown_face: $("#nHwUnk").checked,
               auto_ok: $("#nHwOk").checked,
+            },
+            gate: {
+              enabled: $("#nGateHwEn").checked,
+              driver: $("#nGateDriver").value,
+              on_non_compliant: $("#nHwBad").checked,
+              on_unknown_face: $("#nHwUnk").checked,
+              auto_ok: $("#nHwOk").checked,
+              esp32: {
+                enabled: $("#nGateDriver").value === "esp32" && $("#nGateHwEn").checked,
+                base_url: $("#nHwUrl").value.trim(),
+                alarma_path: "/alarma",
+                ok_path: "/ok",
+                method: "GET",
+              },
+              modbus: {
+                host: $("#nMbHost").value.trim(),
+                port: Number($("#nMbPort").value) || 502,
+                unit_id: Number($("#nMbUnit").value) || 1,
+                coil_allow: Number($("#nMbCoilAllow").value) || 0,
+                coil_deny: Number($("#nMbCoilDeny").value) || 1,
+              },
+              http_dual: {
+                allow_url: $("#nHdAllow").value.trim(),
+                deny_url: $("#nHdDeny").value.trim(),
+              },
+              wiegand: {
+                base_url: $("#nWgBase").value.trim(),
+                allow_path: $("#nWgAllow").value.trim() || "/open",
+                deny_path: $("#nWgDeny").value.trim() || "/close",
+              },
             },
           },
         };
@@ -3606,6 +3747,45 @@
   els.btnSaveCamera?.addEventListener("click", () => saveCurrentCamera().catch((e) => alert(e.message)));
   els.btnDelCamera?.addEventListener("click", () => deleteSelectedCamera().catch((e) => alert(e.message)));
   $("#btnAuditRefresh")?.addEventListener("click", () => refreshAudit());
+  $("#cfgSiteSelect")?.addEventListener("change", async (ev) => {
+    const siteId = ev.target.value;
+    try {
+      await api("/api/sites/active", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site_id: siteId }),
+      });
+      const health = await api("/api/health");
+      applyHealth(health);
+      els.repSideSummary.textContent = "Faena activa actualizada";
+    } catch (err) {
+      els.repSideSummary.textContent = err.message || "Error al cambiar faena";
+    }
+  });
+  $("#btnSiteCreate")?.addEventListener("click", async () => {
+    const name = ($("#cfgSiteNewName")?.value || "").trim();
+    if (!name) return;
+    try {
+      await api("/api/sites", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      $("#cfgSiteNewName").value = "";
+      await refreshSitesUi();
+      els.repSideSummary.textContent = `Faena «${name}» creada`;
+    } catch (err) {
+      els.repSideSummary.textContent = err.message || "Error al crear faena";
+    }
+  });
+  $("#btnOidcLogin")?.addEventListener("click", async () => {
+    try {
+      const data = await api("/api/auth/oidc/login");
+      if (data.url) window.location.href = data.url;
+    } catch (err) {
+      els.repSideSummary.textContent = err.message || "SSO no disponible";
+    }
+  });
   els.fileInput.addEventListener("change", async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;

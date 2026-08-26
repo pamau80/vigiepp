@@ -9,3 +9,4 @@ python-multipart>=0.0.20
 aiofiles>=24.1.0
 pydantic>=2.10.0
 pydantic-settings>=2.7.0
+pymodbus>=3.7.0

@@ -25,9 +25,12 @@ from pydantic import BaseModel, Field
 
 from . import auth as auth_mod
 from . import exposure as exposure_mod
+from . import inference as inference_mod
 from . import notifications as notif_mod
+from . import oidc as oidc_mod
 from . import paths as paths_mod
 from . import reports as reports_mod
+from . import tenants as tenants_mod
 from . import zones as zones_mod
 from .compliance import evaluate
 from .detector import PPEDetector, decode_image_bytes, encode_jpeg
@@ -48,7 +51,7 @@ _detect_lock = threading.Lock()
 _DETECT_IMGSZ_MAX = int(os.getenv("VIGIEPP_IMGSZ_MAX", "256"))
 
 
-BUILD_VERSION = "v36"
+BUILD_VERSION = "v37"
 
 
 @asynccontextmanager
@@ -447,6 +450,14 @@ class HardwareTestBody(BaseModel):
     action: str = "alarma"
 
 
+class SiteCreateBody(BaseModel):
+    name: str = Field(..., min_length=1, max_length=80)
+
+
+class SiteActiveBody(BaseModel):
+    site_id: str = Field(..., min_length=1, max_length=40)
+
+
 @app.get("/api/health")
 def health() -> dict[str, Any]:
     # No llamar PPEDetector.get(): en cold start bloquearía >5s y Render marca 502.
@@ -477,18 +488,23 @@ def health() -> dict[str, Any]:
                 workers_ready += 1
     identity_ready = reg is not None
     epp_ready = bool(det and det.ready)
+    combined = inference_mod.combined_inference_enabled()
+    active_site = tenants_mod.get_site(tenants_mod.get_active_site_id())
     return {
         "status": "ok",
         "product": "VigiEPP",
         "build": BUILD_VERSION,
         "model_ready": epp_ready,
         "identity_ready": identity_ready,
+        "combined_inference": combined,
         "gallery_size": gallery_size,
         "workers_ready": workers_ready,
         "model": (det.model_name if det else "") or ("EPP bajo demanda" if not epp_ready else ""),
         "warning": (det.error if det else None) or (None if identity_ready else "Cargando identidad…"),
         "booting": not identity_ready and not epp_ready,
         "auth_enabled": auth_mod.auth_enabled(),
+        "oidc": oidc_mod.public_config(),
+        "active_site": active_site,
         "data_dir": str(paths_mod.data_dir()),
         "data_persistent": bool(data_persistent),
         "data_ephemeral_risk": bool(ephemeral_risk and not durable),
@@ -541,6 +557,69 @@ def auth_me(request: Request) -> dict[str, Any]:
     if not role:
         raise HTTPException(401, "No autorizado")
     return {"ok": True, "authenticated": True, "auth_enabled": True, "role": role}
+
+
+@app.get("/api/auth/oidc/config")
+def oidc_config() -> dict[str, Any]:
+    return oidc_mod.public_config()
+
+
+@app.get("/api/auth/oidc/login")
+def oidc_login() -> dict[str, Any]:
+    try:
+        return {"ok": True, "url": oidc_mod.authorize_url()}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.get("/api/auth/oidc/callback")
+def oidc_callback(response: Response, code: str = "", state: str = "") -> dict[str, Any]:
+    if not code:
+        raise HTTPException(400, "Falta code")
+    try:
+        tokens = oidc_mod.exchange_code(code)
+        access = str(tokens.get("access_token") or "")
+        user = oidc_mod.userinfo(access) if access else {}
+        role = "admin"
+        token = auth_mod.create_session(role)
+        auth_mod.set_session_cookie(response, token)
+        return {
+            "ok": True,
+            "role": role,
+            "token": token,
+            "user": {
+                "email": user.get("email"),
+                "name": user.get("name") or user.get("preferred_username"),
+            },
+        }
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("OIDC callback falló")
+        raise HTTPException(401, f"OIDC falló: {exc}") from exc
+
+
+@app.get("/api/sites")
+def sites_list() -> dict[str, Any]:
+    active_id = tenants_mod.get_active_site_id()
+    return {
+        "sites": tenants_mod.list_sites(),
+        "active_site_id": active_id,
+        "active_site": tenants_mod.get_site(active_id),
+    }
+
+
+@app.post("/api/sites")
+def sites_create(body: SiteCreateBody) -> dict[str, Any]:
+    site = tenants_mod.create_site(body.name)
+    return {"ok": True, "site": site}
+
+
+@app.post("/api/sites/active")
+def sites_set_active(body: SiteActiveBody) -> dict[str, Any]:
+    try:
+        site = tenants_mod.set_active_site(body.site_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "site": site, "active_site_id": body.site_id}
 
 
 @app.get("/api/profiles")
@@ -613,9 +692,10 @@ def _detect_frame(
     identity = None
     detections: list = []
     annotated = frame
+    imgsz_use = max(224, min(int(imgsz or _DETECT_IMGSZ_MAX), _DETECT_IMGSZ_MAX))
+    combined = inference_mod.combined_inference_enabled()
 
-    # YOLO y SFace NUNCA en el mismo request: en Render Free (512 MB) eso es 502/OOM.
-    if identify:
+    if identify and not combined:
         reg = IdentityRegistry.peek()
         if reg is None:
             threading.Thread(target=IdentityRegistry.get, name="id-load", daemon=True).start()
@@ -633,9 +713,33 @@ def _detect_frame(
         if identity and return_image:
             annotated = _draw_identity(annotated, identity)
     else:
+        reg = IdentityRegistry.peek()
         det = PPEDetector.peek()
+        if identify and reg is None:
+            threading.Thread(target=IdentityRegistry.get, name="id-load", daemon=True).start()
         if det is None or not det.ready:
             threading.Thread(target=PPEDetector.get, name="epp-load", daemon=True).start()
+            if not identify:
+                return JSONResponse(
+                    {
+                        "ok": False,
+                        "booting": True,
+                        "error": "Modelo IA cargando… reintentá en unos segundos.",
+                        "detections": [],
+                        "compliance": {"overall_compliant": False, "persons": [], "summary": "Cargando IA"},
+                    },
+                    status_code=503,
+                )
+        try:
+            detections, annotated, identity = inference_mod.analyze_frame(
+                frame,
+                conf=conf,
+                imgsz=imgsz_use,
+                threshold=thr,
+                identify=identify,
+                annotate=return_image,
+            )
+        except RuntimeError:
             return JSONResponse(
                 {
                     "ok": False,
@@ -646,14 +750,8 @@ def _detect_frame(
                 },
                 status_code=503,
             )
-
-        imgsz_use = max(224, min(int(imgsz or _DETECT_IMGSZ_MAX), _DETECT_IMGSZ_MAX))
-        try:
-            detections, annotated = det.predict(
-                frame, conf=conf, imgsz=imgsz_use, annotate=return_image
-            )
         except Exception:  # noqa: BLE001
-            logger.exception("Inferencia EPP falló")
+            logger.exception("Inferencia falló")
             return JSONResponse(
                 {
                     "ok": False,
@@ -663,6 +761,8 @@ def _detect_frame(
                 },
                 status_code=503,
             )
+        if identify and identity and return_image:
+            annotated = _draw_identity(annotated, identity)
 
     jpeg = encode_jpeg(annotated, quality=68) if return_image else None
     payload = _build_response(
