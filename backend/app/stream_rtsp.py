@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from typing import Optional
@@ -87,12 +88,22 @@ class RTSPStream:
 # Registro simple de streams activos por sesión/demo
 _streams: dict[str, RTSPStream] = {}
 _streams_lock = threading.Lock()
+_MAX_STREAMS = int(os.getenv("VIGIEPP_MAX_RTSP_STREAMS", "24"))
+
+
+def active_stream_count() -> int:
+    with _streams_lock:
+        return len(_streams)
 
 
 def get_or_create_stream(url: str) -> RTSPStream:
     key = url.strip()
     with _streams_lock:
         if key not in _streams:
+            if len(_streams) >= _MAX_STREAMS:
+                raise RuntimeError(
+                    f"Límite de streams RTSP ({_MAX_STREAMS}). Detén cámaras antes de agregar más."
+                )
             stream = RTSPStream(key)
             stream.start()
             _streams[key] = stream

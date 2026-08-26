@@ -24,12 +24,16 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import auth as auth_mod
+from . import audit as audit_mod
 from . import exposure as exposure_mod
 from . import inference as inference_mod
+from . import metrics as metrics_mod
 from . import notifications as notif_mod
 from . import oidc as oidc_mod
 from . import paths as paths_mod
+from . import privacy as privacy_mod
 from . import reports as reports_mod
+from . import site_reload as site_reload_mod
 from . import tenants as tenants_mod
 from . import zones as zones_mod
 from .compliance import evaluate
@@ -51,7 +55,7 @@ _detect_lock = threading.Lock()
 _DETECT_IMGSZ_MAX = int(os.getenv("VIGIEPP_IMGSZ_MAX", "256"))
 
 
-BUILD_VERSION = "v37"
+BUILD_VERSION = "v38"
 
 
 @asynccontextmanager
@@ -84,6 +88,10 @@ async def lifespan(_: FastAPI):
                 logger.exception("Precarga lazy EPP falló")
 
         threading.Thread(target=_lazy_yolo, name="epp-lazy", daemon=True).start()
+        try:
+            privacy_mod.apply_retention()
+        except Exception:  # noqa: BLE001
+            logger.exception("Retención inicial falló")
 
     threading.Thread(target=_warm, name="vigiepp-warm", daemon=True).start()
     yield
@@ -458,6 +466,11 @@ class SiteActiveBody(BaseModel):
     site_id: str = Field(..., min_length=1, max_length=40)
 
 
+class PrivacyPatchBody(BaseModel):
+    qr_only_mode: Optional[bool] = None
+    retention_days: Optional[int] = Field(None, ge=7, le=365)
+
+
 @app.get("/api/health")
 def health() -> dict[str, Any]:
     # No llamar PPEDetector.get(): en cold start bloquearía >5s y Render marca 502.
@@ -490,6 +503,10 @@ def health() -> dict[str, Any]:
     epp_ready = bool(det and det.ready)
     combined = inference_mod.combined_inference_enabled()
     active_site = tenants_mod.get_site(tenants_mod.get_active_site_id())
+    privacy_cfg = privacy_mod.get_config()
+    pin_warn = bool(auth_mod.using_default_pins() and on_render)
+    from .stream_rtsp import active_stream_count
+
     return {
         "status": "ok",
         "product": "VigiEPP",
@@ -505,11 +522,13 @@ def health() -> dict[str, Any]:
         "auth_enabled": auth_mod.auth_enabled(),
         "oidc": oidc_mod.public_config(),
         "active_site": active_site,
+        "privacy": privacy_cfg,
         "data_dir": str(paths_mod.data_dir()),
         "data_persistent": bool(data_persistent),
         "data_ephemeral_risk": bool(ephemeral_risk and not durable),
         "cloud_backup": cloud,
-        "default_pins": auth_mod.using_default_pins(),
+        "production_pin_warning": pin_warn,
+        "rtsp_streams_active": active_stream_count(),
         "email_transport": notif_mod.email_transport_status().get("mode"),
     }
 
@@ -576,11 +595,13 @@ def oidc_login() -> dict[str, Any]:
 def oidc_callback(response: Response, code: str = "", state: str = "") -> dict[str, Any]:
     if not code:
         raise HTTPException(400, "Falta code")
+    if not oidc_mod.validate_state(state):
+        raise HTTPException(400, "State OIDC inválido o expirado")
     try:
         tokens = oidc_mod.exchange_code(code)
         access = str(tokens.get("access_token") or "")
         user = oidc_mod.userinfo(access) if access else {}
-        role = "admin"
+        role = oidc_mod.resolve_role(user)
         token = auth_mod.create_session(role)
         auth_mod.set_session_cookie(response, token)
         return {
@@ -594,7 +615,7 @@ def oidc_callback(response: Response, code: str = "", state: str = "") -> dict[s
         }
     except Exception as exc:  # noqa: BLE001
         logger.exception("OIDC callback falló")
-        raise HTTPException(401, f"OIDC falló: {exc}") from exc
+        raise HTTPException(401, "OIDC falló") from exc
 
 
 @app.get("/api/sites")
@@ -619,7 +640,37 @@ def sites_set_active(body: SiteActiveBody) -> dict[str, Any]:
         site = tenants_mod.set_active_site(body.site_id)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+    site_reload_mod.reload_site_context()
+    audit_mod.log("site_active", detail=site.get("name") or body.site_id)
     return {"ok": True, "site": site, "active_site_id": body.site_id}
+
+
+@app.get("/api/privacy/config")
+def privacy_config_get() -> dict[str, Any]:
+    return {"ok": True, "config": privacy_mod.get_config()}
+
+
+@app.post("/api/privacy/config")
+def privacy_config_save(body: PrivacyPatchBody) -> dict[str, Any]:
+    patch = body.model_dump(exclude_none=True)
+    cfg = privacy_mod.save_config(patch)
+    audit_mod.log("privacy_config", detail=str(patch)[:200])
+    return {"ok": True, "config": cfg}
+
+
+@app.post("/api/privacy/retention/run")
+def privacy_retention_run() -> dict[str, Any]:
+    result = privacy_mod.apply_retention()
+    audit_mod.log("privacy_retention", detail=str(result.get("evidence_removed", 0)))
+    return {"ok": True, "result": result}
+
+
+@app.get("/metrics")
+def metrics_prometheus() -> PlainTextResponse:
+    from .stream_rtsp import active_stream_count
+
+    extra = {"rtsp_streams_active": active_stream_count()}
+    return PlainTextResponse(metrics_mod.prometheus_text(extra), media_type="text/plain; version=0.0.4")
 
 
 @app.get("/api/profiles")
@@ -647,6 +698,7 @@ async def detect_upload(
     if not data:
         raise HTTPException(400, "Archivo vacío")
     if not _detect_lock.acquire(blocking=False):
+        metrics_mod.inc("detect_busy_total")
         return JSONResponse(
             {"ok": False, "busy": True, "error": "IA ocupada, esperá un momento."},
             status_code=429,
@@ -677,6 +729,7 @@ def _detect_frame(
     threshold: float,
     required: list[str] | None = None,
 ) -> JSONResponse:
+    t0 = time.perf_counter()
     try:
         frame = decode_image_bytes(data)
     except ValueError as exc:
@@ -793,6 +846,8 @@ def _detect_frame(
             payload["access"] = access
     except Exception:  # noqa: BLE001
         logger.exception("Access gate falló")
+    metrics_mod.inc("detect_requests_total")
+    metrics_mod.observe_detect_ms((time.perf_counter() - t0) * 1000.0)
     return JSONResponse(payload)
 
 
@@ -942,7 +997,10 @@ def notifications_hardware_test(body: HardwareTestBody) -> dict[str, Any]:
 @app.post("/api/rtsp/start")
 def rtsp_start(body: RTSPStartRequest) -> dict[str, Any]:
     url = _validate_rtsp_url(body.url)
-    stream = get_or_create_stream(url)
+    try:
+        stream = get_or_create_stream(url)
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
     return {
         "ok": True,
         "url": url,
@@ -978,7 +1036,6 @@ def rtsp_frame(
         scale = 720 / max(h, w)
         frame = cv2.resize(frame, (int(w * scale), int(h * scale)))
 
-    det = PPEDetector.get()
     det = PPEDetector.get()
     identity = None
     detections: list = []
@@ -1202,6 +1259,20 @@ def _thumb_b64(frame: np.ndarray, max_w: int = 320) -> str:
     return base64.b64encode(jpeg).decode("ascii")
 
 
+def _compliance_cell_fields(payload: dict[str, Any]) -> dict[str, Any]:
+    comp = payload.get("compliance") or {}
+    persons = comp.get("persons") or []
+    missing: list[str] = []
+    for p in persons:
+        for m in p.get("missing") or []:
+            missing.append(str(m))
+    return {
+        "compliant": comp.get("overall_compliant"),
+        "missing": missing,
+        "alerts": comp.get("alerts") or [],
+    }
+
+
 @app.get("/api/rtsp/jpeg")
 def rtsp_jpeg(url: str, max_w: int = 480) -> Response:
     url = _validate_rtsp_url(url)
@@ -1259,7 +1330,13 @@ def surveillance_mass_scan(
             cells.append(cell)
             continue
 
-        stream = get_or_create_stream(url)
+        try:
+            stream = get_or_create_stream(url)
+        except RuntimeError as exc:
+            cell["error"] = str(exc)
+            cells.append(cell)
+            continue
+
         frame = stream.read()
         if frame is None:
             cell["error"] = stream.last_error or "Sin frame"
@@ -1278,21 +1355,23 @@ def surveillance_mass_scan(
             required=req,
         )
         comp = payload.get("compliance") or {}
+        fields = _compliance_cell_fields(payload)
         cell.update(
             {
                 "ok": True,
                 "connected": True,
-                "compliant": comp.get("compliant"),
-                "missing": comp.get("missing") or [],
-                "alerts": payload.get("alerts") or [],
+                "compliant": fields.get("compliant"),
+                "missing": fields.get("missing") or [],
+                "alerts": fields.get("alerts") or [],
                 "thumb": _thumb_b64(frame),
                 "safety_score": payload.get("safety_score"),
             }
         )
-        if not comp.get("compliant"):
+        if not fields.get("compliant"):
             alert_count += 1
         cells.append(cell)
 
+    metrics_mod.inc("mass_scans_total")
     return {
         "ok": True,
         "cells": cells,
@@ -1502,6 +1581,8 @@ async def identity_enroll(
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     agreed = str(consent).strip().lower() in ("1", "true", "yes", "on")
+    if privacy_mod.qr_only_enabled():
+        raise HTTPException(400, "Modo QR-only activo: enrolamiento facial deshabilitado.")
     result = IdentityService().enroll(frame, name=name, rut=rut, notes=notes, consent=agreed)
     if not result.get("ok"):
         raise HTTPException(400, result.get("error", "No se pudo enrolar"))
@@ -1526,6 +1607,8 @@ async def identity_enroll_photos(
     agreed = str(consent).strip().lower() in ("1", "true", "yes", "on")
     if not agreed:
         raise HTTPException(400, "Falta consentimiento biométrico para registrar el rostro.")
+    if privacy_mod.qr_only_enabled():
+        raise HTTPException(400, "Modo QR-only activo: enrolamiento facial deshabilitado.")
     saved = 0
     failed = 0
     last_worker = None
@@ -1775,12 +1858,19 @@ async def ws_detect(websocket: WebSocket) -> None:
                 await websocket.send_json({"ok": False, "error": "frame inválido"})
                 continue
 
-            detections, annotated = det.predict(
-                frame, conf=conf, imgsz=_DETECT_IMGSZ_MAX, annotate=True
-            )
-            jpeg = encode_jpeg(annotated, quality=68)
-            payload = _build_response(detections, jpeg, profile)
-            await websocket.send_json(payload)
+            if not _detect_lock.acquire(blocking=False):
+                await websocket.send_json({"ok": False, "busy": True, "error": "IA ocupada"})
+                continue
+            try:
+                detections, annotated = det.predict(
+                    frame, conf=conf, imgsz=_DETECT_IMGSZ_MAX, annotate=True
+                )
+                jpeg = encode_jpeg(annotated, quality=68)
+                payload = _build_response(detections, jpeg, profile)
+                metrics_mod.inc("detect_requests_total")
+                await websocket.send_json(payload)
+            finally:
+                _detect_lock.release()
     except WebSocketDisconnect:
         logger.info("WebSocket cerrado")
     except Exception:  # noqa: BLE001

@@ -70,6 +70,11 @@ class TeachStore:
                 cls._instance = cls()
             return cls._instance
 
+    @classmethod
+    def reset_for_site(cls) -> None:
+        with cls._lock:
+            cls._instance = None
+
     def _load_meta(self) -> dict[str, Any]:
         if META_FILE.exists():
             raw = json.loads(META_FILE.read_text(encoding="utf-8"))

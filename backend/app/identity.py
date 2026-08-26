@@ -337,6 +337,12 @@ class IdentityRegistry:
             return None
         return inst
 
+    @classmethod
+    def reset_for_site(cls) -> None:
+        with cls._lock:
+            cls._instance = None
+            cls._load_started = False
+
     def _load(self) -> None:
         if not WORKERS_FILE.exists():
             return
@@ -789,6 +795,9 @@ class IdentityService:
         return worker
 
     def identify(self, frame_bgr: np.ndarray, threshold: float = DEFAULT_THRESHOLD) -> dict[str, Any]:
+        from .privacy import qr_only_enabled
+
+        qr_only = qr_only_enabled()
         qr = self.read_qr(frame_bgr)
         by_qr = None
         if qr.get("rut"):
@@ -809,7 +818,17 @@ class IdentityService:
             cv2.polylines(annotated, [pts], True, (0, 180, 255), 2)
 
         gallery_n = sum(len(e) for e in self.registry._embeddings.values())
-        faces = self.registry.detect_faces(frame_bgr)
+        faces = [] if qr_only else self.registry.detect_faces(frame_bgr)
+        if qr_only and not qr.get("rut"):
+            cv2.putText(
+                annotated,
+                "Modo QR-only — escanea cédula",
+                (20, 40),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.75,
+                (50, 50, 220),
+                2,
+            )
         if not faces and self.registry._backend != "sface":
             cv2.putText(
                 annotated,

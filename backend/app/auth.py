@@ -233,6 +233,7 @@ def is_public_path(path: str) -> bool:
         "/api/auth/status",
         "/api/auth/login",
         "/api/auth/logout",
+        "/metrics",
     ):
         return True
     if path.startswith("/assets/"):
@@ -340,6 +341,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
             if not ok:
                 return JSONResponse({"detail": "No autorizado. Iniciá sesión."}, status_code=401)
             role = session_role(token)
+            try:
+                from . import audit as audit_mod
+
+                audit_mod.set_actor(role or "operator")
+            except Exception:  # noqa: BLE001
+                pass
             if role == ROLE_OPERATOR and is_admin_only(request.method, path):
                 return JSONResponse(
                     {"detail": "Rol operador: solo monitoreo / portería."},
@@ -350,10 +357,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
 
 def auth_status() -> dict[str, Any]:
+    on_render = bool(os.getenv("RENDER") or os.getenv("RENDER_SERVICE_ID"))
+    defaults = using_default_pins()
     return {
         "auth_enabled": auth_enabled(),
         "docs_enabled": docs_enabled(),
         "roles": [ROLE_ADMIN, ROLE_OPERATOR],
-        "default_pins": using_default_pins(),
-        "hint": "PIN admin (VIGIEPP_ADMIN_PIN) o PIN operador/portería (VIGIEPP_OPERATOR_PIN).",
+        "default_pins_active": defaults,
+        "production_pin_warning": bool(defaults and on_render),
+        "hint": "Configura VIGIEPP_ADMIN_PIN y VIGIEPP_OPERATOR_PIN en producción.",
     }

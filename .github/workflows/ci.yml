@@ -18,7 +18,13 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r backend/requirements.txt
-          pip install pytest httpx
+          pip install pytest httpx ruff bandit
+
+      - name: Ruff
+        run: ruff check backend/app tests --ignore E501
+
+      - name: Bandit
+        run: bandit -q -r backend/app -x tests || true
 
       - name: Run pytest
         run: pytest tests/ -v --tb=short

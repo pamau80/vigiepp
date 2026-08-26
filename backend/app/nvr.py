@@ -13,11 +13,47 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from .paths import data_dir
+from . import secret_box as secret_mod
+from .security_urls import validate_lan_http_host
 
 logger = logging.getLogger("vigiepp.nvr")
 
 _lock = threading.Lock()
 NVR_FILE = data_dir() / "nvr_devices.json"
+
+
+def refresh_paths() -> None:
+    global NVR_FILE
+    NVR_FILE = data_dir() / "nvr_devices.json"
+
+
+def _device_password(device: dict[str, Any]) -> str:
+    enc = device.get("password_enc")
+    if enc:
+        plain = secret_mod.decrypt_text(str(enc))
+        if plain:
+            return plain
+    return str(device.get("password") or "")
+
+
+def _store_password_fields(plain: str) -> dict[str, str]:
+    enc = secret_mod.encrypt_text(plain or "")
+    if enc:
+        return {"password_enc": enc, "password": ""}
+    return {"password": plain or ""}
+
+
+def _sanitize_device(device: dict[str, Any]) -> dict[str, Any]:
+    out = {k: v for k, v in device.items() if k not in ("password", "password_enc")}
+    out["password_set"] = bool(_device_password(device))
+    return out
+
+
+def _maybe_migrate_password(device: dict[str, Any]) -> bool:
+    if device.get("password") and not device.get("password_enc"):
+        device.update(_store_password_fields(str(device.get("password") or "")))
+        return True
+    return False
 
 VENDORS: dict[str, dict[str, Any]] = {
     "hikvision": {
@@ -60,11 +96,22 @@ VENDORS: dict[str, dict[str, Any]] = {
 
 
 def _load() -> dict[str, Any]:
+    refresh_paths()
     if not NVR_FILE.exists():
         return {"devices": [], "updated_at": None}
     try:
         raw = json.loads(NVR_FILE.read_text(encoding="utf-8"))
         if isinstance(raw, dict) and isinstance(raw.get("devices"), list):
+            migrated = False
+            devices = []
+            for d in raw.get("devices") or []:
+                if isinstance(d, dict):
+                    if _maybe_migrate_password(d):
+                        migrated = True
+                    devices.append(d)
+            if migrated:
+                raw["devices"] = devices
+                _save(raw)
             return raw
     except json.JSONDecodeError:
         pass
@@ -201,6 +248,13 @@ def list_channels(
 
 
 def _http_probe(url: str, timeout: float = 4.0) -> tuple[bool, str]:
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    ok_h, msg = validate_lan_http_host(host)
+    if not ok_h:
+        return False, msg
     try:
         req = Request(url, method="GET")
         with urlopen(req, timeout=timeout) as resp:  # noqa: S310
@@ -274,7 +328,7 @@ def probe_device(
 
 def list_devices() -> list[dict[str, Any]]:
     with _lock:
-        return list(_load().get("devices") or [])
+        return [_sanitize_device(d) for d in (_load().get("devices") or [])]
 
 
 def register_device(
@@ -290,16 +344,24 @@ def register_device(
     subtype: int = 0,
     device_id: str | None = None,
 ) -> dict[str, Any]:
+    pwd_use = password
+    if device_id and not pwd_use:
+        with _lock:
+            for d in (_load().get("devices") or []):
+                if d.get("id") == device_id:
+                    pwd_use = _device_password(d)
+                    break
     channels = list_channels(
         vendor,
         host,
         username=username,
-        password=password,
+        password=pwd_use,
         port=port,
         http_port=http_port,
         channel_count=channel_count,
         subtype=subtype,
     )
+    secret_fields = _store_password_fields(pwd_use) if pwd_use else {}
     entry = {
         "id": device_id or uuid.uuid4().hex[:10],
         "vendor": vendor,
@@ -312,6 +374,7 @@ def register_device(
         "subtype": subtype,
         "channels": channels,
         "enabled": True,
+        **secret_fields,
     }
     with _lock:
         data = _load()
@@ -319,12 +382,16 @@ def register_device(
         if device_id:
             for d in devices:
                 if d.get("id") == device_id:
+                    if not password:
+                        entry.pop("password", None)
+                        if d.get("password_enc"):
+                            entry["password_enc"] = d["password_enc"]
                     d.update(entry)
                     _save({"devices": devices})
-                    return d
+                    return _sanitize_device(d)
         devices.append(entry)
         _save({"devices": devices})
-        return entry
+        return _sanitize_device(entry)
 
 
 def delete_device(device_id: str) -> bool:

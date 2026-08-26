@@ -16,6 +16,11 @@ WATCH_FILE = data_dir() / "watchlist.json"
 MAX_WATCH = 16
 
 
+def refresh_paths() -> None:
+    global WATCH_FILE
+    WATCH_FILE = data_dir() / "watchlist.json"
+
+
 def _load() -> dict[str, Any]:
     if not WATCH_FILE.exists():
         return {"channels": [], "updated_at": None}

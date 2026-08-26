@@ -132,7 +132,7 @@
     repSideList: $("#repSideList"),
   };
 
-  const APP_BUILD = "v37";
+  const APP_BUILD = "v38";
 
   function isLiveMode() {
     return appMode === "live" || appMode === "monitor";
@@ -223,6 +223,8 @@
     anonymizeFaces: true,
     showZones: true,
     kioskMode: false,
+    qrOnlyMode: false,
+    retentionDays: 90,
     ppeByProfile: {},
   });
   let settings = defaultSettings();
@@ -297,6 +299,37 @@
     if (els.cfgShowZones) els.cfgShowZones.checked = !!settings.showZones;
     if (els.chkIdentify) els.chkIdentify.checked = !!settings.identifyDefault;
     if (els.chkFullscreen) els.chkFullscreen.checked = !!settings.fullscreenDefault;
+    const qrEl = $("#cfgQrOnlyMode");
+    const retEl = $("#cfgRetentionDays");
+    const retVal = $("#cfgRetentionVal");
+    if (qrEl) qrEl.checked = !!settings.qrOnlyMode;
+    if (retEl) {
+      retEl.value = String(settings.retentionDays ?? 90);
+      if (retVal) retVal.textContent = String(settings.retentionDays ?? 90);
+    }
+  }
+
+  async function loadPrivacyServer() {
+    try {
+      const data = await api("/api/privacy/config");
+      const cfg = data.config || {};
+      settings.qrOnlyMode = !!cfg.qr_only_mode;
+      settings.retentionDays = Number(cfg.retention_days) || 90;
+      applyCfgToDom();
+    } catch (_) {}
+  }
+
+  async function savePrivacyServer() {
+    try {
+      await api("/api/privacy/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          qr_only_mode: !!settings.qrOnlyMode,
+          retention_days: Number(settings.retentionDays) || 90,
+        }),
+      });
+    } catch (_) {}
   }
 
   function readSettingsFromForm() {
@@ -323,6 +356,13 @@
     }
     settings.anonymizeFaces = !!els.cfgAnonymize?.checked;
     settings.showZones = !!els.cfgShowZones?.checked;
+    settings.qrOnlyMode = !!$("#cfgQrOnlyMode")?.checked;
+    settings.retentionDays = Math.max(
+      7,
+      Math.min(365, Number($("#cfgRetentionDays")?.value) || settings.retentionDays || 90)
+    );
+    if ($("#cfgRetentionVal")) $("#cfgRetentionVal").textContent = String(settings.retentionDays);
+    savePrivacyServer();
     if (els.cfgBodyScaleVal) els.cfgBodyScaleVal.textContent = `${settings.bodyScale}%`;
     if (els.cfgFaceScaleVal) els.cfgFaceScaleVal.textContent = `${settings.faceScale}%`;
     if (els.cfgGuideYVal)
@@ -1457,6 +1497,7 @@
     await refreshCameras();
     await loadZones();
     loadSettings();
+    await loadPrivacyServer();
     settings.fullscreenDefault = false;
     if (els.chkFullscreen) els.chkFullscreen.checked = false;
     syncSettingsForm();
@@ -3746,6 +3787,8 @@
   });
   els.btnSaveCamera?.addEventListener("click", () => saveCurrentCamera().catch((e) => alert(e.message)));
   els.btnDelCamera?.addEventListener("click", () => deleteSelectedCamera().catch((e) => alert(e.message)));
+  $("#cfgQrOnlyMode")?.addEventListener("change", () => readSettingsFromForm());
+  $("#cfgRetentionDays")?.addEventListener("input", () => readSettingsFromForm());
   $("#btnAuditRefresh")?.addEventListener("click", () => refreshAudit());
   $("#cfgSiteSelect")?.addEventListener("change", async (ev) => {
     const siteId = ev.target.value;
@@ -3757,6 +3800,8 @@
       });
       const health = await api("/api/health");
       applyHealth(health);
+      await refreshWorkers();
+      await loadZones();
       els.repSideSummary.textContent = "Faena activa actualizada";
     } catch (err) {
       els.repSideSummary.textContent = err.message || "Error al cambiar faena";

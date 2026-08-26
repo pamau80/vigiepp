@@ -66,6 +66,11 @@ def _ensure() -> None:
         )
 
 
+def refresh_paths() -> None:
+    """Rebind paths tras cambio de sitio activo."""
+    _ensure()
+
+
 def get_config() -> dict[str, Any]:
     _ensure()
     with _lock:
@@ -197,6 +202,11 @@ def _format_message(cfg: dict[str, Any], payload: dict[str, Any]) -> tuple[str, 
 
 
 def _post_json(url: str, data: dict[str, Any], timeout: float = 8.0) -> tuple[bool, str]:
+    from .security_urls import validate_outbound_url
+
+    ok_u, why = validate_outbound_url(url, allow_public=True)
+    if not ok_u:
+        return False, why
     if not url or not url.startswith(("http://", "https://")):
         return False, "URL inválida"
     req = urllib.request.Request(
