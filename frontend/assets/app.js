@@ -1,6 +1,27 @@
-(() => {
-  const $ = (sel) => document.querySelector(sel);
-  const $$ = (sel) => [...document.querySelectorAll(sel)];
+import { $, $$ } from "./modules/dom.js";
+import { createApi } from "./modules/http.js";
+import {
+  defaultSettings,
+  getSettings,
+  loadSettings as loadSettingsFromModule,
+  saveSettings as saveSettingsToModule,
+} from "./modules/settings.js";
+import {
+  applyMobileChrome as applyMobileChromeModule,
+  isMobile,
+  isIOS,
+  isAndroid,
+  syncViewportHeight,
+} from "./modules/mobile.js";
+
+const api = createApi({
+  onUnauthorized: async () => {
+    sessionStorage.removeItem("vigiepp.token");
+    sessionStorage.removeItem("vigiepp.role");
+    await ensureAuth(true);
+    throw new Error("Sesión expirada. Ingresá el PIN de nuevo.");
+  },
+});
 
   const els = {
     profileSelect: $("#profileSelect"),
@@ -132,7 +153,7 @@
     repSideList: $("#repSideList"),
   };
 
-  const APP_BUILD = globalThis.VIGIEPP_BUILD || "v39";
+  const APP_BUILD = globalThis.VIGIEPP_BUILD || "v40";
 
   function isLiveMode() {
     return appMode === "live" || appMode === "monitor";
@@ -169,102 +190,19 @@
   let combinedInference = false;
   let lastHealth = null;
 
-  const isIOS = () =>
-    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-  const isAndroid = () => /Android/i.test(navigator.userAgent);
-  const isMobile = () =>
-    isIOS() ||
-    isAndroid() ||
-    (/Mobile|Opera Mini|IEMobile/i.test(navigator.userAgent) && window.innerWidth < 980) ||
-    (navigator.maxTouchPoints > 1 && window.innerWidth < 980);
-
   function applyMobileChrome() {
-    const mobile = isMobile();
-    document.body.classList.toggle("is-mobile", mobile);
-    document.body.classList.toggle("is-ios", isIOS());
-    document.body.classList.toggle("is-android", isAndroid());
-    const hint = $("#speedHint");
-    if (mobile) {
-      if (els.chkFullscreen) {
-        els.chkFullscreen.checked = false;
-        settings.fullscreenDefault = false;
-      }
-      if (hint) {
-        hint.textContent = isIOS()
-          ? "iPhone/iPad · Safari o “Agregar a inicio”"
-          : "Android · podés instalar como app";
-      }
-    }
-    syncViewportHeight();
+    applyMobileChromeModule(settings, els);
   }
 
-  function syncViewportHeight() {
-    const h = window.visualViewport?.height || window.innerHeight;
-    document.documentElement.style.setProperty("--app-vh", `${Math.round(h)}px`);
-  }
-
-  const SETTINGS_KEY = "vigiepp.settings.v5";
-  const defaultSettings = () => ({
-    silhouetteEnabled: true,
-    silhouetteGate: true,
-    faceGuide: true,
-    bodyScale: 100,
-    faceScale: 100,
-    guideOffsetY: 0,
-    autoAdvanceEnroll: true,
-    poseAttempts: 8,
-    identifyDefault: false,
-    showPpeBoxes: false,
-    fullscreenDefault: false,
-    identifyThreshold: 0.33,
-    audioAlerts: true,
-    audioAlertRepeats: 0,
-    anonymizeFaces: true,
-    showZones: true,
-    kioskMode: false,
-    qrOnlyMode: false,
-    retentionDays: 90,
-    ppeByProfile: {},
-  });
-  let settings = defaultSettings();
+  let settings = getSettings();
 
   function loadSettings() {
-    try {
-      const raw = localStorage.getItem(SETTINGS_KEY);
-      if (!raw) return;
-      settings = { ...defaultSettings(), ...JSON.parse(raw) };
-      settings.bodyScale = Math.max(55, Math.min(130, Number(settings.bodyScale) || 100));
-      settings.faceScale = Math.max(55, Math.min(140, Number(settings.faceScale) || 100));
-      settings.guideOffsetY = Math.max(-20, Math.min(20, Number(settings.guideOffsetY) || 0));
-      settings.audioAlertRepeats = Math.max(0, Math.min(10, Number(settings.audioAlertRepeats) || 0));
-      settings.identifyThreshold = Math.max(
-        0.25,
-        Math.min(0.65, Number(settings.identifyThreshold) || 0.33)
-      );
-      // El 0.42 de “modo precisión” rechazaba al enrolado en webcam real
-      if (!settings._idThreshV30) {
-        settings.identifyThreshold = 0.33;
-        settings._idThreshV30 = true;
-        try {
-          localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-        } catch (_) {}
-      }
-      if (!settings.ppeByProfile || typeof settings.ppeByProfile !== "object") {
-        settings.ppeByProfile = {};
-      }
-    } catch (_) {
-      settings = defaultSettings();
-    }
+    loadSettingsFromModule();
+    settings = getSettings();
   }
 
   function saveSettings(silent = false) {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-    if (silent || !els.cfgSavedHint) return;
-    els.cfgSavedHint.textContent = "Guardado · se aplica al instante";
-    setTimeout(() => {
-      if (els.cfgSavedHint) els.cfgSavedHint.textContent = "Los cambios se guardan en este navegador.";
-    }, 1600);
+    saveSettingsToModule(silent, els.cfgSavedHint);
   }
 
   function syncSettingsForm() {
@@ -540,63 +478,6 @@
 
   function requiredQueryValue(profileId) {
     return JSON.stringify(getEffectiveRequired(profileId || els.profileSelect?.value || "general"));
-  }
-
-  async function api(path, options = {}, timeoutMs = 20000) {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-    try {
-      const headers = { ...(options.headers || {}) };
-      const token = sessionStorage.getItem("vigiepp.token");
-      if (token && !headers["X-VigiEPP-Key"] && !headers.Authorization) {
-        headers["X-VigiEPP-Key"] = token;
-      }
-      const res = await fetch(path, {
-        ...options,
-        headers,
-        credentials: "include",
-        signal: ctrl.signal,
-      });
-      if (res.status === 401 && !path.startsWith("/api/auth/")) {
-        sessionStorage.removeItem("vigiepp.token");
-        sessionStorage.removeItem("vigiepp.role");
-        await ensureAuth(true);
-        throw new Error("Sesión expirada. Ingresá el PIN de nuevo.");
-      }
-      const data = await res.json().catch(() => ({}));
-      // 503 booting: devolver payload para que el loop reintente sin “error”
-      if (res.status === 503 && data && (data.booting || data.error)) {
-        return { ...data, ok: false, _http: 503 };
-      }
-      if (!res.ok && res.status !== 202) {
-        if (res.status === 429) {
-          return { ok: false, busy: true, error: data.error || "IA ocupada", _http: 429 };
-        }
-        if (res.status === 502 || res.status === 503) {
-          if (/\/api\/detect|\/api\/identity\/identify/.test(path)) {
-            return {
-              ok: false,
-              down: true,
-              _http: res.status,
-              error: "Servidor ocupado. Reintentando…",
-            };
-          }
-          throw new Error(
-            res.status === 502 ? "Servidor ocupado. Esperá 15 s." : data.error || "Servidor no listo"
-          );
-        }
-        const detail = data.detail || data.error || `HTTP ${res.status}`;
-        throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
-      }
-      return data;
-    } catch (err) {
-      if (err.name === "AbortError") {
-        throw new Error("Tiempo agotado (servidor lento o IA cargando). Esperá 10 s y reintentá.");
-      }
-      throw err;
-    } finally {
-      clearTimeout(timer);
-    }
   }
 
   function showAuthGate(show, hint = "") {
@@ -4404,4 +4285,3 @@
   });
 
   boot();
-})();
