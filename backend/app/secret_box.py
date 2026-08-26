@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import logging
 import os
@@ -19,40 +18,40 @@ def _bundle_root() -> Path:
     return _bundle_data_root()
 
 
-def _load_key() -> bytes | None:
+def _fernet():
+    try:
+        from cryptography.fernet import Fernet
+    except ImportError:
+        return None
+
     env = os.getenv("VIGIEPP_SECRETS_KEY", "").strip()
     if env:
         try:
-            return base64.urlsafe_b64decode(env + "=" * (-len(env) % 4))
+            return Fernet(env.encode("ascii"))
         except Exception:  # noqa: BLE001
             logger.warning("VIGIEPP_SECRETS_KEY inválida")
+
     path = _bundle_root() / _KEY_FILE
     if path.is_file():
+        raw = path.read_text(encoding="utf-8").strip()
         try:
-            return base64.urlsafe_b64decode(path.read_text().strip())
+            return Fernet(raw.encode("ascii"))
         except Exception:  # noqa: BLE001
-            pass
-    try:
-        from cryptography.fernet import Fernet
+            logger.warning("Archivo .secrets_key corrupto; se regenerará")
 
-        key = Fernet.generate_key()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(key.decode(), encoding="utf-8")
-        return key
-    except ImportError:
-        return None
+    key = Fernet.generate_key()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(key.decode("ascii"), encoding="utf-8")
+    return Fernet(key)
 
 
 def encrypt_text(plain: str) -> str | None:
     if not plain:
         return None
+    f = _fernet()
+    if f is None:
+        return None
     try:
-        from cryptography.fernet import Fernet
-
-        key = _load_key()
-        if not key:
-            return None
-        f = Fernet(key)
         return f.encrypt(plain.encode("utf-8")).decode("ascii")
     except Exception:  # noqa: BLE001
         logger.exception("encrypt failed")
@@ -62,13 +61,10 @@ def encrypt_text(plain: str) -> str | None:
 def decrypt_text(token: str) -> str | None:
     if not token:
         return None
+    f = _fernet()
+    if f is None:
+        return None
     try:
-        from cryptography.fernet import Fernet
-
-        key = _load_key()
-        if not key:
-            return None
-        f = Fernet(key)
         return f.decrypt(token.encode("ascii")).decode("utf-8")
     except Exception:  # noqa: BLE001
         return None

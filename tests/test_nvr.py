@@ -34,3 +34,15 @@ def test_build_channel_url_hikvision():
         subtype=0,
     )
     assert url and "rtsp://" in url
+
+
+def test_parse_onvif_device_info():
+    from app.nvr import infer_vendor_from_onvif, parse_onvif_device_info
+
+    xml = (
+        "<tds:Manufacturer>Hikvision</tds:Manufacturer>"
+        "<tds:Model>DS-7608NI-K2</tds:Model>"
+    )
+    info = parse_onvif_device_info(xml)
+    assert info["manufacturer"] == "Hikvision"
+    assert infer_vendor_from_onvif(info) == "hikvision"

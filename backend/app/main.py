@@ -120,6 +120,12 @@ app.add_middleware(
 )
 app.add_middleware(auth_mod.AuthMiddleware)
 
+from .routers import privacy as privacy_router
+from .routers import sites as sites_router
+
+app.include_router(sites_router.router)
+app.include_router(privacy_router.router)
+
 
 class DetectB64Request(BaseModel):
     image_b64: str = Field(..., description="JPEG/PNG en base64 (con o sin data URL)")
@@ -458,19 +464,6 @@ class HardwareTestBody(BaseModel):
     action: str = "alarma"
 
 
-class SiteCreateBody(BaseModel):
-    name: str = Field(..., min_length=1, max_length=80)
-
-
-class SiteActiveBody(BaseModel):
-    site_id: str = Field(..., min_length=1, max_length=40)
-
-
-class PrivacyPatchBody(BaseModel):
-    qr_only_mode: Optional[bool] = None
-    retention_days: Optional[int] = Field(None, ge=7, le=365)
-
-
 @app.get("/api/health")
 def health() -> dict[str, Any]:
     # No llamar PPEDetector.get(): en cold start bloquearía >5s y Render marca 502.
@@ -616,53 +609,6 @@ def oidc_callback(response: Response, code: str = "", state: str = "") -> dict[s
     except Exception as exc:  # noqa: BLE001
         logger.exception("OIDC callback falló")
         raise HTTPException(401, "OIDC falló") from exc
-
-
-@app.get("/api/sites")
-def sites_list() -> dict[str, Any]:
-    active_id = tenants_mod.get_active_site_id()
-    return {
-        "sites": tenants_mod.list_sites(),
-        "active_site_id": active_id,
-        "active_site": tenants_mod.get_site(active_id),
-    }
-
-
-@app.post("/api/sites")
-def sites_create(body: SiteCreateBody) -> dict[str, Any]:
-    site = tenants_mod.create_site(body.name)
-    return {"ok": True, "site": site}
-
-
-@app.post("/api/sites/active")
-def sites_set_active(body: SiteActiveBody) -> dict[str, Any]:
-    try:
-        site = tenants_mod.set_active_site(body.site_id)
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    site_reload_mod.reload_site_context()
-    audit_mod.log("site_active", detail=site.get("name") or body.site_id)
-    return {"ok": True, "site": site, "active_site_id": body.site_id}
-
-
-@app.get("/api/privacy/config")
-def privacy_config_get() -> dict[str, Any]:
-    return {"ok": True, "config": privacy_mod.get_config()}
-
-
-@app.post("/api/privacy/config")
-def privacy_config_save(body: PrivacyPatchBody) -> dict[str, Any]:
-    patch = body.model_dump(exclude_none=True)
-    cfg = privacy_mod.save_config(patch)
-    audit_mod.log("privacy_config", detail=str(patch)[:200])
-    return {"ok": True, "config": cfg}
-
-
-@app.post("/api/privacy/retention/run")
-def privacy_retention_run() -> dict[str, Any]:
-    result = privacy_mod.apply_retention()
-    audit_mod.log("privacy_retention", detail=str(result.get("evidence_removed", 0)))
-    return {"ok": True, "result": result}
 
 
 @app.get("/metrics")
@@ -1294,89 +1240,24 @@ def surveillance_mass_scan(
     required: str = "",
 ) -> dict[str, Any]:
     """Analiza EPP en todos los canales activos de la watchlist."""
+    from . import mass_scan as mass_scan_mod
     from . import watchlist as watch_mod
 
     enabled = [c for c in watch_mod.list_channels() if c.get("enabled")]
-    if not enabled:
-        return {"ok": True, "cells": [], "summary": {"total": 0, "alerts": 0}}
-
-    det = PPEDetector.get()
-    req = parse_required_list(required)
-    cells: list[dict[str, Any]] = []
-    alert_count = 0
-
-    for ch in enabled:
-        url = ch.get("url") or ""
-        cell: dict[str, Any] = {
-            "id": ch.get("id"),
-            "name": ch.get("name"),
-            "url": url,
-            "ok": False,
-            "connected": False,
-            "compliant": None,
-            "missing": [],
-            "alerts": [],
-            "thumb": None,
-            "error": None,
-        }
-        if not url:
-            cell["error"] = "Sin URL"
-            cells.append(cell)
-            continue
-        try:
-            url = _validate_rtsp_url(url)
-        except HTTPException as exc:
-            cell["error"] = str(exc.detail)
-            cells.append(cell)
-            continue
-
-        try:
-            stream = get_or_create_stream(url)
-        except RuntimeError as exc:
-            cell["error"] = str(exc)
-            cells.append(cell)
-            continue
-
-        frame = stream.read()
-        if frame is None:
-            cell["error"] = stream.last_error or "Sin frame"
-            cell["connected"] = stream.connected
-            cells.append(cell)
-            continue
-
-        frame = _resize_frame(frame, 480)
-        with _detect_lock:
-            detections, _ = det.predict(frame, conf=conf, imgsz=_DETECT_IMGSZ_MAX, annotate=False)
-        payload = _build_response(
-            detections,
-            None,
-            profile,
-            frame_wh=(frame.shape[1], frame.shape[0]),
-            required=req,
-        )
-        comp = payload.get("compliance") or {}
-        fields = _compliance_cell_fields(payload)
-        cell.update(
-            {
-                "ok": True,
-                "connected": True,
-                "compliant": fields.get("compliant"),
-                "missing": fields.get("missing") or [],
-                "alerts": fields.get("alerts") or [],
-                "thumb": _thumb_b64(frame),
-                "safety_score": payload.get("safety_score"),
-            }
-        )
-        if not fields.get("compliant"):
-            alert_count += 1
-        cells.append(cell)
-
+    result = mass_scan_mod.run_mass_scan(
+        enabled,
+        profile=profile,
+        conf=conf,
+        required=required,
+        validate_rtsp_url=_validate_rtsp_url,
+        detect_lock=_detect_lock,
+        detect_imgsz_max=_DETECT_IMGSZ_MAX,
+        build_response=_build_response,
+        compliance_cell_fields=_compliance_cell_fields,
+        thumb_b64=_thumb_b64,
+    )
     metrics_mod.inc("mass_scans_total")
-    return {
-        "ok": True,
-        "cells": cells,
-        "summary": {"total": len(cells), "alerts": alert_count, "online": sum(1 for c in cells if c.get("connected"))},
-    }
+    return result
 
 
 @app.get("/api/audit")

@@ -92,6 +92,15 @@ VENDORS: dict[str, dict[str, Any]] = {
         "max_channels": 1,
         "hint": "Pegá la URL RTSP completa del canal",
     },
+    "onvif": {
+        "id": "onvif",
+        "name": "ONVIF",
+        "label": "Cámara/NVR ONVIF",
+        "default_port": 554,
+        "http_port": 80,
+        "max_channels": 16,
+        "hint": "Sondeo ONVIF + URLs RTSP por fabricante detectado",
+    },
 }
 
 
@@ -264,6 +273,74 @@ def _http_probe(url: str, timeout: float = 4.0) -> tuple[bool, str]:
         return False, str(exc)
 
 
+_ONVIF_GET_DEVICE_INFO = (
+    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+    "<soap:Envelope xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\" "
+    "xmlns:tds=\"http://www.onvif.org/ver10/device/wsdl\">"
+    "<soap:Body><tds:GetDeviceInformation/></soap:Body></soap:Envelope>"
+)
+
+
+def _onvif_soap_post(host: str, http_port: int, envelope: str, timeout: float = 4.0) -> tuple[bool, str]:
+    ok_h, msg = validate_lan_http_host(host)
+    if not ok_h:
+        return False, msg
+    url = f"http://{host}:{int(http_port)}/onvif/device_service"
+    try:
+        data = envelope.encode("utf-8")
+        req = Request(
+            url,
+            data=data,
+            method="POST",
+            headers={"Content-Type": "application/soap+xml; charset=utf-8"},
+        )
+        with urlopen(req, timeout=timeout) as resp:  # noqa: S310
+            body = resp.read(8192).decode("utf-8", errors="replace")
+            return True, body
+    except Exception as exc:  # noqa: BLE001
+        return False, str(exc)
+
+
+def parse_onvif_device_info(xml: str) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for tag in ("Manufacturer", "Model", "FirmwareVersion", "SerialNumber", "HardwareId"):
+        m = re.search(rf"<(?:tds:)?{tag}>([^<]+)", xml, re.I)
+        if m:
+            out[tag.lower()] = m.group(1).strip()
+    return out
+
+
+def infer_vendor_from_onvif(info: dict[str, str]) -> str:
+    blob = " ".join(info.values()).lower()
+    if "hikvision" in blob or "hik" in blob:
+        return "hikvision"
+    if "dahua" in blob:
+        return "dahua"
+    if "uniview" in blob:
+        return "uniview"
+    return "dahua"
+
+
+def probe_onvif(
+    host: str,
+    *,
+    http_port: int = 80,
+    timeout: float = 4.0,
+) -> dict[str, Any]:
+    ok, body = _onvif_soap_post(host, http_port, _ONVIF_GET_DEVICE_INFO, timeout=timeout)
+    if not ok:
+        return {"ok": False, "error": body, "device_info": {}}
+    info = parse_onvif_device_info(body)
+    if not info:
+        return {"ok": False, "error": "Respuesta ONVIF sin metadatos", "device_info": {}, "raw": body[:400]}
+    return {
+        "ok": True,
+        "device_info": info,
+        "inferred_vendor": infer_vendor_from_onvif(info),
+        "device_name": info.get("model") or info.get("manufacturer") or host,
+    }
+
+
 def probe_device(
     vendor: str,
     host: str,
@@ -284,6 +361,19 @@ def probe_device(
     device_name = host
     online = False
     probe_note = ""
+    onvif_meta: dict[str, Any] = {}
+
+    if v == "onvif":
+        onvif_result = probe_onvif(host, http_port=http_port)
+        onvif_meta = onvif_result
+        if onvif_result.get("ok"):
+            online = True
+            detected_vendor = str(onvif_result.get("inferred_vendor") or "dahua")
+            device_name = str(onvif_result.get("device_name") or host)
+            probe_note = "ONVIF: " + str(onvif_result.get("device_info", {}).get("manufacturer", ""))
+        else:
+            probe_note = f"ONVIF: {onvif_result.get('error', 'sin respuesta')}"
+            detected_vendor = "dahua"
 
     if v == "hikvision":
         ok, body = _http_probe(f"http://{host}:{http_port}/ISAPI/System/deviceInfo")
@@ -301,11 +391,11 @@ def probe_device(
             device_name = body.strip().split("=", 1)[-1].strip()[:80]
         else:
             probe_note = f"HTTP CGI: {body[:120]}"
-    else:
+    elif v not in ("onvif", "generic"):
         probe_note = "Sin sondeo HTTP; se generan URLs RTSP por canal"
 
     channels = list_channels(
-        v,
+        detected_vendor,
         host,
         username=username,
         password=password,
@@ -317,10 +407,12 @@ def probe_device(
 
     return {
         "vendor": detected_vendor,
+        "requested_vendor": v,
         "host": host,
         "device_name": device_name,
         "online_http": online,
         "probe_note": probe_note,
+        "onvif": onvif_meta if v == "onvif" else None,
         "channels": channels,
         "channel_count": len(channels),
     }
