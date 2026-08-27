@@ -26,6 +26,8 @@ import { createKioskController } from "./modules/kiosk.js";
 import { createTeachController } from "./modules/teach.js";
 import { createMassController } from "./modules/mass.js";
 import { createCameraController } from "./modules/camera.js";
+import { createSilhouetteGuideController } from "./modules/silhouette-guide.js";
+import { createOverlayCanvasController } from "./modules/overlay-canvas.js";
 
 let ensureAuth;
 let applyRoleUI;
@@ -182,7 +184,7 @@ function bindAuthController(onOperatorLogin) {
     repSideList: $("#repSideList"),
   };
 
-  const APP_BUILD = globalThis.VIGIEPP_BUILD || "v45";
+  const APP_BUILD = globalThis.VIGIEPP_BUILD || "v46";
 
   function isLiveMode() {
     return appMode === "live" || appMode === "monitor";
@@ -323,66 +325,9 @@ function bindAuthController(onOperatorLogin) {
     if (els.chkIdentify) els.chkIdentify.checked = settings.identifyDefault;
     if (els.chkFullscreen) els.chkFullscreen.checked = settings.fullscreenDefault;
     saveSettings();
-    applyGuideMode();
+    guide.applyGuideMode();
   }
 
-  /** body | face según modo y settings */
-  function applyGuideMode() {
-    const guide = els.silhouetteGuide;
-    if (!guide) return;
-    // Óvalo facial SOLO en Personas / enrolar — nunca en Monitoreo
-    const wantFace = enrollState.enrolling || appMode === "identity";
-    const scanning = document.body.classList.contains("is-scanning") && appMode === "live";
-    const enabled = !scanning && (!!settings.silhouetteEnabled || wantFace);
-    guide.classList.toggle("is-off", !enabled);
-    if (els.alignBadge) els.alignBadge.classList.toggle("is-off", !enabled || enrollState.enrolling || scanning);
-    guide.dataset.guide = wantFace ? "face" : "body";
-    guide.classList.toggle("enroll-soft", !!enrollState.enrolling || wantFace);
-    guide.style.setProperty("--body-scale", String((settings.bodyScale || 100) / 100));
-    guide.style.setProperty("--face-scale", String((settings.faceScale || 100) / 100));
-    guide.style.setProperty("--guide-y", `${settings.guideOffsetY || 0}%`);
-    if (els.silZoom) els.silZoom.classList.toggle("hidden", scanning || !enabled);
-    syncSilZoomUI();
-    if (els.silHint) {
-      els.silHint.textContent = wantFace
-        ? "Encajá tu rostro en el óvalo"
-        : "Encajá el cuerpo en la silueta vertical";
-    }
-  }
-
-  function setCaptureButtonsVisible(show) {
-    for (const btn of [els.btnCapturePose, els.btnCapturePoseId]) {
-      if (!btn) continue;
-      btn.classList.toggle("hidden", !show);
-      btn.disabled = !show;
-    }
-  }
-
-  function syncSilZoomUI() {
-    const face = els.silhouetteGuide?.dataset.guide === "face";
-    const val = face ? settings.faceScale || 100 : settings.bodyScale || 100;
-    if (els.silZoomRange) {
-      els.silZoomRange.min = face ? "55" : "55";
-      els.silZoomRange.max = face ? "140" : "130";
-      els.silZoomRange.value = String(val);
-    }
-    if (els.silZoomLabel) els.silZoomLabel.textContent = `${val}%`;
-    if (els.cfgBodyScale && !face) els.cfgBodyScale.value = String(settings.bodyScale);
-    if (els.cfgFaceScale && face) els.cfgFaceScale.value = String(settings.faceScale);
-    if (els.cfgBodyScaleVal) els.cfgBodyScaleVal.textContent = `${settings.bodyScale}%`;
-    if (els.cfgFaceScaleVal) els.cfgFaceScaleVal.textContent = `${settings.faceScale}%`;
-  }
-
-  function setSilhouetteZoom(next) {
-    const face = els.silhouetteGuide?.dataset.guide === "face";
-    if (face) {
-      settings.faceScale = Math.max(55, Math.min(140, Math.round(next / 5) * 5));
-    } else {
-      settings.bodyScale = Math.max(55, Math.min(130, Math.round(next / 5) * 5));
-    }
-    saveSettings(true);
-    applyGuideMode();
-  }
 
 
   const PPE_LABEL = {
@@ -464,127 +409,6 @@ function bindAuthController(onOperatorLogin) {
   }
 
 
-  /** Zona de la silueta en coords del frame vertical (3:4), según porte configurado. */
-  function guideRect(frameW, frameH) {
-    const face = els.silhouetteGuide?.dataset.guide === "face";
-    const scale = ((face ? settings.faceScale : settings.bodyScale) || 100) / 100;
-    const yOff = ((settings.guideOffsetY || 0) / 100) * frameH;
-    const cx = frameW * 0.5;
-    const cy = (face ? frameH * 0.36 : frameH * 0.5) + yOff;
-    const halfW = frameW * (face ? 0.26 : 0.3) * scale;
-    const halfH = frameH * (face ? 0.26 : 0.455) * scale;
-    return {
-      x1: Math.max(0, cx - halfW),
-      y1: Math.max(0, cy - halfH),
-      x2: Math.min(frameW, cx + halfW),
-      y2: Math.min(frameH, cy + halfH),
-    };
-  }
-
-  function overlapRatio(box, guide) {
-    const [x1, y1, x2, y2] = box;
-    const ix1 = Math.max(x1, guide.x1);
-    const iy1 = Math.max(y1, guide.y1);
-    const ix2 = Math.min(x2, guide.x2);
-    const iy2 = Math.min(y2, guide.y2);
-    const inter = Math.max(0, ix2 - ix1) * Math.max(0, iy2 - iy1);
-    const area = Math.max(1, (x2 - x1) * (y2 - y1));
-    return inter / area;
-  }
-
-  function faceGuideActive() {
-    return enrollState.enrolling || enrollState.identifyingNow || appMode === "identity";
-  }
-
-  function setAlignment(state, text) {
-    if (!settings.silhouetteEnabled && !faceGuideActive() && !(settings.faceGuide && appMode === "live")) {
-      if (els.alignBadge) {
-        els.alignBadge.dataset.state = "idle";
-        els.alignBadge.textContent = "Guía off";
-      }
-      return;
-    }
-    if (enrollState.enrolling) return; // overlay de poses maneja el coaching
-    if (els.alignBadge) {
-      els.alignBadge.dataset.state = state;
-      els.alignBadge.textContent = text;
-    }
-    if (els.silhouetteGuide) {
-      els.silhouetteGuide.classList.toggle("aligned", state === "ok");
-      els.silhouetteGuide.classList.toggle("bad", state === "bad");
-    }
-    if (els.silHint) {
-      const face = els.silhouetteGuide?.dataset.guide === "face";
-      els.silHint.textContent =
-        state === "ok"
-          ? face
-            ? "Rostro encajado · listo"
-            : "Perfecto — cuerpo encajado · escaneando EPP"
-          : state === "bad"
-            ? face
-              ? "Centrá la cara en el óvalo"
-              : "Acercate / centrate en la silueta vertical"
-            : face
-              ? "Encajá tu rostro en el óvalo"
-              : "Encajá tu cuerpo en la silueta (lectura vertical)";
-    }
-  }
-
-  function evaluateAlignment(detections, frameW, frameH) {
-    const guideActive =
-      settings.silhouetteEnabled || faceGuideActive() || (!!settings.faceGuide && appMode === "live");
-    if (!guideActive) {
-      setAlignment("idle", "Guía off");
-      return true; // no bloquea
-    }
-    if (enrollState.enrolling) return true;
-    const guide = guideRect(frameW, frameH);
-    const boxes = (detections || []).map((d) => d.box);
-    if (!boxes.length) {
-      setAlignment("idle", els.silhouetteGuide?.dataset.guide === "face" ? "Mirá a la cámara" : "Posicionate en la silueta");
-      return false;
-    }
-    // Usa la caja más grande (persona o torso/EPP)
-    const biggest = boxes.reduce((a, b) => {
-      const aa = (a[2] - a[0]) * (a[3] - a[1]);
-      const bb = (b[2] - b[0]) * (b[3] - b[1]);
-      return bb > aa ? b : a;
-    });
-    const ratio = overlapRatio(biggest, guide);
-    const faceMode = els.silhouetteGuide?.dataset.guide === "face";
-    const boxH = (biggest[3] - biggest[1]) / frameH;
-    // Cuerpo: exige persona alta en el frame. Rostro: basta con caja facial.
-    const tallEnough = faceMode ? boxH >= 0.12 : boxH >= 0.48;
-    const needRatio = faceMode ? 0.4 : 0.55;
-    if (ratio >= needRatio && tallEnough) {
-      setAlignment("ok", "Encaje correcto");
-      return true;
-    }
-    if (ratio >= (faceMode ? 0.18 : 0.25)) {
-      setAlignment("bad", "Ajusta la posición");
-      return false;
-    }
-    setAlignment("bad", faceMode ? "Centrá el rostro" : "Entra en la silueta");
-    return false;
-  }
-
-  function drawFaceBox(ctx, faceBox, frameW, frameH, cover) {
-    if (!faceBox || faceBox.length < 4) return;
-    const [x1, y1, x2, y2] = faceBox;
-    const sx = cover.w / frameW;
-    const sy = cover.h / frameH;
-    const cx = cover.ox + ((x1 + x2) / 2) * sx;
-    const cy = cover.oy + ((y1 + y2) / 2) * sy;
-    const rx = Math.max(12, ((x2 - x1) * sx) / 2);
-    const ry = Math.max(16, ((y2 - y1) * sy) / 2);
-    ctx.save();
-    ctx.strokeStyle = "rgba(238, 243, 239, 0.45)";
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, rx * 1.05, ry * 1.15, 0, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.restore();
-  }
 
 
   let lastSpeakAt = 0;
@@ -622,84 +446,6 @@ function bindAuthController(onOperatorLogin) {
     } catch (_) {}
   }
 
-  function blurFaceOnCanvas(ctx, faceBox, frameW, frameH, cover) {
-    if (!faceBox || !settings.anonymizeFaces) return;
-    const [x1, y1, x2, y2] = faceBox;
-    const sx = cover.w / frameW;
-    const sy = cover.h / frameH;
-    const rx = cover.ox + x1 * sx;
-    const ry = cover.oy + y1 * sy;
-    const rw = Math.max(8, (x2 - x1) * sx);
-    const rh = Math.max(8, (y2 - y1) * sy);
-    ctx.fillStyle = "rgba(12, 16, 14, 0.72)";
-    ctx.fillRect(rx, ry, rw, rh);
-    ctx.strokeStyle = "rgba(255,255,255,0.18)";
-    ctx.strokeRect(rx + 0.5, ry + 0.5, rw, rh);
-    ctx.font = "600 10px Source Sans 3, sans-serif";
-    ctx.fillStyle = "rgba(238,243,239,0.75)";
-    ctx.fillText("Privado", rx + 6, ry + Math.min(14, rh - 4));
-  }
-
-
-  function drawDetections(detections, frameW, frameH, identity, zoneHits) {
-    camera.syncCanvasSize();
-    const canvas = els.overlayCanvas;
-    const ctx = canvas.getContext("2d");
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    const cover = videoCoverSize(frameW, frameH, canvas.width, canvas.height);
-    const sx = cover.w / frameW;
-    const sy = cover.h / frameH;
-
-    evaluateAlignment(detections, frameW, frameH);
-    drawZonesOverlay(ctx, frameW, frameH, cover, zoneHits || []);
-
-    // Monitoreo limpio: las faltas van al panel — no cajas rojas sobre la cara
-    const drawBoxes = settings.showPpeBoxes && appMode === "live";
-    if (drawBoxes) {
-      const badOnly = (detections || [])
-        .filter((d) => {
-          const l = String(d.label_es || d.label).toLowerCase();
-          return l.startsWith("sin") || l.startsWith("no") || l.includes("fall");
-        })
-        .sort((a, b) => (b.confidence || 0) - (a.confidence || 0))
-        .slice(0, 1);
-
-      for (const d of badOnly) {
-        const [x1, y1, x2, y2] = d.box;
-        const rx = cover.ox + x1 * sx;
-        const ry = cover.oy + y1 * sy;
-        const rw = (x2 - x1) * sx;
-        const rh = (y2 - y1) * sy;
-        ctx.strokeStyle = "rgba(214, 90, 70, 0.45)";
-        ctx.lineWidth = 1.25;
-        ctx.strokeRect(rx + 0.5, ry + 0.5, rw, rh);
-        let label = String(d.label_es || d.label).replace(/\s+/g, " ").trim();
-        if (label.length > 18) label = `${label.slice(0, 16)}…`;
-        ctx.font = "600 11px Source Sans 3, sans-serif";
-        const tw = ctx.measureText(label).width + 10;
-        ctx.fillStyle = "rgba(10, 14, 12, 0.65)";
-        ctx.fillRect(rx, Math.max(0, ry - 16), tw, 16);
-        ctx.fillStyle = "rgba(240, 210, 200, 0.9)";
-        ctx.fillText(label, rx + 5, Math.max(11, ry - 4));
-      }
-    }
-
-    const faceBox = identity?.face_box || lastFaceBox;
-    // Anonimizar: difuminar rostros desconocidos en monitoreo
-    if (
-      faceBox &&
-      settings.anonymizeFaces &&
-      appMode === "live" &&
-      !(identity && identity.known)
-    ) {
-      blurFaceOnCanvas(ctx, faceBox, frameW, frameH, cover);
-    }
-    // Óvalo facial solo en enrolar / Personas
-    if (faceBox && (enrollState.enrolling || appMode === "identity")) {
-      drawFaceBox(ctx, faceBox, frameW, frameH, cover);
-    }
-  }
 
 
   function applyHealth(health) {
@@ -779,7 +525,7 @@ function bindAuthController(onOperatorLogin) {
     if (els.chkFullscreen) els.chkFullscreen.checked = false;
     syncSettingsForm();
     applyMobileChrome();
-    applyGuideMode();
+    guide.applyGuideMode();
     setAppMode("live");
     if (settings.kioskMode) kiosk.setKioskMode(true);
     camera.hideLiveVideo();
@@ -789,7 +535,7 @@ function bindAuthController(onOperatorLogin) {
         regs.forEach((r) => r.unregister().catch(() => {}));
       });
       setTimeout(() => {
-        navigator.serviceWorker.register("/assets/sw.js?v=45").catch(() => {});
+        navigator.serviceWorker.register("/assets/sw.js?v=46").catch(() => {});
       }, 400);
     }
     const offlineBadge = $("#offlineBadge");
@@ -805,7 +551,7 @@ function bindAuthController(onOperatorLogin) {
       setTimeout(() => {
         syncViewportHeight();
         camera.syncCanvasSize();
-        applyGuideMode();
+        guide.applyGuideMode();
       }, 250);
     });
     window.visualViewport?.addEventListener("resize", () => {
@@ -957,7 +703,7 @@ function bindAuthController(onOperatorLogin) {
     else if (mode === "mass") setSource("mass");
     else if (mode === "devices") setSource("devices");
 
-    applyGuideMode();
+    guide.applyGuideMode();
     if (mode === "identity") workers.refreshWorkers();
     if (mode === "teach") teach.refreshTeach();
     if (mode === "config") {
@@ -1067,7 +813,7 @@ function bindAuthController(onOperatorLogin) {
     if (mode === "identity" && els.enrollCoach) {
       els.enrollCoach.textContent = "4 poses de calidad obligatorias · luz frontal · una persona";
     }
-    applyGuideMode();
+    guide.applyGuideMode();
   }
 
   function updateUi(payload) {
@@ -1089,7 +835,7 @@ function bindAuthController(onOperatorLogin) {
       els.annotatedImg.src = `data:image/jpeg;base64,${payload.image_b64}`;
     } else {
       camera.showLive();
-      drawDetections(
+      overlay.drawDetections(
         payload.detections,
         lastFrameSize.w,
         lastFrameSize.h,
@@ -1102,7 +848,7 @@ function bindAuthController(onOperatorLogin) {
 
     const gateOn = !!settings.silhouetteGate && !!settings.silhouetteEnabled && appMode === "live";
     const aligned = gateOn
-      ? evaluateAlignment(payload.detections || [], lastFrameSize.w, lastFrameSize.h)
+      ? guide.evaluateAlignment(payload.detections || [], lastFrameSize.w, lastFrameSize.h)
       : true;
 
     const c = payload.compliance || {};
@@ -1379,23 +1125,6 @@ function bindAuthController(onOperatorLogin) {
     if (!file) return;
     await detectBlob(file, { identify: true, returnImage: true });
   });
-  if (els.silZoomRange) {
-    els.silZoomRange.addEventListener("input", () => setSilhouetteZoom(Number(els.silZoomRange.value)));
-  }
-  if (els.btnSilZoomIn) {
-    els.btnSilZoomIn.addEventListener("click", () => {
-      const face = els.silhouetteGuide?.dataset.guide === "face";
-      const cur = face ? settings.faceScale : settings.bodyScale;
-      setSilhouetteZoom(cur + 5);
-    });
-  }
-  if (els.btnSilZoomOut) {
-    els.btnSilZoomOut.addEventListener("click", () => {
-      const face = els.silhouetteGuide?.dataset.guide === "face";
-      const cur = face ? settings.faceScale : settings.bodyScale;
-      setSilhouetteZoom(cur - 5);
-    });
-  }
   window.addEventListener("resize", () => {
     if (camera.hasMediaStream()) camera.syncCanvasSize();
   });
@@ -1607,6 +1336,26 @@ function bindAuthController(onOperatorLogin) {
     drawZonesEditorCanvas,
   } = zones;
 
+  const guide = createSilhouetteGuideController({
+    els,
+    settings,
+    saveSettings,
+    enrollState,
+    getAppMode: () => appMode,
+  });
+
+  let overlay;
+  overlay = createOverlayCanvasController({
+    els,
+    settings,
+    enrollState,
+    getAppMode: () => appMode,
+    getLastFaceBox: () => lastFaceBox,
+    syncCanvasSize: () => camera.syncCanvasSize(),
+    evaluateAlignment: guide.evaluateAlignment,
+    drawZonesOverlay,
+  });
+
   const reports = createReportsController({
     api,
     els,
@@ -1636,7 +1385,7 @@ function bindAuthController(onOperatorLogin) {
     requiredQueryValue,
     applyHealth,
     updateUi,
-    applyGuideMode,
+    applyGuideMode: guide.applyGuideMode,
     isLiveMode,
     getSourceMode: () => camera.getSourceMode(),
     getCombinedInference: () => combinedInference,
@@ -1654,7 +1403,7 @@ function bindAuthController(onOperatorLogin) {
     },
     refreshScans: () => workers.refreshScans(),
     setIdentityCard,
-    drawDetections,
+    drawDetections: overlay.drawDetections,
     getLastFrameSize: () => lastFrameSize,
     setLastFaceBox: (v) => {
       lastFaceBox = v;
@@ -1679,8 +1428,8 @@ function bindAuthController(onOperatorLogin) {
     requiredQueryValue,
     isMobile,
     isIOS,
-    applyGuideMode,
-    setAlignment,
+    applyGuideMode: guide.applyGuideMode,
+    setAlignment: guide.setAlignment,
     getAppMode: () => appMode,
     isDetectLoopOn: detectLive.isDetectLoopOn,
     startDetectLoop,
@@ -1728,8 +1477,8 @@ function bindAuthController(onOperatorLogin) {
     stopDetectLoop,
     identifyLiveFrame,
     showLive: camera.showLive,
-    applyGuideMode,
-    drawDetections,
+    applyGuideMode: guide.applyGuideMode,
+    drawDetections: overlay.drawDetections,
     getLastFrameSize: () => lastFrameSize,
     setLastFaceBox: (v) => {
       lastFaceBox = v;
@@ -1742,6 +1491,7 @@ function bindAuthController(onOperatorLogin) {
   });
 
   workers.bindWorkerEvents();
+  guide.bindGuideEvents();
   camera.bindCameraEvents();
   kiosk.bindKioskEvents();
   mass.bindMassEvents();
