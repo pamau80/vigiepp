@@ -20,7 +20,7 @@ from ..profiles import list_profiles, PPE_CATALOG
 
 router = APIRouter(prefix="/api", tags=["core"])
 
-BUILD_VERSION = "v46"
+BUILD_VERSION = "v47"
 
 
 @router.get("/health")

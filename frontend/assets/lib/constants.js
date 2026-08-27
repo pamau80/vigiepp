@@ -1,2 +1,2 @@
 /** Build stamp modular — cargar antes de app.js */
-globalThis.VIGIEPP_BUILD = "v46";
+globalThis.VIGIEPP_BUILD = "v47";

@@ -28,6 +28,10 @@ import { createMassController } from "./modules/mass.js";
 import { createCameraController } from "./modules/camera.js";
 import { createSilhouetteGuideController } from "./modules/silhouette-guide.js";
 import { createOverlayCanvasController } from "./modules/overlay-canvas.js";
+import { createAudioAlertsController } from "./modules/audio-alerts.js";
+import { createPpeProfilesController } from "./modules/ppe-profiles.js";
+import { createLivePanelController } from "./modules/live-panel.js";
+import { createAppModesController } from "./modules/app-modes.js";
 
 let ensureAuth;
 let applyRoleUI;
@@ -184,22 +188,13 @@ function bindAuthController(onOperatorLogin) {
     repSideList: $("#repSideList"),
   };
 
-  const APP_BUILD = globalThis.VIGIEPP_BUILD || "v46";
+  const APP_BUILD = globalThis.VIGIEPP_BUILD || "v47";
 
-  function isLiveMode() {
-    return appMode === "live" || appMode === "monitor";
-  }
 
-  function isViewportMode() {
-    return isLiveMode() || appMode === "identity" || appMode === "teach";
-  }
-
-  let profiles = [];
-  let ppeCatalog = [];
   let eppStreak = 0;
   let lastScanRefreshAt = 0;
-  let appMode = "live";
   const enrollState = { enrolling: false, identifyingNow: false, enrollAbort: false };
+  let lastAccessAllow = null;
   let lastIdentifyAt = 0;
   let lastFrameSize = { w: 640, h: 480 };
   let lastIdentity = null;
@@ -330,79 +325,6 @@ function bindAuthController(onOperatorLogin) {
 
 
 
-  const PPE_LABEL = {
-    casco: "Casco",
-    chaleco: "Chaleco / flúor",
-    lentes: "Lentes",
-    guantes: "Guantes",
-    arnes: "Arnés",
-  };
-
-  function ppeLabel(id) {
-    return PPE_LABEL[id] || ppeCatalog.find((x) => x.id === id)?.label || id;
-  }
-
-  function catalogItems() {
-    if (ppeCatalog.length) return ppeCatalog;
-    return Object.entries(PPE_LABEL).map(([id, label]) => ({ id, label }));
-  }
-
-  function getProfileDefaults(profileId) {
-    const p = profiles.find((x) => x.id === profileId);
-    return p ? [...(p.required || [])] : [];
-  }
-
-  function getEffectiveRequired(profileId) {
-    const pid = profileId || els.profileSelect?.value || "general";
-    if (settings.ppeByProfile && Object.prototype.hasOwnProperty.call(settings.ppeByProfile, pid)) {
-      return [...(settings.ppeByProfile[pid] || [])];
-    }
-    return getProfileDefaults(pid);
-  }
-
-  function setProfileRequired(profileId, list) {
-    if (!settings.ppeByProfile) settings.ppeByProfile = {};
-    settings.ppeByProfile[profileId] = [...list];
-    saveSettings(true);
-  }
-
-  function resetProfileRequired(profileId) {
-    if (!settings.ppeByProfile) return;
-    delete settings.ppeByProfile[profileId];
-    saveSettings(true);
-  }
-
-  function renderPpeSelector(container, profileId) {
-    if (!container) return;
-    const pid = profileId || els.profileSelect?.value || "general";
-    const required = new Set(getEffectiveRequired(pid));
-    container.innerHTML = catalogItems()
-      .map((item) => {
-        const on = required.has(item.id);
-        return `<button type="button" class="chip ppe-toggle" data-ppe="${escapeHtml(item.id)}" aria-pressed="${on ? "true" : "false"}">${escapeHtml(item.label)}</button>`;
-      })
-      .join("");
-  }
-
-  function bindPpeChipContainer(container) {
-    if (!container || container._ppeBound) return;
-    container._ppeBound = true;
-    container.addEventListener("click", (e) => {
-      const btn = e.target.closest("[data-ppe]");
-      if (!btn) return;
-      const key = btn.getAttribute("data-ppe");
-      const pid = els.profileSelect?.value || "general";
-      const req = new Set(getEffectiveRequired(pid));
-      if (req.has(key)) req.delete(key);
-      else req.add(key);
-      setProfileRequired(pid, [...req]);
-      renderProfile();
-    });
-  }
-
-  function requiredQueryValue(profileId) {
-    return JSON.stringify(getEffectiveRequired(profileId || els.profileSelect?.value || "general"));
-  }
 
   function sleep(ms) {
     return new Promise((r) => setTimeout(r, ms));
@@ -411,40 +333,6 @@ function bindAuthController(onOperatorLogin) {
 
 
 
-  let lastSpeakAt = 0;
-  let speakKey = "";
-  let speakCount = 0;
-  const SPEAK_GAP_MS = 5500;
-
-  function resetSpeakIncident() {
-    speakKey = "";
-    speakCount = 0;
-  }
-
-  function speakAlert(text) {
-    if (!settings.audioAlerts) return;
-    if (!window.speechSynthesis) return;
-    const key = String(text || "").slice(0, 140).trim();
-    if (!key) return;
-    const now = Date.now();
-    if (key !== speakKey) {
-      speakKey = key;
-      speakCount = 0;
-    }
-    const maxRepeats = Math.max(0, Math.min(10, Number(settings.audioAlertRepeats) || 0));
-    // 0 = sin límite (se repite mientras dure el incumplimiento, con pausa entre avisos)
-    if (maxRepeats > 0 && speakCount >= maxRepeats) return;
-    if (speakCount > 0 && now - lastSpeakAt < SPEAK_GAP_MS) return;
-    speakCount += 1;
-    lastSpeakAt = now;
-    try {
-      window.speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(key);
-      u.lang = "es-CL";
-      u.rate = 1.05;
-      window.speechSynthesis.speak(u);
-    } catch (_) {}
-  }
 
 
 
@@ -493,26 +381,11 @@ function bindAuthController(onOperatorLogin) {
       els.modelStatusText.textContent = "Backend no disponible";
     }
 
-    try {
-      profiles = await api("/api/profiles");
-      els.profileSelect.innerHTML = profiles
-        .map((p) => `<option value="${p.id}">${p.name}</option>`)
-        .join("");
-      els.profileSelect.value = "portuario";
-    } catch (err) {
-      console.error(err);
-    }
-
-    try {
-      const cat = await api("/api/ppe/catalog");
-      ppeCatalog = cat.items || [];
-    } catch (_) {
-      ppeCatalog = catalogItems();
-    }
-
-    bindPpeChipContainer(els.requiredChips);
-    bindPpeChipContainer(els.cfgPpeChips);
-    renderProfile();
+    await ppeProfiles.loadProfiles();
+    await ppeProfiles.loadCatalog();
+    ppeProfiles.bindPpeChipContainer(els.requiredChips);
+    ppeProfiles.bindPpeChipContainer(els.cfgPpeChips);
+    ppeProfiles.renderProfile();
 
     await workers.refreshWorkers();
     await teach.refreshTeach();
@@ -526,7 +399,7 @@ function bindAuthController(onOperatorLogin) {
     syncSettingsForm();
     applyMobileChrome();
     guide.applyGuideMode();
-    setAppMode("live");
+    modes.setAppMode("live");
     if (settings.kioskMode) kiosk.setKioskMode(true);
     camera.hideLiveVideo();
     await camera.refreshCameraPermissionHint();
@@ -535,7 +408,7 @@ function bindAuthController(onOperatorLogin) {
         regs.forEach((r) => r.unregister().catch(() => {}));
       });
       setTimeout(() => {
-        navigator.serviceWorker.register("/assets/sw.js?v=46").catch(() => {});
+        navigator.serviceWorker.register("/assets/sw.js?v=47").catch(() => {});
       }, 400);
     }
     const offlineBadge = $("#offlineBadge");
@@ -561,389 +434,10 @@ function bindAuthController(onOperatorLogin) {
     window.addEventListener("resize", syncViewportHeight);
   }
 
-  function renderProfile() {
-    const p = profiles.find((x) => x.id === els.profileSelect.value);
-    if (!p) return;
-    els.profileDesc.textContent = p.description || p.name;
-    const req = getEffectiveRequired(p.id);
-    const custom = settings.ppeByProfile && Object.prototype.hasOwnProperty.call(settings.ppeByProfile, p.id);
-    const hint = $("#ppeSelectHint");
-    if (hint) {
-      hint.textContent = custom
-        ? `Personalizado (${req.length} obligatorio${req.length === 1 ? "" : "s"}). Tocá para cambiar.`
-        : "Tocá cada ítem para marcarlo obligatorio u opcional.";
-    }
-    renderPpeSelector(els.requiredChips, p.id);
-    renderPpeSelector(els.cfgPpeChips, p.id);
-  }
 
-  function setConfigSection(sec) {
-    const id = ["guides", "audio", "zones", "monitor", "privacy", "enterprise", "audit"].includes(sec)
-      ? sec
-      : "guides";
-    try {
-      localStorage.setItem("vigiepp-cfg-sec", id);
-    } catch (_) {}
-    $$("[data-cfg-section]").forEach((el) => {
-      el.classList.toggle("hidden", el.getAttribute("data-cfg-section") !== id);
-    });
-    $$(".cfg-nav-btn").forEach((btn) => {
-      const on = btn.getAttribute("data-cfg-sec") === id;
-      btn.classList.toggle("active", on);
-      btn.setAttribute("aria-selected", on ? "true" : "false");
-    });
-    const panel = $("#sidePanel");
-    if (panel && appMode === "config") panel.scrollTop = 0;
-    const block = $("#configBlock");
-    if (block) block.scrollTop = 0;
-    if (id === "audit") refreshAudit();
-    if (id === "enterprise") {
-      refreshSitesUi();
-      refreshEhsUi();
-    }
-    if (id === "zones") {
-      bindZonesCanvasEvents();
-      requestAnimationFrame(() => {
-        syncZonesCanvasSize();
-        drawZonesEditorCanvas();
-        startZonesCanvasLoop();
-      });
-    } else {
-      stopZonesCanvasLoop();
-    }
-  }
 
-  function enableIdentifyForPorteria(reason = "") {
-    if (els.chkIdentify) els.chkIdentify.checked = true;
-    settings.identifyDefault = true;
-    if (els.cfgIdentifyDefault) els.cfgIdentifyDefault.checked = true;
-    saveSettings(true);
-    if (els.speedHint && reason) els.speedHint.textContent = reason;
-  }
 
-  function setAppMode(mode) {
-    const prevMode = appMode;
-    if (mode === "monitor") mode = "live";
-    appMode = mode;
 
-    if (mode !== "mass") mass.stopMassLoop();
-    if (mode !== "live" && mode !== "identity" && mode !== "teach") {
-      stopDetectLoop();
-      if (mode !== "live") camera.stopRtsp();
-    }
-
-    document.body.classList.remove(
-      "mode-live",
-      "mode-monitor",
-      "mode-mass",
-      "mode-devices",
-      "mode-identity",
-      "mode-teach",
-      "mode-config",
-      "mode-reports"
-    );
-    document.body.classList.add(`mode-${mode}`);
-
-    $$(".mode-btn").forEach((b) => {
-      const on = b.dataset.mode === mode;
-      b.classList.toggle("active", on);
-      b.setAttribute("aria-selected", on ? "true" : "false");
-    });
-
-    els.monitorToolbar?.classList.toggle("hidden", mode !== "live");
-    $("#massToolbar")?.classList.toggle("hidden", mode !== "mass");
-
-    $("#liveWorkspace")?.classList.toggle("hidden", !isViewportMode());
-    $("#massWorkspace")?.classList.toggle("hidden", mode !== "mass");
-    $("#devicesWorkspace")?.classList.toggle("hidden", mode !== "devices");
-
-    const stage = $(".stage");
-    if (stage) stage.classList.toggle("is-reports", mode === "reports");
-    if (els.reportsDesk) els.reportsDesk.classList.toggle("hidden", mode !== "reports");
-
-    const panel = $("#sidePanel");
-    if (panel) panel.dataset.mode = mode;
-    const ctx = $("#panelContext");
-    if (ctx) {
-      const labels = {
-        live: "Vigilancia en vivo · un canal o webcam",
-        mass: "Vigilancia masiva · NVR / multi-cámara",
-        devices: "Equipos de video · NVR Dahua / Hikvision",
-        identity: "Enrolar e identificar personas",
-        teach: "Entrenar ropa y EPP del modelo",
-        reports: "Estadísticas, informes y notificaciones",
-        config: "Ajustes de silueta, audio, zonas y privacidad",
-      };
-      ctx.textContent = labels[mode] || labels.config;
-    }
-
-    $$(".panel-section").forEach((el) => {
-      const show = el.getAttribute("data-show");
-      if (!show) return;
-      el.classList.toggle("hidden", show !== mode);
-    });
-
-    $$("[data-live-only]").forEach((el) => {
-      el.classList.toggle("hidden", !isLiveMode());
-    });
-
-    if (mode === "live") {
-      setSource(
-        camera.getSourceMode() === "identity" || camera.getSourceMode() === "teach" || camera.getSourceMode() === "config" || camera.getSourceMode() === "reports"
-          ? "camera"
-          : camera.getSourceMode()
-      );
-      if (prevMode === "identity" && workers.hasReadyWorkers()) {
-        enableIdentifyForPorteria("Identificación ON · volviste de Personas");
-      }
-    } else if (mode === "identity") setSource("identity");
-    else if (mode === "teach") setSource("teach");
-    else if (mode === "reports") setSource("reports");
-    else if (mode === "config") setSource("config");
-    else if (mode === "mass") setSource("mass");
-    else if (mode === "devices") setSource("devices");
-
-    guide.applyGuideMode();
-    if (mode === "identity") workers.refreshWorkers();
-    if (mode === "teach") teach.refreshTeach();
-    if (mode === "config") {
-      loadZones();
-      setConfigSection(localStorage.getItem("vigiepp-cfg-sec") || "guides");
-    } else {
-      stopZonesCanvasLoop();
-    }
-    if (mode === "mass") {
-      mass.fillMassProfiles();
-      mass.refreshWatchlistUi();
-      mass.renderMassGridPlaceholder();
-    }
-    if (mode === "devices") {
-      mass.refreshNvrDevices();
-      mass.refreshWatchlistUi();
-    }
-    if (mode === "reports") {
-      fillRepProfiles();
-      openReport(reports.getCurrentRep() || "overview");
-    }
-    requestAnimationFrame(() => camera.syncCanvasSize());
-  }
-
-  function setSource(mode) {
-    camera.setSourceMode(mode);
-    $$(".tab").forEach((t) => {
-      if (!t.dataset.source) return;
-      const on = t.dataset.source === mode;
-      t.classList.toggle("active", on);
-      t.setAttribute("aria-selected", on ? "true" : "false");
-    });
-    const showCamBar = mode === "camera" || mode === "identity" || mode === "teach";
-    els.cameraControls.classList.toggle("hidden", !showCamBar);
-    els.rtspControls.classList.toggle("hidden", mode !== "rtsp");
-    els.uploadControls.classList.toggle("hidden", mode !== "upload");
-    els.identityControls.classList.toggle("hidden", mode !== "identity");
-    if (els.teachControls) els.teachControls.classList.toggle("hidden", mode !== "teach");
-    if (els.teachExtraControls) els.teachExtraControls.classList.toggle("hidden", mode !== "teach");
-    if (els.configControls) els.configControls.classList.toggle("hidden", mode !== "config");
-    $("#massToolbar")?.classList.toggle("hidden", mode !== "mass");
-
-    if (mode === "mass" || mode === "devices") {
-      stopDetectLoop();
-      camera.stopRtsp();
-    }
-
-    // En Personas: ocultar toggles de monitoreo (identificar / fullscreen)
-    if (els.chkIdentify?.closest?.("label")) {
-      const idLabel = els.chkIdentify.closest("label");
-      idLabel.classList.toggle("hidden", mode === "identity" || mode === "teach");
-    }
-    if (els.chkFullscreen?.closest?.("label")) {
-      const fsLabel = els.chkFullscreen.closest("label") || $("#lblFullscreen");
-      if (fsLabel) fsLabel.classList.toggle("hidden", mode === "identity" || mode === "teach");
-    }
-    if (els.speedHint) {
-      els.speedHint.classList.toggle("hidden", mode === "identity" || mode === "teach");
-      if (mode === "camera") els.speedHint.textContent = "Lectura vertical · cuerpo completo";
-      else if (mode === "identity") els.speedHint.textContent = "Guía facial · 4 poses";
-      else if (mode === "teach") els.speedHint.textContent = "Foto o video de la prenda";
-    }
-
-    if (mode === "identity" || mode === "teach") {
-      stopDetectLoop();
-      if (!camera.hasMediaStream()) camera.startCamera({ silentDetect: true });
-      else camera.showLive();
-      // Limpiar resultado EPP residual del monitoreo
-      if (els.complianceBox) els.complianceBox.dataset.state = "idle";
-      if (els.complianceValue) els.complianceValue.textContent = mode === "identity" ? "Enrolamiento" : "Entrenamiento";
-      if (els.complianceSummary) {
-        els.complianceSummary.textContent =
-          mode === "identity"
-            ? "Registrá el rostro acá. El EPP se evalúa en Monitoreo."
-            : "Enseñá prendas acá. El cumplimiento se ve en Monitoreo.";
-      }
-      if (els.statusPill) els.statusPill.textContent = "Modo entrenamiento";
-      if (els.detList) els.detList.innerHTML = `<li class="muted">Sin escaneo EPP en este modo</li>`;
-      if (els.alertList) els.alertList.innerHTML = `<li class="muted">Sin alertas de faena</li>`;
-    } else if (mode === "config") {
-      stopDetectLoop();
-      camera.showLive();
-    } else if (mode === "reports") {
-      stopDetectLoop();
-    } else if (mode === "camera") {
-      camera.stopRtsp();
-      // Volver de Personas/Teach: restaurar panel de monitoreo y reanudar EPP
-      if (els.complianceBox) els.complianceBox.dataset.state = "idle";
-      if (els.complianceValue) els.complianceValue.textContent = "En espera";
-      if (els.complianceSummary) {
-        els.complianceSummary.textContent = els.chkIdentify?.checked
-          ? "Iniciá el monitoreo para evaluar EPP e identidad."
-          : "Marcá «Identificar rostro» abajo para reconocer personas enroladas.";
-      }
-      if (els.statusPill) els.statusPill.textContent = "Standby";
-      if (els.detList) els.detList.innerHTML = `<li class="muted">Sin detecciones</li>`;
-      if (els.alertList) els.alertList.innerHTML = `<li class="muted">Sin alertas</li>`;
-      if (appMode === "live" && camera.hasMediaStream() && !detectLive.isDetectLoopOn()) {
-        startDetectLoop();
-      }
-    } else if (mode === "rtsp") {
-      camera.stopCamera();
-    } else {
-      stopDetectLoop();
-    }
-
-    if (mode === "identity" && els.enrollCoach) {
-      els.enrollCoach.textContent = "4 poses de calidad obligatorias · luz frontal · una persona";
-    }
-    guide.applyGuideMode();
-  }
-
-  function updateUi(payload) {
-    if (!payload || !payload.ok) return;
-    const t0 = performance.now();
-
-    if (payload.frame_width && payload.frame_height) {
-      lastFrameSize = { w: payload.frame_width, h: payload.frame_height };
-    }
-
-    if (payload.identity?.face_box) lastFaceBox = payload.identity.face_box;
-
-    // Preferir video vivo + canvas (rápido). Solo usar imagen si viene y no hay video.
-    if (payload.image_b64 && !camera.hasMediaStream()) {
-      els.overlayHint.hidden = true;
-      els.liveVideo.hidden = true;
-      els.overlayCanvas.hidden = true;
-      els.annotatedImg.hidden = false;
-      els.annotatedImg.src = `data:image/jpeg;base64,${payload.image_b64}`;
-    } else {
-      camera.showLive();
-      overlay.drawDetections(
-        payload.detections,
-        lastFrameSize.w,
-        lastFrameSize.h,
-        payload.identity || lastIdentity,
-        payload.zones?.hits || []
-      );
-    }
-
-    if (payload.zones?.defs) zones.zonesCache = payload.zones.defs;
-
-    const gateOn = !!settings.silhouetteGate && !!settings.silhouetteEnabled && appMode === "live";
-    const aligned = gateOn
-      ? guide.evaluateAlignment(payload.detections || [], lastFrameSize.w, lastFrameSize.h)
-      : true;
-
-    const c = payload.compliance || {};
-    const ok = !!c.overall_compliant;
-    const hasPeople = (c.persons || []).length > 0 || (payload.detections || []).length > 0;
-    if (gateOn && !aligned && hasPeople) {
-      els.complianceBox.dataset.state = "bad";
-      els.complianceValue.textContent = "Fuera de silueta";
-      els.complianceSummary.textContent =
-        "Encajá el cuerpo completo en la guía vertical para validar EPP e identidad.";
-    } else {
-      els.complianceBox.dataset.state = hasPeople ? (ok ? "ok" : "bad") : "idle";
-      els.complianceValue.textContent = !hasPeople ? "Sin persona" : ok ? "Cumple" : "No cumple";
-      els.complianceSummary.textContent = c.summary || "—";
-    }
-    const pill = $("#statusPill");
-    if (pill) {
-      if (gateOn && !aligned && hasPeople) pill.textContent = "Fuera";
-      else if (!hasPeople) pill.textContent = "Standby";
-      else pill.textContent = ok ? "OK" : "Alerta";
-    }
-    kiosk.updateKioskBanner(payload);
-
-    if (els.safetyScoreLive) {
-      els.safetyScoreLive.textContent =
-        payload.safety_score != null ? `Safety Score · ${payload.safety_score}/100` : "";
-    }
-    if (els.exposureLive) {
-      const ex = payload.exposure;
-      if (ex && (ex.active || ex.seconds > 0)) {
-        els.exposureLive.textContent = ex.active
-          ? `Sin EPP · ${ex.label}`
-          : `Exposición acumulada · ${ex.label}`;
-      } else {
-        els.exposureLive.textContent = "";
-      }
-    }
-
-    // Audio en piso — máx. 2 veces por incumplimiento; se reinicia al cumplir / sin persona
-    if (appMode === "live" && hasPeople && !ok) {
-      const zoneAlert = (payload.zones?.alerts || [])[0];
-      const miss = (c.persons?.[0]?.missing || []).slice(0, 2).join(" y ");
-      if (zoneAlert) speakAlert(zoneAlert.replace("Near-miss:", "Cuidado.").replace("Zona restringida:", "Zona restringida."));
-      else if (miss) speakAlert(`Falta ${miss}. Ponete el equipo de protección.`);
-      else speakAlert("No cumple. Revisá tu EPP.");
-    } else if (ok || !hasPeople) {
-      resetSpeakIncident();
-      try {
-        if (window.speechSynthesis?.speaking) window.speechSynthesis.cancel();
-      } catch (_) {}
-    }
-    if (payload.access && payload.access.allow !== lastAccessAllow) {
-      lastAccessAllow = payload.access.allow;
-      speakAlert(payload.access.allow ? "Acceso permitido" : "Acceso denegado");
-    }
-
-    const dets = payload.detections || [];
-    els.detList.innerHTML = dets.length
-      ? dets
-          .map(
-            (d) =>
-              `<li><span>${d.label_es || d.label}</span><span class="conf">${Math.round(
-                d.confidence * 100
-              )}%</span></li>`
-          )
-          .join("")
-      : `<li class="muted">Sin detecciones en este frame</li>`;
-
-    const alerts = c.alerts || [];
-    // Si hay identidad conocida, personalizar alerta
-    const id = payload.identity || lastIdentity;
-    els.alertList.innerHTML = alerts.length
-      ? alerts
-          .map((a) => {
-            const who = id?.known && id?.name ? `${displayPersonName(id.name)}: ` : "";
-            return `<li class="warn">${who}${a}</li>`;
-          })
-          .join("")
-      : `<li class="muted">Sin alertas</li>`;
-
-    if (payload.identity) {
-      lastIdentity = payload.identity;
-      setIdentityCard(payload.identity);
-      if (payload.identity.faces_detected > 0 && settings.faceGuide && appMode === "live") {
-        enroll.flashIdentifyingGuide();
-      }
-    } else if (appMode === "live" && !els.chkIdentify?.checked) {
-      els.identityName.textContent = "ID apagada";
-      els.identityRut.textContent = "Marcá «Identificar rostro» abajo";
-      if (els.identityMethod) els.identityMethod.textContent = "";
-    }
-
-    const ms = Math.round(performance.now() - t0);
-    els.fpsLabel.textContent = `${ms} ms UI`;
-  }
 
   /** Títulos médicos → término de faena (expertos SSO / EPP). */
   function displayPersonName(name) {
@@ -1021,29 +515,6 @@ function bindAuthController(onOperatorLogin) {
 
 
   // Events
-  $$(".mode-btn").forEach((b) => b.addEventListener("click", () => setAppMode(b.dataset.mode)));
-  document.addEventListener("click", (ev) => {
-    const btn = ev.target.closest(".cfg-nav-btn");
-    if (!btn) return;
-    const sec = btn.getAttribute("data-cfg-sec");
-    if (sec) setConfigSection(sec);
-  });
-  $$(".rep-item").forEach((b) => b.addEventListener("click", () => openReport(b.dataset.rep)));
-  if (els.btnRepRefresh) els.btnRepRefresh.addEventListener("click", () => openReport(reports.getCurrentRep() || "overview"));
-  if (els.repDays) els.repDays.addEventListener("change", () => openReport(reports.getCurrentRep() || "overview"));
-  if (els.repProfile) els.repProfile.addEventListener("change", () => openReport(reports.getCurrentRep() || "overview"));
-  $$(".tab").forEach((t) => {
-    if (t.dataset.source) t.addEventListener("click", () => setSource(t.dataset.source));
-  });
-  els.profileSelect.addEventListener("change", renderProfile);
-  els.btnResetPpe?.addEventListener("click", () => {
-    resetProfileRequired(els.profileSelect.value);
-    renderProfile();
-  });
-  els.btnCfgResetPpe?.addEventListener("click", () => {
-    resetProfileRequired(els.profileSelect.value);
-    renderProfile();
-  });
   $("#cfgQrOnlyMode")?.addEventListener("change", () => readSettingsFromForm());
   $("#cfgRetentionDays")?.addEventListener("input", () => readSettingsFromForm());
   $("#btnAuditRefresh")?.addEventListener("click", () => refreshAudit());
@@ -1147,11 +618,11 @@ function bindAuthController(onOperatorLogin) {
     if (!el) return;
     el.addEventListener("input", () => {
       readSettingsFromForm();
-      if (el === els.cfgAudioRepeats) resetSpeakIncident();
+      if (el === els.cfgAudioRepeats) audio.resetSpeakIncident();
     });
     el.addEventListener("change", () => {
       readSettingsFromForm();
-      if (el === els.cfgAudioRepeats) resetSpeakIncident();
+      if (el === els.cfgAudioRepeats) audio.resetSpeakIncident();
     });
   });
   if (els.cfgPoseAttempts) {
@@ -1323,7 +794,7 @@ function bindAuthController(onOperatorLogin) {
     api,
     els,
     settings,
-    getAppMode: () => appMode,
+    getAppMode: () => modes.getAppMode(),
   });
   const {
     loadZones,
@@ -1336,12 +807,24 @@ function bindAuthController(onOperatorLogin) {
     drawZonesEditorCanvas,
   } = zones;
 
+  const audio = createAudioAlertsController({ settings });
+
+  const ppeProfiles = createPpeProfilesController({
+    api,
+    els,
+    settings,
+    saveSettings,
+  });
+
+  let modes;
+  let livePanel;
+
   const guide = createSilhouetteGuideController({
     els,
     settings,
     saveSettings,
     enrollState,
-    getAppMode: () => appMode,
+    getAppMode: () => modes.getAppMode(),
   });
 
   let overlay;
@@ -1349,7 +832,7 @@ function bindAuthController(onOperatorLogin) {
     els,
     settings,
     enrollState,
-    getAppMode: () => appMode,
+    getAppMode: () => modes.getAppMode(),
     getLastFaceBox: () => lastFaceBox,
     syncCanvasSize: () => camera.syncCanvasSize(),
     evaluateAlignment: guide.evaluateAlignment,
@@ -1359,7 +842,7 @@ function bindAuthController(onOperatorLogin) {
   const reports = createReportsController({
     api,
     els,
-    getProfiles: () => profiles,
+    getProfiles: () => ppeProfiles.profiles,
   });
   const { openReport, fillRepProfiles, downloadUrl } = reports;
 
@@ -1382,11 +865,11 @@ function bindAuthController(onOperatorLogin) {
     api,
     els,
     settings,
-    requiredQueryValue,
+    requiredQueryValue: ppeProfiles.requiredQueryValue,
     applyHealth,
-    updateUi,
+    updateUi: (p) => livePanel.updateUi(p),
     applyGuideMode: guide.applyGuideMode,
-    isLiveMode,
+    isLiveMode: () => modes.isLiveMode(),
     getSourceMode: () => camera.getSourceMode(),
     getCombinedInference: () => combinedInference,
     getEppStreak: () => eppStreak,
@@ -1425,37 +908,27 @@ function bindAuthController(onOperatorLogin) {
     api,
     els,
     settings,
-    requiredQueryValue,
+    requiredQueryValue: ppeProfiles.requiredQueryValue,
     isMobile,
     isIOS,
     applyGuideMode: guide.applyGuideMode,
     setAlignment: guide.setAlignment,
-    getAppMode: () => appMode,
+    getAppMode: () => modes.getAppMode(),
     isDetectLoopOn: detectLive.isDetectLoopOn,
     startDetectLoop,
     stopDetectLoop,
-    updateUi,
+    updateUi: (p) => livePanel.updateUi(p),
     getLastIdentifyAt: () => lastIdentifyAt,
     setLastIdentifyAt: (v) => {
       lastIdentifyAt = v;
     },
   });
 
-  const kiosk = createKioskController({
-    settings,
-    saveSettings,
-    els,
-    setAppMode,
-    applyRoleUI,
-    displayPersonName,
-    getLastIdentity: () => lastIdentity,
-  });
-
   const mass = createMassController({
     api,
     els,
-    requiredQueryValue,
-    getAppMode: () => appMode,
+    requiredQueryValue: ppeProfiles.requiredQueryValue,
+    getAppMode: () => modes.getAppMode(),
     refreshCameras: () => camera.refreshCameras(),
   });
 
@@ -1466,6 +939,74 @@ function bindAuthController(onOperatorLogin) {
     startCamera: camera.startCamera,
     hasMediaStream: camera.hasMediaStream,
   });
+  modes = createAppModesController({
+    els,
+    settings,
+    saveSettings,
+    camera,
+    guide,
+    workers,
+    teach,
+    mass,
+    zones,
+    reports,
+    stopDetectLoop,
+    startDetectLoop,
+    isDetectLoopOn: detectLive.isDetectLoopOn,
+    loadZones,
+    setConfigSectionCallbacks: {
+      onSectionChange: (id) => {
+        if (id === "audit") refreshAudit();
+        if (id === "enterprise") {
+          refreshSitesUi();
+          refreshEhsUi();
+        }
+        if (id === "zones") {
+          bindZonesCanvasEvents();
+          requestAnimationFrame(() => {
+            syncZonesCanvasSize();
+            drawZonesEditorCanvas();
+            startZonesCanvasLoop();
+          });
+        } else {
+          stopZonesCanvasLoop();
+        }
+      },
+    },
+  });
+
+  const kiosk = createKioskController({
+    settings,
+    saveSettings,
+    els,
+    setAppMode: modes.setAppMode,
+    applyRoleUI,
+    displayPersonName,
+    getLastIdentity: () => lastIdentity,
+  });
+
+  livePanel = createLivePanelController({
+    els,
+    settings,
+    getAppMode: modes.getAppMode,
+    camera,
+    overlay,
+    guide,
+    zones,
+    kiosk,
+    getEnroll: () => enroll,
+    audio,
+    displayPersonName,
+    setIdentityCard,
+    getLastIdentity: () => lastIdentity,
+    setLastIdentity: (v) => { lastIdentity = v; },
+    setLastFaceBox: (v) => { lastFaceBox = v; },
+    getLastFrameSize: () => lastFrameSize,
+    setLastFrameSize: (v) => { lastFrameSize = v; },
+    getLastAccessAllow: () => lastAccessAllow,
+    setLastAccessAllow: (v) => { lastAccessAllow = v; },
+  });
+
 
   const enroll = createEnrollController({
     api,
@@ -1484,13 +1025,19 @@ function bindAuthController(onOperatorLogin) {
       lastFaceBox = v;
     },
     refreshWorkers: () => workers.refreshWorkers(),
-    enableIdentifyForPorteria,
+    enableIdentifyForPorteria: modes.enableIdentifyForPorteria,
     sleep,
     hasMediaStream: camera.hasMediaStream,
     setCaptureButtonsVisible,
   });
 
   workers.bindWorkerEvents();
+  ppeProfiles.bindProfileEvents();
+  modes.bindNavigationEvents();
+  $$(".rep-item").forEach((b) => b.addEventListener("click", () => openReport(b.dataset.rep)));
+  if (els.btnRepRefresh) els.btnRepRefresh.addEventListener("click", () => openReport(reports.getCurrentRep() || "overview"));
+  if (els.repDays) els.repDays.addEventListener("change", () => openReport(reports.getCurrentRep() || "overview"));
+  if (els.repProfile) els.repProfile.addEventListener("change", () => openReport(reports.getCurrentRep() || "overview"));
   guide.bindGuideEvents();
   camera.bindCameraEvents();
   kiosk.bindKioskEvents();
@@ -1499,7 +1046,7 @@ function bindAuthController(onOperatorLogin) {
   enroll.bindEnrollEvents();
 
   bindAuthController(() => {
-    setAppMode("live");
+    modes.setAppMode("live");
     kiosk.setKioskMode(true);
   });
 
