@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import Any
 from urllib.request import Request, urlopen
 
+from . import secret_box as secret_mod
 from .paths import data_dir
 from .security_urls import validate_outbound_url
 
@@ -16,6 +17,9 @@ logger = logging.getLogger("vigiepp.ehs")
 
 _lock = threading.Lock()
 _CONFIG_FILE = "ehs_connectors.json"
+
+_SECRET_FIELDS = ("api_key", "auth_header", "client_id")
+_SECRET_ENC_SUFFIX = "_enc"
 
 DEFAULT_CONNECTORS: dict[str, dict[str, Any]] = {
     "webhook": {
@@ -49,6 +53,44 @@ def _config_path() -> Any:
     return data_dir() / _CONFIG_FILE
 
 
+def _secret_plain(cfg: dict[str, Any], field: str) -> str:
+    enc_key = f"{field}{_SECRET_ENC_SUFFIX}"
+    enc = cfg.get(enc_key)
+    if enc:
+        plain = secret_mod.decrypt_text(str(enc))
+        if plain:
+            return plain
+    return str(cfg.get(field) or "")
+
+
+def _store_secret_fields(cfg: dict[str, Any], field: str, plain: str) -> None:
+    enc_key = f"{field}{_SECRET_ENC_SUFFIX}"
+    if plain:
+        enc = secret_mod.encrypt_text(plain)
+        if enc:
+            cfg[enc_key] = enc
+            cfg[field] = ""
+            return
+    cfg.pop(enc_key, None)
+    cfg[field] = plain or ""
+
+
+def _migrate_secrets(cfg: dict[str, Any]) -> bool:
+    changed = False
+    for field in _SECRET_FIELDS:
+        if cfg.get(field) and not cfg.get(f"{field}{_SECRET_ENC_SUFFIX}"):
+            _store_secret_fields(cfg, field, str(cfg.get(field) or ""))
+            changed = True
+    return changed
+
+
+def _sanitize_connector(cfg: dict[str, Any]) -> dict[str, Any]:
+    out = {k: v for k, v in cfg.items() if k not in _SECRET_FIELDS and not k.endswith(_SECRET_ENC_SUFFIX)}
+    for field in _SECRET_FIELDS:
+        out[f"{field}_set"] = bool(_secret_plain(cfg, field))
+    return out
+
+
 def _load() -> dict[str, Any]:
     path = _config_path()
     if not path.is_file():
@@ -57,12 +99,18 @@ def _load() -> dict[str, Any]:
         raw = json.loads(path.read_text(encoding="utf-8"))
         if isinstance(raw, dict):
             merged = dict(DEFAULT_CONNECTORS)
+            migrated = False
             for k, v in (raw.get("connectors") or {}).items():
                 if isinstance(v, dict):
                     base = dict(merged.get(k) or {})
                     base.update(v)
+                    if _migrate_secrets(base):
+                        migrated = True
                     merged[k] = base
-            return {"connectors": merged, "updated_at": raw.get("updated_at")}
+            data = {"connectors": merged, "updated_at": raw.get("updated_at")}
+            if migrated:
+                _save(data)
+            return data
     except json.JSONDecodeError:
         pass
     return {"connectors": dict(DEFAULT_CONNECTORS), "updated_at": None}
@@ -79,12 +127,7 @@ def get_config() -> dict[str, Any]:
     with _lock:
         data = _load()
     connectors = data.get("connectors") or {}
-    public = {}
-    for cid, cfg in connectors.items():
-        pub = {k: v for k, v in cfg.items() if k not in ("api_key", "auth_header", "client_id")}
-        pub["api_key_set"] = bool(cfg.get("api_key"))
-        pub["auth_header_set"] = bool(cfg.get("auth_header"))
-        public[cid] = pub
+    public = {cid: _sanitize_connector(cfg) for cid, cfg in connectors.items()}
     return {"connectors": public, "updated_at": data.get("updated_at")}
 
 
@@ -96,7 +139,12 @@ def save_config(patch: dict[str, Any]) -> dict[str, Any]:
             if not isinstance(upd, dict):
                 continue
             base = dict(connectors.get(cid) or DEFAULT_CONNECTORS.get(cid) or {})
-            base.update(upd)
+            for field in _SECRET_FIELDS:
+                if field in upd:
+                    _store_secret_fields(base, field, str(upd.get(field) or ""))
+            for k, v in upd.items():
+                if k not in _SECRET_FIELDS:
+                    base[k] = v
             connectors[cid] = base
         data["connectors"] = connectors
         _save(data)
@@ -152,6 +200,17 @@ def _post_json(url: str, body: dict[str, Any], headers: dict[str, str] = None) -
         return False, str(exc)
 
 
+def _connector_headers(cfg: dict[str, Any]) -> dict[str, str]:
+    headers: dict[str, str] = {}
+    auth = _secret_plain(cfg, "auth_header")
+    if auth:
+        headers["Authorization"] = auth
+    api_key = _secret_plain(cfg, "api_key")
+    if api_key:
+        headers["X-API-Key"] = api_key
+    return headers
+
+
 def push_incident(incident: dict[str, Any]) -> list[dict[str, Any]]:
     """Envía incidente a conectores EHS habilitados."""
     with _lock:
@@ -166,11 +225,11 @@ def push_incident(incident: dict[str, Any]) -> list[dict[str, Any]]:
             results.append({"connector": cid, "ok": False, "error": "URL vacía"})
             continue
         payload = _format_payload(cid, incident)
-        headers: dict[str, str] = {}
-        if cfg.get("auth_header"):
-            headers["Authorization"] = str(cfg["auth_header"])
-        if cfg.get("api_key"):
-            headers["X-API-Key"] = str(cfg["api_key"])
+        if cid == "sap_ewm" and cfg.get("plant"):
+            payload["Plant"] = str(cfg.get("plant") or "")
+        if cid == "safetycloud" and cfg.get("site_code"):
+            payload["site"] = str(cfg.get("site_code") or "")
+        headers = _connector_headers(cfg)
         ok, msg = _post_json(url, payload, headers)
         results.append({"connector": cid, "ok": ok, "detail": msg})
         if not ok:
@@ -198,10 +257,6 @@ def test_connector(connector_id: str) -> dict[str, Any]:
     if not url:
         return {"ok": False, "error": "URL requerida"}
     payload = _format_payload(connector_id, sample)
-    headers: dict[str, str] = {}
-    if cfg.get("auth_header"):
-        headers["Authorization"] = str(cfg["auth_header"])
-    if cfg.get("api_key"):
-        headers["X-API-Key"] = str(cfg["api_key"])
+    headers = _connector_headers(cfg)
     ok, msg = _post_json(url, payload, headers)
     return {"ok": ok, "detail": msg, "connector": connector_id}

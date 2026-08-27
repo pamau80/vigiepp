@@ -26,8 +26,26 @@ def configured() -> bool:
     )
 
 
+def _validate_issuer_url(issuer: str) -> str:
+    u = (issuer or "").strip().rstrip("/")
+    if not u.startswith("https://"):
+        raise ValueError("OIDC issuer debe usar HTTPS")
+    from .security_urls import validate_outbound_url
+
+    ok, msg = validate_outbound_url(u, allow_public=True)
+    if not ok:
+        raise ValueError(f"Issuer OIDC inválido: {msg}")
+    return u
+
+
 def public_config() -> dict[str, Any]:
-    issuer = os.getenv("VIGIEPP_OIDC_ISSUER", "").strip().rstrip("/")
+    raw_issuer = os.getenv("VIGIEPP_OIDC_ISSUER", "").strip()
+    issuer = ""
+    if raw_issuer:
+        try:
+            issuer = _validate_issuer_url(raw_issuer)
+        except ValueError:
+            issuer = raw_issuer
     return {
         "enabled": configured(),
         "issuer": issuer,
@@ -54,7 +72,7 @@ def authorize_url(state: str | None = None) -> str:
     state = state or secrets.token_urlsafe(16)
     _purge_pending()
     _pending[state] = time.time()
-    issuer = os.getenv("VIGIEPP_OIDC_ISSUER", "").strip().rstrip("/")
+    issuer = _validate_issuer_url(os.getenv("VIGIEPP_OIDC_ISSUER", "").strip())
     params = {
         "client_id": os.getenv("VIGIEPP_OIDC_CLIENT_ID", "").strip(),
         "response_type": "code",
@@ -111,7 +129,7 @@ def resolve_role(userinfo: dict[str, Any]) -> str:
 def exchange_code(code: str) -> dict[str, Any]:
     if not configured():
         raise ValueError("OIDC no configurado")
-    issuer = os.getenv("VIGIEPP_OIDC_ISSUER", "").strip().rstrip("/")
+    issuer = _validate_issuer_url(os.getenv("VIGIEPP_OIDC_ISSUER", "").strip())
     token_url = f"{issuer}/token"
     body = urllib.parse.urlencode(
         {
@@ -133,7 +151,7 @@ def exchange_code(code: str) -> dict[str, Any]:
 
 
 def userinfo(access_token: str) -> dict[str, Any]:
-    issuer = os.getenv("VIGIEPP_OIDC_ISSUER", "").strip().rstrip("/")
+    issuer = _validate_issuer_url(os.getenv("VIGIEPP_OIDC_ISSUER", "").strip())
     url = f"{issuer}/userinfo"
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {access_token}"})
     with urllib.request.urlopen(req, timeout=15) as resp:

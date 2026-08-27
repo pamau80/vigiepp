@@ -43,7 +43,10 @@ def edge_outbound_allowed() -> bool:
     raw = os.getenv("VIGIEPP_ALLOW_LAN", "").strip().lower()
     if raw in ("1", "true", "yes", "on"):
         return True
-    return is_persistent() or not bool(os.getenv("RENDER") or os.getenv("RENDER_SERVICE_ID"))
+    on_cloud = bool(os.getenv("RENDER") or os.getenv("RENDER_SERVICE_ID"))
+    if on_cloud:
+        return False
+    return is_persistent() or True
 
 
 def validate_outbound_url(url: str, *, allow_public: bool = True) -> tuple[bool, str]:

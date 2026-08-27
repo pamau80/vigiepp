@@ -36,30 +36,14 @@ detect_lock = threading.Lock()
 DETECT_IMGSZ_MAX = int(os.getenv("VIGIEPP_IMGSZ_MAX", "256"))
 
 def validate_rtsp_url(url: str) -> str:
-    raw = (url or "").strip()
-    if not raw:
-        raise HTTPException(400, "URL RTSP requerida")
-    parsed = urlparse(raw)
-    if parsed.scheme not in ("rtsp", "rtsps"):
-        raise HTTPException(400, "Solo se permiten URLs rtsp:// o rtsps://")
-    host = (parsed.hostname or "").lower()
-    blocked = {
-        "localhost",
-        "127.0.0.1",
-        "::1",
-        "0.0.0.0",
-        "metadata.google.internal",
-        "169.254.169.254",
-        "metadata",
-    }
-    if host in blocked or host.startswith("127.") or host.endswith(".local"):
-        raise HTTPException(400, "Host RTSP no permitido")
-    allow = os.getenv("VIGIEPP_RTSP_ALLOW", "").strip()
-    if allow and allow != "*":
-        allowed_hosts = {h.strip().lower() for h in allow.split(",") if h.strip()}
-        if host not in allowed_hosts:
-            raise HTTPException(400, "Host RTSP fuera de la lista permitida")
-    return raw
+    from fastapi import HTTPException
+
+    try:
+        from .rtsp_security import validate_rtsp_url as _validate
+
+        return _validate(url)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 

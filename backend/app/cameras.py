@@ -40,14 +40,11 @@ def _save(payload: dict[str, Any]) -> None:
         pass
 
 
+from .rtsp_security import validate_rtsp_url as _validate_rtsp
+
+
 def validate_rtsp(url: str) -> str:
-    u = (url or "").strip()
-    parsed = urlparse(u)
-    if parsed.scheme not in ("rtsp", "rtsps"):
-        raise ValueError("Solo rtsp:// o rtsps://")
-    if not parsed.hostname:
-        raise ValueError("URL sin host")
-    return u
+    return _validate_rtsp(url)
 
 
 def list_cameras() -> list[dict[str, Any]]:

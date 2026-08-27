@@ -20,7 +20,9 @@ from .detector import PPEDetector
 from .identity import IdentityRegistry
 from .routers import register_routers
 from .routers.core import BUILD_VERSION
+from .request_limits import MaxBodySizeMiddleware
 from .security_headers import SecurityHeadersMiddleware
+from .startup_checks import run_startup_security_checks
 from .stream_rtsp import stop_all
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
@@ -64,6 +66,7 @@ async def lifespan(_: FastAPI):
             logger.exception("Retención inicial falló")
 
     threading.Thread(target=_warm, name="vigiepp-warm", daemon=True).start()
+    run_startup_security_checks()
     yield
     stop_all()
 
@@ -80,14 +83,21 @@ app = FastAPI(
 )
 
 _cors_raw = os.getenv("VIGIEPP_CORS_ORIGINS", "").strip()
-_cors_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()] if _cors_raw else ["*"]
+if _cors_raw:
+    _cors_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()]
+    _cors_credentials = "*" not in _cors_origins
+else:
+    _cors_origins = []
+    _cors_credentials = False
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_cors_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=_cors_origins if _cors_origins else ["http://127.0.0.1:8000", "http://localhost:8000"],
+    allow_credentials=_cors_credentials,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+app.add_middleware(MaxBodySizeMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(auth_mod.AuthMiddleware)
 
