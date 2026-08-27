@@ -57,5 +57,9 @@ frontend/frontend/
 
 # E2E browser runtime (generado en tests)
 tests/e2e/_runtime_data/
-tests/e2e/_debug_data/
+tests/e2e/_runtime_debug*/
+tests/e2e/_debug_data*/
+tests/fixtures/lena.y4m
+tests/fixtures/lena.mjpeg
+tests/fixtures/lena.jpg
 

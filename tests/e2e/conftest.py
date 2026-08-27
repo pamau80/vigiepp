@@ -19,6 +19,7 @@ from tests.e2e.helpers import E2E_PIN, enroll_worker_via_api
 ROOT = Path(__file__).resolve().parents[2]
 BACKEND = ROOT / "backend"
 FACE_FIXTURE = ROOT / "tests" / "fixtures" / "lena.jpg"
+Y4M_FIXTURE = ROOT / "tests" / "fixtures" / "lena.y4m"
 E2E_DATA = ROOT / "tests" / "e2e" / "_runtime_data"
 LENA_URL = "https://raw.githubusercontent.com/opencv/opencv/4.x/samples/data/lena.jpg"
 
@@ -115,8 +116,45 @@ def base_url(e2e_server_url: str) -> str:
 
 
 @pytest.fixture(scope="session")
-def browser_type_launch_args():
-    return {"headless": True}
+def face_video_path(face_jpeg_path: Path) -> Path:
+    """Video Y4M para cámara fake de Chromium (--use-file-for-fake-video-capture)."""
+    if Y4M_FIXTURE.exists() and Y4M_FIXTURE.stat().st_mtime >= face_jpeg_path.stat().st_mtime:
+        return Y4M_FIXTURE
+    Y4M_FIXTURE.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-loop",
+            "1",
+            "-i",
+            str(face_jpeg_path),
+            "-t",
+            "12",
+            "-vf",
+            "scale=640:480",
+            "-pix_fmt",
+            "yuv420p",
+            "-f",
+            "yuv4mpegpipe",
+            str(Y4M_FIXTURE),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    return Y4M_FIXTURE
+
+
+@pytest.fixture(scope="session")
+def browser_type_launch_args(face_video_path: Path):
+    return {
+        "headless": True,
+        "args": [
+            "--use-fake-device-for-media-stream",
+            "--use-fake-ui-for-media-stream",
+            f"--use-file-for-fake-video-capture={face_video_path}",
+        ],
+    }
 
 
 @pytest.fixture(scope="session")

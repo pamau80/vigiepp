@@ -143,22 +143,29 @@ function captureBlob(quality = 0.7, maxW = 480) {
 function captureFaceBlob(quality = 0.88, maxW = 560) {
   return new Promise((resolve) => {
     const video = els.liveVideo;
-    if (!video.videoWidth) return resolve(null);
-    const vw = video.videoWidth;
-    const vh = video.videoHeight;
-    const side = Math.min(vw, Math.round(vh * 0.62));
-    const sx = Math.max(0, Math.round((vw - side) / 2));
-    const sy = Math.max(0, Math.round(vh * 0.05));
-    const sw = Math.min(side, vw - sx);
-    const sh = Math.min(side, vh - sy);
-    const scale = Math.min(1, maxW / sw);
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.round(sw * scale);
-    canvas.height = Math.round(sh * scale);
-    canvas
-      .getContext("2d")
-      .drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-    canvas.toBlob((blob) => resolve(blob), "image/jpeg", quality);
+    let tries = 0;
+    const attempt = () => {
+      if (!video?.videoWidth) {
+        if (++tries < 80) return setTimeout(attempt, 50);
+        return resolve(null);
+      }
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      const side = Math.min(vw, Math.round(vh * 0.62));
+      const sx = Math.max(0, Math.round((vw - side) / 2));
+      const sy = Math.max(0, Math.round(vh * 0.05));
+      const sw = Math.min(side, vw - sx);
+      const sh = Math.min(side, vh - sy);
+      const scale = Math.min(1, maxW / sw);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(sw * scale);
+      canvas.height = Math.round(sh * scale);
+      canvas
+        .getContext("2d")
+        .drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob((blob) => resolve(blob), "image/jpeg", quality);
+    };
+    attempt();
   });
 }
 

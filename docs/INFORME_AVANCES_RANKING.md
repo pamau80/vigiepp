@@ -1,15 +1,15 @@
 # Informe de avances y ranking — VigiEPP
 
-**Build actual:** `v52` · **Rama:** `cursor/nvr-mass-navigation-cce8` · **PR #8**  
+**Build actual:** `v53` · **Rama:** `cursor/nvr-mass-navigation-cce8` · **PR #8**  
 **Fecha:** 2026-08-27
 
 ---
 
 ## 1. Resumen ejecutivo
 
-VigiEPP evolucionó de un monolito frontend (~4354 líneas) a una arquitectura **modular enterprise** con **31 módulos ES**, seguridad P0/P1 validada, **70 tests pytest**, E2E API **34/34**, CI Ruff **en verde**, y **E2E browser Playwright 4/4** (v52).
+VigiEPP evolucionó de un monolito frontend (~4354 líneas) a una arquitectura **modular enterprise** con **31 módulos ES**, seguridad P0/P1 validada, **70 tests pytest**, E2E API **34/34**, CI Ruff **en verde**, y **E2E browser Playwright 4/4** (v53).
 
-| Indicador | Inicio (v41) | Actual (v52) | Δ |
+| Indicador | Inicio (v41) | Actual (v53) | Δ |
 |-----------|--------------|--------------|---|
 | Líneas `app.js` | ~4354 | **320** | **−93%** |
 | Módulos ES frontend | 0 | **31** | +31 |
@@ -57,6 +57,7 @@ VigiEPP evolucionó de un monolito frontend (~4354 líneas) a una arquitectura *
 | **v50** | **Ruff CI, OTLP, fixes F821** | 585 |
 | **v51** | **`app-state.js`, `app-bind.js`** | **320** |
 | **v52** | **E2E browser Playwright + fix `ensureAuth`** | **320** |
+| **v53** | **Fix identify E2E — cámara fake Y4M** | **320** |
 
 ---
 

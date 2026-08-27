@@ -41,8 +41,11 @@ def ui_login(page: Page, pin: str = E2E_PIN) -> None:
 
 def go_identity_tab(page: Page) -> None:
     page.locator('.mode-btn[data-mode="identity"]').click()
+    page.wait_for_function(
+        "() => document.body.classList.contains('mode-identity')",
+        timeout=30000,
+    )
     page.wait_for_selector("#identityControls:not(.hidden)", timeout=30000)
-    page.wait_for_selector("#workerName", timeout=30000)
     page.wait_for_selector("#btnIdentify", state="visible", timeout=30000)
 
 
@@ -142,30 +145,22 @@ def enroll_worker_via_api(base_url: str, face_path: Path, name: str, rut: str, s
 E2E_FACE_URL = "/__e2e__/face.jpg"
 
 
-def inject_fake_camera(page: Page, face_path: Path) -> None:
-    page.route(
-        f"**{E2E_FACE_URL}",
-        lambda route: route.fulfill(path=str(face_path), content_type="image/jpeg"),
-    )
-    page.add_init_script(
-        f"""
-        (() => {{
-          const FACE_URL = "{E2E_FACE_URL}";
-          navigator.mediaDevices.getUserMedia = async () => {{
-            const resp = await fetch(FACE_URL);
-            const blob = await resp.blob();
-            const bitmap = await createImageBitmap(blob);
-            const canvas = document.createElement("canvas");
-            canvas.width = 640;
-            canvas.height = 480;
-            const ctx = canvas.getContext("2d");
-            const paint = () => {{
-              ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-              requestAnimationFrame(paint);
-            }};
-            paint();
-            return canvas.captureStream(30);
-          }};
-        }})();
+def wait_camera_ready(page: Page, timeout_ms: int = 45000) -> None:
+    page.wait_for_function(
         """
+        () => {
+          const v = document.getElementById('liveVideo');
+          return v && v.videoWidth > 0 && v.videoHeight > 0;
+        }
+        """,
+        timeout=timeout_ms,
     )
+
+
+def start_fake_camera_ui(page: Page) -> None:
+    """Modo Personas intenta abrir cámara al entrar; reintento con Iniciar si hace falta."""
+    page.wait_for_timeout(800)
+    btn = page.locator("#btnStartCam")
+    if btn.is_visible() and btn.is_enabled():
+        btn.click()
+        page.wait_for_timeout(400)
