@@ -1,22 +1,9 @@
-import { $, $$ } from "./modules/dom.js";
 import { createApi } from "./modules/http.js";
-import {
-  getSettings,
-  loadSettings as loadSettingsFromModule,
-  saveSettings as saveSettingsToModule,
-} from "./modules/settings.js";
-import {
-  applyMobileChrome as applyMobileChromeModule,
-  isMobile,
-  isIOS,
-  syncViewportHeight,
-} from "./modules/mobile.js";
 import { createAuthController } from "./modules/auth.js";
 import { createEnterpriseController } from "./modules/enterprise.js";
 import { createZonesController } from "./modules/zones.js";
 import { createReportsController } from "./modules/reports.js";
 import { createDetectLiveController } from "./modules/detect-live.js";
-
 import { createWorkersController } from "./modules/identity-workers.js";
 import { createEnrollController } from "./modules/identity-enroll.js";
 import { createKioskController } from "./modules/kiosk.js";
@@ -32,10 +19,15 @@ import { createAppModesController } from "./modules/app-modes.js";
 import { createIdentityCardController } from "./modules/identity-card.js";
 import { createAppHealthController } from "./modules/app-health.js";
 import { createSettingsFormController } from "./modules/settings-form.js";
-import { createBootController } from "./modules/app-boot.js";
 import { createAuditLogController } from "./modules/audit-log.js";
-import { createIdentityBackupController } from "./modules/identity-backup.js";
-import { createAppShellEventsController } from "./modules/app-shell-events.js";
+import {
+  createAppElements,
+  createAppRuntimeState,
+  createSettingsStore,
+  sleep,
+} from "./modules/app-state.js";
+import { bindAppEvents } from "./modules/app-bind.js";
+import { isMobile, isIOS } from "./modules/mobile.js";
 
 let ensureAuth;
 let applyRoleUI;
@@ -62,521 +54,267 @@ function bindAuthController(onOperatorLogin) {
   };
 }
 
-  const els = {
-    profileSelect: $("#profileSelect"),
-    profileDesc: $("#profileDesc"),
-    requiredChips: $("#requiredChips"),
-    modelStatus: $("#modelStatus"),
-    modelStatusText: $("#modelStatusText"),
-    liveVideo: $("#liveVideo"),
-    overlayCanvas: $("#overlayCanvas"),
-    annotatedImg: $("#annotatedImg"),
-    overlayHint: $("#overlayHint"),
-    liveBadge: $("#liveBadge"),
-    silhouetteGuide: $("#silhouetteGuide"),
-    silHint: $("#silHint"),
-    alignBadge: $("#alignBadge"),
-    personChip: $("#personChip"),
-    personChipName: $("#personChipName"),
-    personChipRut: $("#personChipRut"),
-    btnStartCam: $("#btnStartCam"),
-    btnStopCam: $("#btnStopCam"),
-    btnFlipCam: $("#btnFlipCam"),
-    btnFullscreen: $("#btnFullscreen"),
-    chkFullscreen: $("#chkFullscreen"),
-    lblFullscreen: $("#lblFullscreen"),
-    btnStartRtsp: $("#btnStartRtsp"),
-    btnStopRtsp: $("#btnStopRtsp"),
-    rtspUrl: $("#rtspUrl"),
-    cameraSelect: $("#cameraSelect"),
-    cameraName: $("#cameraName"),
-    btnSaveCamera: $("#btnSaveCamera"),
-    btnDelCamera: $("#btnDelCamera"),
-    fileInput: $("#fileInput"),
-    cameraControls: $("#cameraControls"),
-    rtspControls: $("#rtspControls"),
-    uploadControls: $("#uploadControls"),
-    identityControls: $("#identityControls"),
-    teachControls: $("#teachControls"),
-    monitorToolbar: $("#monitorToolbar"),
-    chkIdentify: $("#chkIdentify"),
-    chkBiometricConsent: $("#chkBiometricConsent"),
-    complianceBox: $("#complianceBox"),
-    complianceValue: $("#complianceValue"),
-    complianceSummary: $("#complianceSummary"),
-    statusPill: $("#statusPill"),
-    detList: $("#detList"),
-    alertList: $("#alertList"),
-    scanList: $("#scanList"),
-    speedHint: $("#speedHint"),
-    fpsLabel: $("#fpsLabel"),
-    workerName: $("#workerName"),
-    workerRut: $("#workerRut"),
-    btnEnroll: $("#btnEnroll"),
-    btnCancelEnroll: $("#btnCancelEnroll"),
-    btnIdentify: $("#btnIdentify"),
-    identityName: $("#identityName"),
-    identityRut: $("#identityRut"),
-    identityMethod: $("#identityMethod"),
-    workerList: $("#workerList"),
-    workerSearch: $("#workerSearch"),
-    workerListHint: $("#workerListHint"),
-    enrollOverlay: $("#enrollOverlay"),
-    enrollPoseTitle: $("#enrollPoseTitle"),
-    enrollPoseHint: $("#enrollPoseHint"),
-    enrollCount: $("#enrollCount"),
-    enrollCoach: $("#enrollCoach"),
-    poseProgress: $("#poseProgress"),
-    poseBarFill: $("#poseBarFill"),
-    poseStepLabel: $("#poseStepLabel"),
-    teachClass: $("#teachClass"),
-    btnTeachSample: $("#btnTeachSample"),
-    btnTeachTrain: $("#btnTeachTrain"),
-    btnTeachActivate: $("#btnTeachActivate"),
-    teachHint: $("#teachHint"),
-    teachStats: $("#teachStats"),
-    teachPhotos: $("#teachPhotos"),
-    teachVideo: $("#teachVideo"),
-    teachNewClass: $("#teachNewClass"),
-    btnTeachAddClass: $("#btnTeachAddClass"),
-    teachExtraControls: $("#teachExtraControls"),
-    teachClassList: $("#teachClassList"),
-    faceTrainPhotos: $("#faceTrainPhotos"),
-    btnCapturePose: $("#btnCapturePose"),
-    btnCapturePoseId: $("#btnCapturePoseId"),
-    silZoom: $("#silZoom"),
-    silZoomRange: $("#silZoomRange"),
-    silZoomLabel: $("#silZoomLabel"),
-    btnSilZoomIn: $("#btnSilZoomIn"),
-    btnSilZoomOut: $("#btnSilZoomOut"),
-    configControls: $("#configControls"),
-    cfgSilhouette: $("#cfgSilhouette"),
-    cfgSilhouetteGate: $("#cfgSilhouetteGate"),
-    cfgFaceGuide: $("#cfgFaceGuide"),
-    cfgBodyScale: $("#cfgBodyScale"),
-    cfgFaceScale: $("#cfgFaceScale"),
-    cfgGuideY: $("#cfgGuideY"),
-    cfgBodyScaleVal: $("#cfgBodyScaleVal"),
-    cfgFaceScaleVal: $("#cfgFaceScaleVal"),
-    cfgGuideYVal: $("#cfgGuideYVal"),
-    cfgAutoAdvance: $("#cfgAutoAdvance"),
-    cfgPoseAttempts: $("#cfgPoseAttempts"),
-    cfgIdentifyDefault: $("#cfgIdentifyDefault"),
-    cfgIdThresh: $("#cfgIdThresh"),
-    cfgIdThreshVal: $("#cfgIdThreshVal"),
-    cfgShowBoxes: $("#cfgShowBoxes"),
-    cfgFullscreenDefault: $("#cfgFullscreenDefault"),
-    cfgAudioAlerts: $("#cfgAudioAlerts"),
-    cfgAudioRepeats: $("#cfgAudioRepeats"),
-    cfgAudioRepeatsVal: $("#cfgAudioRepeatsVal"),
-    cfgAnonymize: $("#cfgAnonymize"),
-    cfgShowZones: $("#cfgShowZones"),
-    zonesList: $("#zonesList"),
-    zonesHint: $("#zonesHint"),
-    zonesCanvas: $("#zonesCanvas"),
-    zonesPreviewHint: $("#zonesPreviewHint"),
-    btnZoneAdd: $("#btnZoneAdd"),
-    btnZoneSave: $("#btnZoneSave"),
-    safetyScoreLive: $("#safetyScoreLive"),
-    exposureLive: $("#exposureLive"),
-    cfgSavedHint: $("#cfgSavedHint"),
-    cfgPpeChips: $("#cfgPpeChips"),
-    btnResetPpe: $("#btnResetPpe"),
-    btnCfgResetPpe: $("#btnCfgResetPpe"),
-    reportsDesk: $("#reportsDesk"),
-    reportsContent: $("#reportsContent"),
-    repDays: $("#repDays"),
-    repProfile: $("#repProfile"),
-    btnRepRefresh: $("#btnRepRefresh"),
-    repSideSummary: $("#repSideSummary"),
-    repSideList: $("#repSideList"),
-  };
+const APP_BUILD = globalThis.VIGIEPP_BUILD || "v51";
+const els = createAppElements();
+const state = createAppRuntimeState();
+const { settings, loadSettings, saveSettings, applyMobileChrome } = createSettingsStore(els);
 
-  const APP_BUILD = globalThis.VIGIEPP_BUILD || "v50";
+const identityCard = createIdentityCardController({ els });
+const { displayPersonName, normalizePersonNameForSave, setIdentityCard } = identityCard;
 
-  const identityCard = createIdentityCardController({ els });
-  const { displayPersonName, normalizePersonNameForSave, setIdentityCard } = identityCard;
+let modes;
+let livePanel;
 
-  function applyMobileChrome() {
-    applyMobileChromeModule(settings, els);
-  }
+const zones = createZonesController({
+  api,
+  els,
+  settings,
+  getAppMode: () => modes.getAppMode(),
+});
+const {
+  loadZones,
+  drawZonesOverlay,
+  bindZonesCanvasEvents,
+  startZonesCanvasLoop,
+  stopZonesCanvasLoop,
+  drawZonesEditorCanvas,
+  syncZonesCanvasSize,
+} = zones;
 
-  let settings = getSettings();
+const audio = createAudioAlertsController({ settings });
+const ppeProfiles = createPpeProfilesController({ api, els, settings, saveSettings });
+const auditLog = createAuditLogController({ api });
 
-  function loadSettings() {
-    loadSettingsFromModule();
-    settings = getSettings();
-  }
+const guide = createSilhouetteGuideController({
+  els,
+  settings,
+  saveSettings,
+  enrollState: state.enrollState,
+  getAppMode: () => modes.getAppMode(),
+});
 
-  function saveSettings(silent = false) {
-    saveSettingsToModule(silent, els.cfgSavedHint);
-  }
+const settingsForm = createSettingsFormController({
+  api,
+  els,
+  settings,
+  saveSettings,
+  applyGuideMode: guide.applyGuideMode,
+  onAudioRepeatsChange: () => audio.resetSpeakIncident(),
+});
 
-  let eppStreak = 0;
-  let lastScanRefreshAt = 0;
-  const enrollState = { enrolling: false, identifyingNow: false, enrollAbort: false };
-  let lastAccessAllow = null;
-  let lastIdentifyAt = 0;
-  let lastFrameSize = { w: 640, h: 480 };
-  let lastIdentity = null;
-  let lastFaceBox = null;
-  let combinedInference = false;
-  let lastHealth = null;
+let overlay;
+const reports = createReportsController({
+  api,
+  els,
+  getProfiles: () => ppeProfiles.profiles,
+});
+const { openReport, downloadUrl } = reports;
 
+const workers = createWorkersController({
+  api,
+  els,
+  displayPersonName,
+  normalizePersonNameForSave,
+  setIdentityCard,
+  getLastIdentity: state.getLastIdentity,
+  setLastIdentity: state.setLastIdentity,
+  setLastFaceBox: state.setLastFaceBox,
+});
 
+const appHealth = createAppHealthController({
+  els,
+  enterprise,
+  workers,
+  setCombinedInference: state.setCombinedInference,
+  setLastHealth: state.setLastHealth,
+});
+const { applyHealth } = appHealth;
 
+overlay = createOverlayCanvasController({
+  els,
+  settings,
+  enrollState: state.enrollState,
+  getAppMode: () => modes.getAppMode(),
+  getLastFaceBox: state.getLastFaceBox,
+  syncCanvasSize: () => camera.syncCanvasSize(),
+  evaluateAlignment: guide.evaluateAlignment,
+  drawZonesOverlay,
+});
 
+const detectLive = createDetectLiveController({
+  api,
+  els,
+  settings,
+  requiredQueryValue: ppeProfiles.requiredQueryValue,
+  applyHealth,
+  updateUi: (p) => livePanel.updateUi(p),
+  applyGuideMode: guide.applyGuideMode,
+  isLiveMode: () => modes.isLiveMode(),
+  getSourceMode: () => camera.getSourceMode(),
+  getCombinedInference: state.getCombinedInference,
+  getEppStreak: state.getEppStreak,
+  setEppStreak: state.setEppStreak,
+  getLastIdentifyAt: state.getLastIdentifyAt,
+  setLastIdentifyAt: state.setLastIdentifyAt,
+  getLastScanRefreshAt: state.getLastScanRefreshAt,
+  setLastScanRefreshAt: state.setLastScanRefreshAt,
+  refreshScans: () => workers.refreshScans(),
+  setIdentityCard,
+  drawDetections: overlay.drawDetections,
+  getLastFrameSize: state.getLastFrameSize,
+  setLastFaceBox: state.setLastFaceBox,
+  setLastIdentity: state.setLastIdentity,
+});
+const { detectBlob, captureBlob, identifyLiveFrame, startDetectLoop, stopDetectLoop } = detectLive;
 
+const camera = createCameraController({
+  api,
+  els,
+  settings,
+  requiredQueryValue: ppeProfiles.requiredQueryValue,
+  isMobile,
+  isIOS,
+  applyGuideMode: guide.applyGuideMode,
+  setAlignment: guide.setAlignment,
+  getAppMode: () => modes.getAppMode(),
+  isDetectLoopOn: detectLive.isDetectLoopOn,
+  startDetectLoop,
+  stopDetectLoop,
+  updateUi: (p) => livePanel.updateUi(p),
+  getLastIdentifyAt: state.getLastIdentifyAt,
+  setLastIdentifyAt: state.setLastIdentifyAt,
+});
 
-  function sleep(ms) {
-    return new Promise((r) => setTimeout(r, ms));
-  }
+const mass = createMassController({
+  api,
+  els,
+  requiredQueryValue: ppeProfiles.requiredQueryValue,
+  getAppMode: () => modes.getAppMode(),
+  refreshCameras: () => camera.refreshCameras(),
+});
 
+const teach = createTeachController({
+  api,
+  els,
+  captureBlob,
+  startCamera: camera.startCamera,
+  hasMediaStream: camera.hasMediaStream,
+});
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  const zones = createZonesController({
-    api,
-    els,
-    settings,
-    getAppMode: () => modes.getAppMode(),
-  });
-  const {
-    loadZones,
-    renderZonesEditor,
-    readZonesFromEditor,
-    drawZonesOverlay,
-    bindZonesCanvasEvents,
-    startZonesCanvasLoop,
-    stopZonesCanvasLoop,
-    drawZonesEditorCanvas,
-    syncZonesCanvasSize,
-    bindZonesEditorEvents,
-  } = zones;
-
-  const audio = createAudioAlertsController({ settings });
-
-  const ppeProfiles = createPpeProfilesController({
-    api,
-    els,
-    settings,
-    saveSettings,
-  });
-
-  const auditLog = createAuditLogController({ api });
-
-  let settingsForm;
-  let appHealth;
-  let bootCtrl;
-
-  let modes;
-  let livePanel;
-
-  const guide = createSilhouetteGuideController({
-    els,
-    settings,
-    saveSettings,
-    enrollState,
-    getAppMode: () => modes.getAppMode(),
-  });
-
-  settingsForm = createSettingsFormController({
-    api,
-    els,
-    settings,
-    saveSettings,
-    applyGuideMode: guide.applyGuideMode,
-    onAudioRepeatsChange: () => audio.resetSpeakIncident(),
-  });
-
-  let overlay;
-  overlay = createOverlayCanvasController({
-    els,
-    settings,
-    enrollState,
-    getAppMode: () => modes.getAppMode(),
-    getLastFaceBox: () => lastFaceBox,
-    syncCanvasSize: () => camera.syncCanvasSize(),
-    evaluateAlignment: guide.evaluateAlignment,
-    drawZonesOverlay,
-  });
-
-  const reports = createReportsController({
-    api,
-    els,
-    getProfiles: () => ppeProfiles.profiles,
-  });
-  const { openReport, fillRepProfiles, downloadUrl } = reports;
-
-  const workers = createWorkersController({
-    api,
-    els,
-    displayPersonName,
-    normalizePersonNameForSave,
-    setIdentityCard,
-    getLastIdentity: () => lastIdentity,
-    setLastIdentity: (v) => {
-      lastIdentity = v;
+modes = createAppModesController({
+  els,
+  settings,
+  saveSettings,
+  camera,
+  guide,
+  workers,
+  teach,
+  mass,
+  zones,
+  reports,
+  stopDetectLoop,
+  startDetectLoop,
+  isDetectLoopOn: detectLive.isDetectLoopOn,
+  loadZones,
+  setConfigSectionCallbacks: {
+    onSectionChange: (id) => {
+      if (id === "audit") auditLog.refreshAudit();
+      if (id === "enterprise") {
+        refreshSitesUi();
+        refreshEhsUi();
+      }
+      if (id === "zones") {
+        bindZonesCanvasEvents();
+        requestAnimationFrame(() => {
+          syncZonesCanvasSize();
+          drawZonesEditorCanvas();
+          startZonesCanvasLoop();
+        });
+      } else {
+        stopZonesCanvasLoop();
+      }
     },
-    setLastFaceBox: (v) => {
-      lastFaceBox = v;
-    },
-  });
+  },
+});
 
-  appHealth = createAppHealthController({
-    els,
-    enterprise,
-    workers,
-    setCombinedInference: (v) => { combinedInference = v; },
-    setLastHealth: (v) => { lastHealth = v; },
-  });
-  const { applyHealth } = appHealth;
+const kiosk = createKioskController({
+  settings,
+  saveSettings,
+  els,
+  setAppMode: modes.setAppMode,
+  applyRoleUI,
+  displayPersonName,
+  getLastIdentity: state.getLastIdentity,
+});
 
-  const detectLive = createDetectLiveController({
-    api,
-    els,
-    settings,
-    requiredQueryValue: ppeProfiles.requiredQueryValue,
-    applyHealth,
-    updateUi: (p) => livePanel.updateUi(p),
-    applyGuideMode: guide.applyGuideMode,
-    isLiveMode: () => modes.isLiveMode(),
-    getSourceMode: () => camera.getSourceMode(),
-    getCombinedInference: () => combinedInference,
-    getEppStreak: () => eppStreak,
-    setEppStreak: (v) => {
-      eppStreak = v;
-    },
-    getLastIdentifyAt: () => lastIdentifyAt,
-    setLastIdentifyAt: (v) => {
-      lastIdentifyAt = v;
-    },
-    getLastScanRefreshAt: () => lastScanRefreshAt,
-    setLastScanRefreshAt: (v) => {
-      lastScanRefreshAt = v;
-    },
-    refreshScans: () => workers.refreshScans(),
-    setIdentityCard,
-    drawDetections: overlay.drawDetections,
-    getLastFrameSize: () => lastFrameSize,
-    setLastFaceBox: (v) => {
-      lastFaceBox = v;
-    },
-    setLastIdentity: (v) => {
-      lastIdentity = v;
-    },
-  });
-  const {
-    detectBlob,
-    captureBlob,
-    captureFaceBlob,
-    identifyLiveFrame,
-    startDetectLoop,
-    stopDetectLoop,
-  } = detectLive;
+livePanel = createLivePanelController({
+  els,
+  settings,
+  getAppMode: modes.getAppMode,
+  camera,
+  overlay,
+  guide,
+  zones,
+  kiosk,
+  getEnroll: () => enroll,
+  audio,
+  displayPersonName,
+  setIdentityCard,
+  getLastIdentity: state.getLastIdentity,
+  setLastIdentity: state.setLastIdentity,
+  setLastFaceBox: state.setLastFaceBox,
+  getLastFrameSize: state.getLastFrameSize,
+  setLastFrameSize: state.setLastFrameSize,
+  getLastAccessAllow: state.getLastAccessAllow,
+  setLastAccessAllow: state.setLastAccessAllow,
+});
 
-  const camera = createCameraController({
-    api,
-    els,
-    settings,
-    requiredQueryValue: ppeProfiles.requiredQueryValue,
-    isMobile,
-    isIOS,
-    applyGuideMode: guide.applyGuideMode,
-    setAlignment: guide.setAlignment,
-    getAppMode: () => modes.getAppMode(),
-    isDetectLoopOn: detectLive.isDetectLoopOn,
-    startDetectLoop,
-    stopDetectLoop,
-    updateUi: (p) => livePanel.updateUi(p),
-    getLastIdentifyAt: () => lastIdentifyAt,
-    setLastIdentifyAt: (v) => {
-      lastIdentifyAt = v;
-    },
-  });
+const enroll = createEnrollController({
+  api,
+  els,
+  enrollState: state.enrollState,
+  normalizePersonNameForSave,
+  captureBlob,
+  startCamera: camera.startCamera,
+  stopDetectLoop,
+  identifyLiveFrame,
+  showLive: camera.showLive,
+  applyGuideMode: guide.applyGuideMode,
+  drawDetections: overlay.drawDetections,
+  getLastFrameSize: state.getLastFrameSize,
+  setLastFaceBox: state.setLastFaceBox,
+  refreshWorkers: () => workers.refreshWorkers(),
+  enableIdentifyForPorteria: modes.enableIdentifyForPorteria,
+  sleep,
+  hasMediaStream: camera.hasMediaStream,
+});
 
-  const mass = createMassController({
-    api,
-    els,
-    requiredQueryValue: ppeProfiles.requiredQueryValue,
-    getAppMode: () => modes.getAppMode(),
-    refreshCameras: () => camera.refreshCameras(),
-  });
-
-  const teach = createTeachController({
-    api,
-    els,
-    captureBlob,
-    startCamera: camera.startCamera,
-    hasMediaStream: camera.hasMediaStream,
-  });
-  modes = createAppModesController({
-    els,
-    settings,
-    saveSettings,
-    camera,
-    guide,
-    workers,
-    teach,
-    mass,
-    zones,
-    reports,
-    stopDetectLoop,
-    startDetectLoop,
-    isDetectLoopOn: detectLive.isDetectLoopOn,
-    loadZones,
-    setConfigSectionCallbacks: {
-      onSectionChange: (id) => {
-        if (id === "audit") auditLog.refreshAudit();
-        if (id === "enterprise") {
-          refreshSitesUi();
-          refreshEhsUi();
-        }
-        if (id === "zones") {
-          bindZonesCanvasEvents();
-          requestAnimationFrame(() => {
-            syncZonesCanvasSize();
-            drawZonesEditorCanvas();
-            startZonesCanvasLoop();
-          });
-        } else {
-          stopZonesCanvasLoop();
-        }
-      },
-    },
-  });
-
-  const kiosk = createKioskController({
-    settings,
-    saveSettings,
-    els,
-    setAppMode: modes.setAppMode,
-    applyRoleUI,
-    displayPersonName,
-    getLastIdentity: () => lastIdentity,
-  });
-
-  livePanel = createLivePanelController({
-    els,
-    settings,
-    getAppMode: modes.getAppMode,
-    camera,
-    overlay,
-    guide,
-    zones,
-    kiosk,
-    getEnroll: () => enroll,
-    audio,
-    displayPersonName,
-    setIdentityCard,
-    getLastIdentity: () => lastIdentity,
-    setLastIdentity: (v) => { lastIdentity = v; },
-    setLastFaceBox: (v) => { lastFaceBox = v; },
-    getLastFrameSize: () => lastFrameSize,
-    setLastFrameSize: (v) => { lastFrameSize = v; },
-    getLastAccessAllow: () => lastAccessAllow,
-    setLastAccessAllow: (v) => { lastAccessAllow = v; },
-  });
-
-
-  const enroll = createEnrollController({
-    api,
-    els,
-    enrollState,
-    normalizePersonNameForSave,
-    captureBlob,
-    startCamera: camera.startCamera,
-    stopDetectLoop,
-    identifyLiveFrame,
-    showLive: camera.showLive,
-    applyGuideMode: guide.applyGuideMode,
-    drawDetections: overlay.drawDetections,
-    getLastFrameSize: () => lastFrameSize,
-    setLastFaceBox: (v) => {
-      lastFaceBox = v;
-    },
-    refreshWorkers: () => workers.refreshWorkers(),
-    enableIdentifyForPorteria: modes.enableIdentifyForPorteria,
-    sleep,
-    hasMediaStream: camera.hasMediaStream,
-  });
-
-  workers.bindWorkerEvents();
-  ppeProfiles.bindProfileEvents();
-  modes.bindNavigationEvents();
-  $$(".rep-item").forEach((b) => b.addEventListener("click", () => openReport(b.dataset.rep)));
-  if (els.btnRepRefresh) els.btnRepRefresh.addEventListener("click", () => openReport(reports.getCurrentRep() || "overview"));
-  if (els.repDays) els.repDays.addEventListener("change", () => openReport(reports.getCurrentRep() || "overview"));
-  if (els.repProfile) els.repProfile.addEventListener("change", () => openReport(reports.getCurrentRep() || "overview"));
-  guide.bindGuideEvents();
-  camera.bindCameraEvents();
-  kiosk.bindKioskEvents();
-  mass.bindMassEvents();
-  teach.bindTeachEvents();
-  enroll.bindEnrollEvents();
-
-  bootCtrl = createBootController({
-    api,
-    els,
-    settings,
-    ensureAuth,
-    applyHealth,
-    applyMobileChrome,
-    loadSettings,
-    ppeProfiles,
-    workers,
-    teach,
-    camera,
-    loadZones,
-    settingsForm,
-    guide,
-    modes,
-    kiosk,
-    buildVersion: "50",
-  });
-  const { boot } = bootCtrl;
-
-  const identityBackup = createIdentityBackupController({ els, workers, ensureAuth });
-  identityBackup.bindBackupEvents(downloadUrl);
-  auditLog.bindAuditEvents();
-  settingsForm.bindSettingsEvents();
-
-  bindEnterpriseEvents({
-    els,
-    applyHealth,
-    refreshWorkers: () => workers.refreshWorkers(),
-    loadZones,
-  });
-  zones.bindZonesEditorEvents();
-
-  const shellEvents = createAppShellEventsController({
-    els,
-    ensureAuth,
-    detectBlob,
-    camera,
-  });
-  shellEvents.bindShellEvents();
-
-  bindAuthController(() => {
-    modes.setAppMode("live");
-    kiosk.setKioskMode(true);
-  });
-
-  boot();
+bindAppEvents({
+  api,
+  els,
+  settings,
+  ensureAuth,
+  applyHealth,
+  applyMobileChrome,
+  loadSettings,
+  ppeProfiles,
+  workers,
+  teach,
+  camera,
+  loadZones,
+  settingsForm,
+  guide,
+  modes,
+  kiosk,
+  zones,
+  reports,
+  auditLog,
+  bindEnterpriseEvents,
+  detectBlob,
+  openReport,
+  downloadUrl,
+  enroll,
+  mass,
+  buildVersion: APP_BUILD.replace(/^v/, ""),
+  bindAuthController,
+});

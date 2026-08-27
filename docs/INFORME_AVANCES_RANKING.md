@@ -1,6 +1,6 @@
 # Informe de avances y ranking — VigiEPP
 
-**Build actual:** `v50` · **Rama:** `cursor/nvr-mass-navigation-cce8` · **PR #8**  
+**Build actual:** `v51` · **Rama:** `cursor/nvr-mass-navigation-cce8` · **PR #8**  
 **Fecha:** 2026-08-27
 
 ---
@@ -9,10 +9,10 @@
 
 VigiEPP evolucionó de un monolito frontend (~4354 líneas) a una arquitectura **modular enterprise** con **29 módulos ES**, seguridad P0/P1 validada, **70 tests pytest**, E2E API **34/34**, y CI Ruff **en verde** (v50).
 
-| Indicador | Inicio (v41) | Actual (v50) | Δ |
+| Indicador | Inicio (v41) | Actual (v51) | Δ |
 |-----------|--------------|--------------|---|
-| Líneas `app.js` | ~4354 | **585** | **−87%** |
-| Módulos ES frontend | 0 | **29** | +29 |
+| Líneas `app.js` | ~4354 | **320** | **−93%** |
+| Módulos ES frontend | 0 | **31** | +31 |
 | Tests pytest | ~60 | **70** | +10 |
 | E2E API full | parcial | **34/34** | ✅ |
 | CI Ruff | ❌ ~149 errores | ✅ **0** | ✅ |
@@ -26,7 +26,7 @@ VigiEPP evolucionó de un monolito frontend (~4354 líneas) a una arquitectura *
 |---|------|-------|------|-----------|
 | 1 | **Seguridad operativa** | **9.2** | 🟢 A+ | 14 tests `test_security_audit.py`; SSRF, PIN, EHS encrypt, headers |
 | 2 | **Cobertura API / E2E** | **9.0** | 🟢 A | `review_full_e2e.sh` 34/34; `test_api_full_coverage` |
-| 3 | **Modularización frontend** | **8.5** | 🟢 A | 29 módulos; `app.js` 585 líneas; wiring claro |
+| 3 | **Modularización frontend** | **9.0** | 🟢 A+ | 31 módulos; `app.js` 320 líneas |
 | 4 | **Auth / multi-tenant** | **8.3** | 🟢 A | PIN sesión, OIDC, roles, sites multi-faena |
 | 5 | **Identidad + EPP IA** | **8.0** | 🟢 A | Detect live, enrolar, mass scan, teach |
 | 6 | **Integraciones enterprise** | **7.8** | 🟡 B+ | EHS (webhook, SafetyCloud, SAP), NVR, RTSP |
@@ -36,7 +36,7 @@ VigiEPP evolucionó de un monolito frontend (~4354 líneas) a una arquitectura *
 | 10 | **Tests UI / E2E browser** | **4.0** | 🔴 D | Sin Playwright; solo API shell |
 | 11 | **Documentación ops** | **6.5** | 🟡 B | Auditorías v49; falta runbook deploy |
 
-**Score global compuesto:** **8.1 / 10** — **Tier A (enterprise-ready operativo)**
+**Score global compuesto:** **8.3 / 10** — **Tier A+ (enterprise-ready operativo)**
 
 ---
 
@@ -54,14 +54,15 @@ VigiEPP evolucionó de un monolito frontend (~4354 líneas) a una arquitectura *
 | v48 | boot, health, settings, audit | ~729 |
 | v49 | enterprise events, zones UI, shell | **585** |
 | **v50** | **Ruff CI, OTLP, fixes F821** | 585 |
+| **v51** | **`app-state.js`, `app-bind.js`** | **320** |
 
 ---
 
-## 4. Módulos frontend (29)
+## 4. Módulos frontend (31)
 
-`auth`, `enterprise`, `zones`, `reports`, `detect-live`, `identity-workers`, `identity-enroll`, `kiosk`, `teach`, `mass`, `camera`, `silhouette-guide`, `overlay-canvas`, `audio-alerts`, `ppe-profiles`, `live-panel`, `app-modes`, `identity-card`, `app-health`, `settings-form`, `app-boot`, `audit-log`, `identity-backup`, `app-shell-events`, `dom`, `http`, `settings`, `mobile`, `geometry`
+`auth`, `enterprise`, `zones`, `reports`, `detect-live`, `identity-workers`, `identity-enroll`, `kiosk`, `teach`, `mass`, `camera`, `silhouette-guide`, `overlay-canvas`, `audio-alerts`, `ppe-profiles`, `live-panel`, `app-modes`, `identity-card`, `app-health`, `settings-form`, `app-boot`, `audit-log`, `identity-backup`, `app-shell-events`, **`app-state`**, **`app-bind`**, `dom`, `http`, `settings`, `mobile`, `geometry`
 
-**Pendiente P3:** `app-state.js` (mapa `els` + estado compartido).
+**Pendiente P3:** E2E browser (Playwright) para enrolar/identificar.
 
 ---
 
@@ -70,7 +71,6 @@ VigiEPP evolucionó de un monolito frontend (~4354 líneas) a una arquitectura *
 | Prioridad | Item | Impacto | Esfuerzo |
 |-----------|------|---------|----------|
 | **P1** | E2E browser (enrolar + identificar) | Alto | Medio |
-| **P2** | `app-state.js` — wiring &lt;400 líneas | Medio | Bajo |
 | **P2** | Runbook deploy + rotación PIN | Medio | Bajo |
 | **P3** | ESLint frontend en CI | Medio | Bajo |
 | **P3** | CSP más estricta | Bajo | Medio |
