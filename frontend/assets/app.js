@@ -25,6 +25,7 @@ import { createEnrollController } from "./modules/identity-enroll.js";
 import { createKioskController } from "./modules/kiosk.js";
 import { createTeachController } from "./modules/teach.js";
 import { createMassController } from "./modules/mass.js";
+import { createCameraController } from "./modules/camera.js";
 
 let ensureAuth;
 let applyRoleUI;
@@ -181,7 +182,7 @@ function bindAuthController(onOperatorLogin) {
     repSideList: $("#repSideList"),
   };
 
-  const APP_BUILD = globalThis.VIGIEPP_BUILD || "v44";
+  const APP_BUILD = globalThis.VIGIEPP_BUILD || "v45";
 
   function isLiveMode() {
     return appMode === "live" || appMode === "monitor";
@@ -195,16 +196,12 @@ function bindAuthController(onOperatorLogin) {
   let ppeCatalog = [];
   let eppStreak = 0;
   let lastScanRefreshAt = 0;
-  let mediaStream = null;
-  let rtspTimer = null;
-  let sourceMode = "camera";
   let appMode = "live";
   const enrollState = { enrolling: false, identifyingNow: false, enrollAbort: false };
   let lastIdentifyAt = 0;
   let lastFrameSize = { w: 640, h: 480 };
   let lastIdentity = null;
   let lastFaceBox = null;
-  let preferredFacing = "user";
   let combinedInference = false;
   let lastHealth = null;
 
@@ -466,95 +463,6 @@ function bindAuthController(onOperatorLogin) {
     return new Promise((r) => setTimeout(r, ms));
   }
 
-  function setOverlayHint(text, { showStart = true } = {}) {
-    if (!els.overlayHint) return;
-    els.overlayHint.hidden = false;
-    const p = els.overlayHint.querySelector("p");
-    if (p) p.textContent = text;
-    const btn = $("#btnOverlayStart");
-    if (btn) btn.classList.toggle("hidden", !showStart);
-  }
-
-  function hideLiveVideo() {
-    if (els.liveVideo) {
-      els.liveVideo.hidden = true;
-      els.liveVideo.removeAttribute("src");
-      try {
-        els.liveVideo.srcObject = null;
-      } catch (_) {}
-    }
-    if (els.liveBadge) els.liveBadge.hidden = true;
-  }
-
-  function showLive() {
-    els.overlayHint.hidden = true;
-    els.annotatedImg.hidden = true;
-    const hasFrames = !!(els.liveVideo?.videoWidth && mediaStream);
-    // Nunca mostrar el <video> vacío: Chrome dibuja un teléfono con candado
-    els.liveVideo.hidden = !hasFrames;
-    els.overlayCanvas.hidden = false;
-    if (els.liveBadge) els.liveBadge.hidden = !hasFrames;
-  }
-
-  async function cameraPermissionState() {
-    try {
-      if (!navigator.permissions?.query) return "unknown";
-      const st = await navigator.permissions.query({ name: "camera" });
-      return st.state || "unknown";
-    } catch (_) {
-      return "unknown";
-    }
-  }
-
-  async function refreshCameraPermissionHint() {
-    const state = await cameraPermissionState();
-    if (state === "denied") {
-      setOverlayHint(
-        "Chrome bloqueó la cámara en este sitio (ícono con X roja en la barra). Tocá ese ícono → Cámara → Permitir → Recargar, y después Iniciar.",
-        { showStart: true }
-      );
-      return "denied";
-    }
-    if (!mediaStream) {
-      setOverlayHint("Tocá Iniciar y permití la cámara para evaluar EPP", { showStart: true });
-    }
-    return state;
-  }
-
-  async function waitForVideoFrames(timeoutMs = 4000) {
-    const video = els.liveVideo;
-    if (!video) return false;
-    if (video.videoWidth > 0) return true;
-    return new Promise((resolve) => {
-      let done = false;
-      const finish = (ok) => {
-        if (done) return;
-        done = true;
-        video.removeEventListener("loadeddata", onReady);
-        video.removeEventListener("playing", onReady);
-        clearTimeout(timer);
-        resolve(ok);
-      };
-      const onReady = () => finish(video.videoWidth > 0);
-      video.addEventListener("loadeddata", onReady);
-      video.addEventListener("playing", onReady);
-      const timer = setTimeout(() => finish(video.videoWidth > 0), timeoutMs);
-    });
-  }
-
-  function clearOverlay() {
-    const c = els.overlayCanvas;
-    const ctx = c.getContext("2d");
-    ctx.clearRect(0, 0, c.width, c.height);
-  }
-
-  function syncCanvasSize() {
-    const canvas = els.overlayCanvas;
-    const frame = canvas.parentElement; // .scan-frame
-    const rect = frame.getBoundingClientRect();
-    canvas.width = Math.max(1, Math.round(rect.width));
-    canvas.height = Math.max(1, Math.round(rect.height));
-  }
 
   /** Zona de la silueta en coords del frame vertical (3:4), según porte configurado. */
   function guideRect(frameW, frameH) {
@@ -734,7 +642,7 @@ function bindAuthController(onOperatorLogin) {
 
 
   function drawDetections(detections, frameW, frameH, identity, zoneHits) {
-    syncCanvasSize();
+    camera.syncCanvasSize();
     const canvas = els.overlayCanvas;
     const ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -863,7 +771,7 @@ function bindAuthController(onOperatorLogin) {
     await workers.refreshWorkers();
     await teach.refreshTeach();
     await workers.refreshScans();
-    await refreshCameras();
+    await camera.refreshCameras();
     await loadZones();
     loadSettings();
     await loadPrivacyServer();
@@ -874,14 +782,14 @@ function bindAuthController(onOperatorLogin) {
     applyGuideMode();
     setAppMode("live");
     if (settings.kioskMode) kiosk.setKioskMode(true);
-    hideLiveVideo();
-    await refreshCameraPermissionHint();
+    camera.hideLiveVideo();
+    await camera.refreshCameraPermissionHint();
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.getRegistrations().then((regs) => {
         regs.forEach((r) => r.unregister().catch(() => {}));
       });
       setTimeout(() => {
-        navigator.serviceWorker.register("/assets/sw.js?v=44").catch(() => {});
+        navigator.serviceWorker.register("/assets/sw.js?v=45").catch(() => {});
       }, 400);
     }
     const offlineBadge = $("#offlineBadge");
@@ -896,13 +804,13 @@ function bindAuthController(onOperatorLogin) {
     window.addEventListener("orientationchange", () => {
       setTimeout(() => {
         syncViewportHeight();
-        syncCanvasSize();
+        camera.syncCanvasSize();
         applyGuideMode();
       }, 250);
     });
     window.visualViewport?.addEventListener("resize", () => {
       syncViewportHeight();
-      syncCanvasSize();
+      camera.syncCanvasSize();
     });
     window.addEventListener("resize", syncViewportHeight);
   }
@@ -975,7 +883,7 @@ function bindAuthController(onOperatorLogin) {
     if (mode !== "mass") mass.stopMassLoop();
     if (mode !== "live" && mode !== "identity" && mode !== "teach") {
       stopDetectLoop();
-      if (mode !== "live") stopRtsp();
+      if (mode !== "live") camera.stopRtsp();
     }
 
     document.body.classList.remove(
@@ -1035,9 +943,9 @@ function bindAuthController(onOperatorLogin) {
 
     if (mode === "live") {
       setSource(
-        sourceMode === "identity" || sourceMode === "teach" || sourceMode === "config" || sourceMode === "reports"
+        camera.getSourceMode() === "identity" || camera.getSourceMode() === "teach" || camera.getSourceMode() === "config" || camera.getSourceMode() === "reports"
           ? "camera"
-          : sourceMode
+          : camera.getSourceMode()
       );
       if (prevMode === "identity" && workers.hasReadyWorkers()) {
         enableIdentifyForPorteria("Identificación ON · volviste de Personas");
@@ -1071,11 +979,11 @@ function bindAuthController(onOperatorLogin) {
       fillRepProfiles();
       openReport(reports.getCurrentRep() || "overview");
     }
-    requestAnimationFrame(() => syncCanvasSize());
+    requestAnimationFrame(() => camera.syncCanvasSize());
   }
 
   function setSource(mode) {
-    sourceMode = mode;
+    camera.setSourceMode(mode);
     $$(".tab").forEach((t) => {
       if (!t.dataset.source) return;
       const on = t.dataset.source === mode;
@@ -1094,7 +1002,7 @@ function bindAuthController(onOperatorLogin) {
 
     if (mode === "mass" || mode === "devices") {
       stopDetectLoop();
-      stopRtsp();
+      camera.stopRtsp();
     }
 
     // En Personas: ocultar toggles de monitoreo (identificar / fullscreen)
@@ -1115,8 +1023,8 @@ function bindAuthController(onOperatorLogin) {
 
     if (mode === "identity" || mode === "teach") {
       stopDetectLoop();
-      if (!mediaStream) startCamera({ silentDetect: true });
-      else showLive();
+      if (!camera.hasMediaStream()) camera.startCamera({ silentDetect: true });
+      else camera.showLive();
       // Limpiar resultado EPP residual del monitoreo
       if (els.complianceBox) els.complianceBox.dataset.state = "idle";
       if (els.complianceValue) els.complianceValue.textContent = mode === "identity" ? "Enrolamiento" : "Entrenamiento";
@@ -1131,11 +1039,11 @@ function bindAuthController(onOperatorLogin) {
       if (els.alertList) els.alertList.innerHTML = `<li class="muted">Sin alertas de faena</li>`;
     } else if (mode === "config") {
       stopDetectLoop();
-      showLive();
+      camera.showLive();
     } else if (mode === "reports") {
       stopDetectLoop();
     } else if (mode === "camera") {
-      stopRtsp();
+      camera.stopRtsp();
       // Volver de Personas/Teach: restaurar panel de monitoreo y reanudar EPP
       if (els.complianceBox) els.complianceBox.dataset.state = "idle";
       if (els.complianceValue) els.complianceValue.textContent = "En espera";
@@ -1147,11 +1055,11 @@ function bindAuthController(onOperatorLogin) {
       if (els.statusPill) els.statusPill.textContent = "Standby";
       if (els.detList) els.detList.innerHTML = `<li class="muted">Sin detecciones</li>`;
       if (els.alertList) els.alertList.innerHTML = `<li class="muted">Sin alertas</li>`;
-      if (appMode === "live" && mediaStream && !detectLive.isDetectLoopOn()) {
+      if (appMode === "live" && camera.hasMediaStream() && !detectLive.isDetectLoopOn()) {
         startDetectLoop();
       }
     } else if (mode === "rtsp") {
-      stopCamera();
+      camera.stopCamera();
     } else {
       stopDetectLoop();
     }
@@ -1173,14 +1081,14 @@ function bindAuthController(onOperatorLogin) {
     if (payload.identity?.face_box) lastFaceBox = payload.identity.face_box;
 
     // Preferir video vivo + canvas (rápido). Solo usar imagen si viene y no hay video.
-    if (payload.image_b64 && !mediaStream) {
+    if (payload.image_b64 && !camera.hasMediaStream()) {
       els.overlayHint.hidden = true;
       els.liveVideo.hidden = true;
       els.overlayCanvas.hidden = true;
       els.annotatedImg.hidden = false;
       els.annotatedImg.src = `data:image/jpeg;base64,${payload.image_b64}`;
     } else {
-      showLive();
+      camera.showLive();
       drawDetections(
         payload.detections,
         lastFrameSize.w,
@@ -1361,296 +1269,6 @@ function bindAuthController(onOperatorLogin) {
     els.personChipRut.textContent = els.identityRut.textContent;
   }
 
-  function enterFullscreen() {
-    const root = document.documentElement;
-    const req =
-      root.requestFullscreen ||
-      root.webkitRequestFullscreen ||
-      root.msRequestFullscreen;
-    if (!req) return Promise.resolve();
-    try {
-      const p = req.call(root);
-      return p && typeof p.then === "function" ? p.catch(() => {}) : Promise.resolve();
-    } catch (_) {
-      return Promise.resolve();
-    }
-  }
-
-  function exitFullscreen() {
-    if (!document.fullscreenElement && !document.webkitFullscreenElement) return;
-    const exit = document.exitFullscreen || document.webkitExitFullscreen;
-    if (exit) {
-      try {
-        exit.call(document);
-      } catch (_) {}
-    }
-  }
-
-  function isFullscreen() {
-    return !!(document.fullscreenElement || document.webkitFullscreenElement);
-  }
-
-  async function startCamera(opts = {}) {
-    try {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error("Este navegador no permite cámara. Usá Chrome/Safari actualizado por HTTPS.");
-      }
-      if (!window.isSecureContext) {
-        throw new Error("La cámara requiere HTTPS. Abrí vigiepp.onrender.com o localhost.");
-      }
-      setOverlayHint("Pedí permiso de cámara en el navegador…", { showStart: false });
-      if (!mediaStream) {
-        mediaStream = await openCameraStream(preferredFacing);
-        els.liveVideo.setAttribute("playsinline", "");
-        els.liveVideo.setAttribute("webkit-playsinline", "");
-        els.liveVideo.muted = true;
-        els.liveVideo.srcObject = mediaStream;
-        els.liveVideo.hidden = false;
-        try {
-          await els.liveVideo.play();
-        } catch (_) {}
-      }
-      const hasFrames = await waitForVideoFrames();
-      if (!hasFrames) {
-        throw new Error("NoImage");
-      }
-      showLive();
-      els.btnStartCam.disabled = true;
-      els.btnStopCam.disabled = false;
-      if (els.btnFlipCam) els.btnFlipCam.disabled = false;
-      stopDetectLoop();
-      if (!opts.silentDetect && appMode === "live" && sourceMode === "camera") {
-        startDetectLoop();
-      }
-    } catch (err) {
-      console.error(err);
-      if (mediaStream) {
-        mediaStream.getTracks().forEach((t) => t.stop());
-        mediaStream = null;
-      }
-      hideLiveVideo();
-      els.btnStartCam.disabled = false;
-      els.btnStopCam.disabled = true;
-      const msg = String(err?.name || err?.message || err || "");
-      const perm = await cameraPermissionState();
-      let tip = "No se pudo acceder a la cámara. Tocá Iniciar y permití el acceso.";
-      if (perm === "denied" || /NotAllowed|Permission|denied/i.test(msg)) {
-        tip = isIOS()
-          ? "Cámara bloqueada. En Ajustes → Safari → Cámara, permití acceso y recargá."
-          : "Chrome bloqueó la cámara (ícono con X roja junto a la URL). Tocá ese ícono → Cámara → Permitir → Recargar → Iniciar.";
-      } else if (/NotReadable|TrackStart|AbortError/i.test(msg)) {
-        tip = "La cámara está ocupada por otra app (Zoom, Teams, Meet…). Cerrala y tocá Iniciar.";
-      } else if (/NoImage/i.test(msg)) {
-        tip = "La cámara no entrega imagen. Cerrá otras apps que la usen y tocá Iniciar.";
-      } else if (/NotFound|DevicesNotFound/i.test(msg)) {
-        tip = "No hay cámara disponible en este dispositivo.";
-      } else if (/secure|HTTPS/i.test(msg)) {
-        tip = msg;
-      }
-      setOverlayHint(tip, { showStart: true });
-    }
-  }
-
-  async function openCameraStream(facing) {
-    const mobile = isMobile();
-    const attempts = mobile
-      ? [
-          { video: { facingMode: { ideal: facing }, width: { ideal: 720 }, height: { ideal: 960 } }, audio: false },
-          { video: { facingMode: facing }, audio: false },
-          { video: true, audio: false },
-        ]
-      : [
-          {
-            video: {
-              facingMode: { ideal: facing },
-              width: { ideal: 720 },
-              height: { ideal: 960 },
-              aspectRatio: { ideal: 0.75 },
-            },
-            audio: false,
-          },
-          { video: { facingMode: { ideal: facing } }, audio: false },
-          { video: true, audio: false },
-        ];
-    let lastErr = null;
-    for (const constraints of attempts) {
-      try {
-        return await navigator.mediaDevices.getUserMedia(constraints);
-      } catch (err) {
-        lastErr = err;
-      }
-    }
-    throw lastErr || new Error("No se pudo abrir la cámara");
-  }
-
-  async function flipCamera() {
-    preferredFacing = preferredFacing === "user" ? "environment" : "user";
-    if (mediaStream) {
-      mediaStream.getTracks().forEach((t) => t.stop());
-      mediaStream = null;
-      els.liveVideo.srcObject = null;
-    }
-    const wasScanning = detectLive.isDetectLoopOn();
-    stopDetectLoop();
-    try {
-      mediaStream = await openCameraStream(preferredFacing);
-      els.liveVideo.srcObject = mediaStream;
-      await els.liveVideo.play().catch(() => {});
-      showLive();
-      els.btnStartCam.disabled = true;
-      els.btnStopCam.disabled = false;
-      if (wasScanning && appMode === "live" && sourceMode === "camera") {
-        startDetectLoop();
-      }
-      const hint = $("#speedHint");
-      if (hint) {
-        hint.textContent = preferredFacing === "user" ? "Cámara frontal" : "Cámara trasera";
-      }
-    } catch (err) {
-      preferredFacing = preferredFacing === "user" ? "environment" : "user";
-      els.overlayHint.hidden = false;
-      els.overlayHint.querySelector("p").textContent =
-        "No se pudo cambiar de cámara en este dispositivo.";
-    }
-  }
-
-  function stopCamera() {
-    stopDetectLoop();
-    document.body.classList.remove("is-scanning");
-    applyGuideMode();
-    if (mediaStream) {
-      mediaStream.getTracks().forEach((t) => t.stop());
-      mediaStream = null;
-    }
-    hideLiveVideo();
-    els.btnStartCam.disabled = false;
-    els.btnStopCam.disabled = true;
-    clearOverlay();
-    els.personChip.classList.add("hidden");
-    setOverlayHint("Tocá Iniciar y permití la cámara para evaluar EPP", { showStart: true });
-    setAlignment("idle", "Posicionate");
-  }
-
-  async function refreshCameras() {
-    if (!els.cameraSelect) return;
-    try {
-      const data = await api("/api/cameras");
-      const cams = data.cameras || [];
-      const cur = els.cameraSelect.value;
-      els.cameraSelect.innerHTML =
-        `<option value="">— Elegí o pegá URL —</option>` +
-        cams
-          .map(
-            (c) =>
-              `<option value="${c.id}" data-url="${encodeURIComponent(c.url)}">${escapeHtml(c.name)}</option>`
-          )
-          .join("");
-      if (cur && [...els.cameraSelect.options].some((o) => o.value === cur)) {
-        els.cameraSelect.value = cur;
-      }
-    } catch (_) {}
-  }
-
-  async function saveCurrentCamera() {
-    const url = els.rtspUrl?.value.trim();
-    if (!url) {
-      alert("Pegá una URL rtsp://");
-      return;
-    }
-    const name = els.cameraName?.value.trim() || "";
-    const id = els.cameraSelect?.value || undefined;
-    await api("/api/cameras", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, url, id: id || null }),
-    });
-    await refreshCameras();
-  }
-
-  async function deleteSelectedCamera() {
-    const id = els.cameraSelect?.value;
-    if (!id) return;
-    await api(`/api/cameras/${id}`, { method: "DELETE" });
-    if (els.rtspUrl) els.rtspUrl.value = "";
-    if (els.cameraName) els.cameraName.value = "";
-    await refreshCameras();
-  }
-
-  async function refreshAudit() {
-    const list = $("#auditList");
-    if (!list) return;
-    try {
-      const data = await api("/api/audit?limit=60");
-      const ev = data.events || [];
-      list.innerHTML = ev.length
-        ? ev
-            .map((e) => {
-              const ts = (e.ts || "").replace("T", " ").slice(0, 19);
-              return `<li><span>${escapeHtml(e.action)}</span><span class="conf">${escapeHtml(ts)} · ${escapeHtml(e.detail || "")}</span></li>`;
-            })
-            .join("")
-        : `<li class="muted">Sin eventos</li>`;
-    } catch (err) {
-      list.innerHTML = `<li class="muted">${escapeHtml(err.message || "No se pudo cargar")}</li>`;
-    }
-  }
-
-  async function startRtsp() {
-    const url = els.rtspUrl.value.trim();
-    if (!url) return;
-    await api("/api/rtsp/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, profile: els.profileSelect.value }),
-    });
-    els.btnStartRtsp.disabled = true;
-    els.btnStopRtsp.disabled = false;
-    els.overlayHint.hidden = true;
-    els.liveBadge.hidden = false;
-    document.body.classList.add("is-scanning");
-    applyGuideMode();
-    const poll = async () => {
-      const wantId = !!els.chkIdentify?.checked && Date.now() - lastIdentifyAt > 2200;
-      if (wantId) lastIdentifyAt = Date.now();
-      const q = new URLSearchParams({
-        url,
-        profile: els.profileSelect.value,
-        conf: "0.35",
-        identify: String(wantId),
-        required: requiredQueryValue(),
-      });
-      try {
-        const data = await api(`/api/rtsp/frame?${q}`);
-        if (data.ok) updateUi(data);
-      } catch (err) {
-        console.error(err);
-      }
-    };
-    await poll();
-    rtspTimer = setInterval(poll, 1000);
-  }
-
-  async function stopRtsp() {
-    if (rtspTimer) {
-      clearInterval(rtspTimer);
-      rtspTimer = null;
-    }
-    const url = els.rtspUrl.value.trim();
-    if (url) {
-      try {
-        await api("/api/rtsp/stop", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url, profile: els.profileSelect.value }),
-        });
-      } catch (_) {}
-    }
-    els.btnStartRtsp.disabled = false;
-    els.btnStopRtsp.disabled = true;
-    els.liveBadge.hidden = true;
-    document.body.classList.remove("is-scanning");
-    applyGuideMode();
-  }
 
 
 
@@ -1680,45 +1298,6 @@ function bindAuthController(onOperatorLogin) {
     resetProfileRequired(els.profileSelect.value);
     renderProfile();
   });
-  els.btnStartCam.addEventListener("click", () => startCamera());
-  $("#btnOverlayStart")?.addEventListener("click", () => startCamera());
-  els.btnStopCam.addEventListener("click", stopCamera);
-  if (els.btnFlipCam) {
-    els.btnFlipCam.addEventListener("click", () => flipCamera());
-  }
-  if (els.btnFullscreen) {
-    els.btnFullscreen.addEventListener("click", async () => {
-      if (isIOS()) {
-        document.body.classList.toggle("is-scanning");
-        return;
-      }
-      if (isFullscreen()) exitFullscreen();
-      else await enterFullscreen();
-    });
-  }
-  document.addEventListener("fullscreenchange", () => {
-    if (els.btnFullscreen) {
-      els.btnFullscreen.textContent = isFullscreen() ? "Salir pantalla completa" : "Pantalla completa";
-    }
-    document.body.classList.toggle("is-fullscreen", isFullscreen());
-    if (mediaStream && els.liveVideo?.srcObject) {
-      els.liveVideo.play().catch(() => {});
-    }
-  });
-  els.btnStartRtsp.addEventListener("click", startRtsp);
-  els.btnStopRtsp.addEventListener("click", stopRtsp);
-  els.cameraSelect?.addEventListener("change", () => {
-    const opt = els.cameraSelect.selectedOptions[0];
-    if (!opt?.value) return;
-    try {
-      els.rtspUrl.value = decodeURIComponent(opt.dataset.url || "");
-    } catch (_) {
-      els.rtspUrl.value = "";
-    }
-    if (els.cameraName) els.cameraName.value = opt.textContent || "";
-  });
-  els.btnSaveCamera?.addEventListener("click", () => saveCurrentCamera().catch((e) => alert(e.message)));
-  els.btnDelCamera?.addEventListener("click", () => deleteSelectedCamera().catch((e) => alert(e.message)));
   $("#cfgQrOnlyMode")?.addEventListener("change", () => readSettingsFromForm());
   $("#cfgRetentionDays")?.addEventListener("input", () => readSettingsFromForm());
   $("#btnAuditRefresh")?.addEventListener("click", () => refreshAudit());
@@ -1818,7 +1397,7 @@ function bindAuthController(onOperatorLogin) {
     });
   }
   window.addEventListener("resize", () => {
-    if (mediaStream) syncCanvasSize();
+    if (camera.hasMediaStream()) camera.syncCanvasSize();
   });
 
   [
@@ -2059,7 +1638,7 @@ function bindAuthController(onOperatorLogin) {
     updateUi,
     applyGuideMode,
     isLiveMode,
-    getSourceMode: () => sourceMode,
+    getSourceMode: () => camera.getSourceMode(),
     getCombinedInference: () => combinedInference,
     getEppStreak: () => eppStreak,
     setEppStreak: (v) => {
@@ -2093,6 +1672,26 @@ function bindAuthController(onOperatorLogin) {
     stopDetectLoop,
   } = detectLive;
 
+  const camera = createCameraController({
+    api,
+    els,
+    settings,
+    requiredQueryValue,
+    isMobile,
+    isIOS,
+    applyGuideMode,
+    setAlignment,
+    getAppMode: () => appMode,
+    isDetectLoopOn: detectLive.isDetectLoopOn,
+    startDetectLoop,
+    stopDetectLoop,
+    updateUi,
+    getLastIdentifyAt: () => lastIdentifyAt,
+    setLastIdentifyAt: (v) => {
+      lastIdentifyAt = v;
+    },
+  });
+
   const kiosk = createKioskController({
     settings,
     saveSettings,
@@ -2108,15 +1707,15 @@ function bindAuthController(onOperatorLogin) {
     els,
     requiredQueryValue,
     getAppMode: () => appMode,
-    refreshCameras,
+    refreshCameras: () => camera.refreshCameras(),
   });
 
   const teach = createTeachController({
     api,
     els,
     captureBlob,
-    startCamera,
-    hasMediaStream: () => mediaStream,
+    startCamera: camera.startCamera,
+    hasMediaStream: camera.hasMediaStream,
   });
 
   const enroll = createEnrollController({
@@ -2125,10 +1724,10 @@ function bindAuthController(onOperatorLogin) {
     enrollState,
     normalizePersonNameForSave,
     captureBlob,
-    startCamera,
+    startCamera: camera.startCamera,
     stopDetectLoop,
     identifyLiveFrame,
-    showLive,
+    showLive: camera.showLive,
     applyGuideMode,
     drawDetections,
     getLastFrameSize: () => lastFrameSize,
@@ -2138,11 +1737,12 @@ function bindAuthController(onOperatorLogin) {
     refreshWorkers: () => workers.refreshWorkers(),
     enableIdentifyForPorteria,
     sleep,
-    hasMediaStream: () => mediaStream,
+    hasMediaStream: camera.hasMediaStream,
     setCaptureButtonsVisible,
   });
 
   workers.bindWorkerEvents();
+  camera.bindCameraEvents();
   kiosk.bindKioskEvents();
   mass.bindMassEvents();
   teach.bindTeachEvents();
