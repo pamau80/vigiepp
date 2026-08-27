@@ -20,7 +20,7 @@ LABEL_ES: dict[str, str] = {
     "hardhat": "Casco",
     "Helmet": "Casco",
     "casco": "Casco",
-    "Safety Vest": "Chaleco / alta visibilidad",
+    "Safety Vest": "Ropa completa / chaleco",
     "Vest": "Chaleco",
     "chaleco_fluor": "Chaleco / ropa flúor",
     "Goggles": "Lentes de seguridad",

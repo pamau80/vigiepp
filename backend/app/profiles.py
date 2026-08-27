@@ -19,13 +19,21 @@ VALID_PPE_KEYS = frozenset({"casco", "chaleco", "lentes", "guantes", "arnes"})
 
 PPE_CATALOG: list[dict[str, str]] = [
     {"id": "casco", "label": "Casco"},
-    {"id": "chaleco", "label": "Chaleco / flúor"},
+    {"id": "chaleco", "label": "Ropa completa (chaleco/flúor)"},
     {"id": "lentes", "label": "Lentes"},
     {"id": "guantes", "label": "Guantes"},
     {"id": "arnes", "label": "Arnés"},
 ]
 
 PROFILES: dict[str, IndustryProfile] = {
+    "epp_completo": {
+        "id": "epp_completo",
+        "name": "EPP completo faena",
+        "description": "Casco, ropa de alta visibilidad, lentes y guantes obligatorios.",
+        "required": ["casco", "chaleco", "lentes", "guantes"],
+        "optional": ["arnes"],
+        "alert_message": "Acceso sin EPP completo (casco, ropa, lentes, guantes)",
+    },
     "portuario": {
         "id": "portuario",
         "name": "Faena portuaria",

@@ -17,3 +17,9 @@ def test_evaluate_person_missing_casco():
     result = evaluate(dets, "general", required_override=["casco"])
     assert result.overall_compliant is False
     assert result.persons[0].missing
+
+
+def test_hardhat_label_counts_as_casco():
+    dets = [{"label": "Hardhat", "confidence": 0.75, "box": [20, 20, 120, 120]}]
+    result = evaluate(dets, "general", required_override=["casco"])
+    assert "casco" in result.persons[0].present

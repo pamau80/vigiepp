@@ -9,6 +9,7 @@ from .profiles import IndustryProfile, get_profile
 # Mapeo: clase del modelo → categoría interna
 CLASS_TO_CATEGORY: dict[str, str] = {
     "hardhat": "casco",
+    "Hardhat": "casco",
     "helmet": "casco",
     "Helmet": "casco",
     "casco": "casco",
@@ -22,6 +23,7 @@ CLASS_TO_CATEGORY: dict[str, str] = {
     "goggles": "lentes",
     "lentes": "lentes",
     "Gloves": "guantes",
+    "Goggles": "lentes",
     "gloves": "guantes",
     "guantes": "guantes",
     "No_Harness": "sin_arnes",
@@ -108,11 +110,27 @@ def _center_inside(inner: list[float], outer: list[float], pad: float = 0.15) ->
     return (ox1 - w * pad) <= cx <= (ox2 + w * pad) and (oy1 - h * pad) <= cy <= (oy2 + h * pad)
 
 
+def _category_for_label(label: str) -> str:
+    key = str(label or "").strip()
+    if not key:
+        return "unknown"
+    if key in CLASS_TO_CATEGORY:
+        return CLASS_TO_CATEGORY[key]
+    low = key.lower()
+    if low in CLASS_TO_CATEGORY:
+        return CLASS_TO_CATEGORY[low]
+    norm = low.replace("-", "_").replace(" ", "_")
+    for src, cat in CLASS_TO_CATEGORY.items():
+        if src.lower().replace("-", "_").replace(" ", "_") == norm:
+            return cat
+    return norm
+
+
 def normalize_detections(raw: list[dict]) -> list[Detection]:
     out: list[Detection] = []
     for item in raw:
         label = str(item.get("label", ""))
-        category = CLASS_TO_CATEGORY.get(label, label.lower().replace(" ", "_"))
+        category = _category_for_label(label)
         out.append(
             Detection(
                 label=label,

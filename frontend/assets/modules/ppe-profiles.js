@@ -2,7 +2,7 @@ import { $, escapeHtml } from "./dom.js";
 
 const PPE_LABEL = {
   casco: "Casco",
-  chaleco: "Chaleco / flúor",
+  chaleco: "Ropa completa (chaleco/flúor)",
   lentes: "Lentes",
   guantes: "Guantes",
   arnes: "Arnés",

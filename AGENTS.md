@@ -27,7 +27,8 @@ ruff check backend/app tests
 bandit -q -r backend/app
 npm ci && npm run lint
 pytest tests/ --ignore=tests/e2e -q
-bash scripts/run_detection_acuity.sh      # agudeza detección (13 tests + reporte)
+bash scripts/run_detection_acuity.sh      # agudeza identidad + EPP base
+bash scripts/epp_acuity_report.py         # reporte casco/ropa/lentes/guantes (ver tests/test_epp_acuity.py)
 bash scripts/review_browser_e2e.sh   # Playwright 6 tests
 ```
 
