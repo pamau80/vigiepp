@@ -55,3 +55,7 @@ frontend/frontend/
 
 .admin-pin.local.txt
 
+# E2E browser runtime (generado en tests)
+tests/e2e/_runtime_data/
+tests/e2e/_debug_data/
+

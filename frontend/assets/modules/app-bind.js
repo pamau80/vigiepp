@@ -31,7 +31,6 @@ export function bindAppEvents({
   enroll,
   mass,
   buildVersion,
-  bindAuthController,
 }) {
   workers.bindWorkerEvents();
   ppeProfiles.bindProfileEvents();
@@ -96,11 +95,6 @@ export function bindAppEvents({
     camera,
   });
   shellEvents.bindShellEvents();
-
-  bindAuthController(() => {
-    modes.setAppMode("live");
-    kiosk.setKioskMode(true);
-  });
 
   boot();
 }

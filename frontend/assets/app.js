@@ -30,8 +30,11 @@ import { bindAppEvents } from "./modules/app-bind.js";
 import { isMobile, isIOS } from "./modules/mobile.js";
 
 let ensureAuth;
-let applyRoleUI;
+let applyRoleUiImpl;
 let userRole = "admin";
+
+/** Delegado estable para controladores creados antes del wiring de auth. */
+const applyRoleUI = (role) => applyRoleUiImpl?.(role);
 
 const api = createApi({
   onUnauthorized: async () => {
@@ -48,13 +51,13 @@ const { refreshSitesUi, refreshEhsUi, bindEnterpriseEvents } = enterprise;
 function bindAuthController(onOperatorLogin) {
   const ctrl = createAuthController({ onOperatorLogin });
   ensureAuth = ctrl.ensureAuth;
-  applyRoleUI = (role) => {
+  applyRoleUiImpl = (role) => {
     userRole = role || "admin";
     ctrl.applyRoleUI(role);
   };
 }
 
-const APP_BUILD = globalThis.VIGIEPP_BUILD || "v51";
+const APP_BUILD = globalThis.VIGIEPP_BUILD || "v52";
 const els = createAppElements();
 const state = createAppRuntimeState();
 const { settings, loadSettings, saveSettings, applyMobileChrome } = createSettingsStore(els);
@@ -289,6 +292,11 @@ const enroll = createEnrollController({
   hasMediaStream: camera.hasMediaStream,
 });
 
+bindAuthController(() => {
+  modes.setAppMode("live");
+  kiosk.setKioskMode(true);
+});
+
 bindAppEvents({
   api,
   els,
@@ -316,5 +324,4 @@ bindAppEvents({
   enroll,
   mass,
   buildVersion: APP_BUILD.replace(/^v/, ""),
-  bindAuthController,
 });

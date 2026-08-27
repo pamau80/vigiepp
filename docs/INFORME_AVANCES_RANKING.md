@@ -1,20 +1,21 @@
 # Informe de avances y ranking — VigiEPP
 
-**Build actual:** `v51` · **Rama:** `cursor/nvr-mass-navigation-cce8` · **PR #8**  
+**Build actual:** `v52` · **Rama:** `cursor/nvr-mass-navigation-cce8` · **PR #8**  
 **Fecha:** 2026-08-27
 
 ---
 
 ## 1. Resumen ejecutivo
 
-VigiEPP evolucionó de un monolito frontend (~4354 líneas) a una arquitectura **modular enterprise** con **29 módulos ES**, seguridad P0/P1 validada, **70 tests pytest**, E2E API **34/34**, y CI Ruff **en verde** (v50).
+VigiEPP evolucionó de un monolito frontend (~4354 líneas) a una arquitectura **modular enterprise** con **31 módulos ES**, seguridad P0/P1 validada, **70 tests pytest**, E2E API **34/34**, CI Ruff **en verde**, y **E2E browser Playwright 4/4** (v52).
 
-| Indicador | Inicio (v41) | Actual (v51) | Δ |
+| Indicador | Inicio (v41) | Actual (v52) | Δ |
 |-----------|--------------|--------------|---|
 | Líneas `app.js` | ~4354 | **320** | **−93%** |
 | Módulos ES frontend | 0 | **31** | +31 |
 | Tests pytest | ~60 | **70** | +10 |
 | E2E API full | parcial | **34/34** | ✅ |
+| E2E browser Playwright | — | **4/4** | ✅ |
 | CI Ruff | ❌ ~149 errores | ✅ **0** | ✅ |
 | OpenTelemetry | stub logs | **OTLP + SDK** | ✅ |
 
@@ -33,10 +34,10 @@ VigiEPP evolucionó de un monolito frontend (~4354 líneas) a una arquitectura *
 | 7 | **Observabilidad** | **7.5** | 🟡 B+ | Prometheus metrics; OTLP v50; spans HTTP |
 | 8 | **CI / calidad código** | **7.5** | 🟡 B+ | Ruff + Bandit + pytest en GitHub Actions |
 | 9 | **PWA / UX móvil** | **7.2** | 🟡 B | SW, kiosk, guías, audio alertas |
-| 10 | **Tests UI / E2E browser** | **4.0** | 🔴 D | Sin Playwright; solo API shell |
+| 10 | **Tests UI / E2E browser** | **7.5** | 🟡 B+ | Playwright: login, Personas, enrolar fotos, identificar |
 | 11 | **Documentación ops** | **6.5** | 🟡 B | Auditorías v49; falta runbook deploy |
 
-**Score global compuesto:** **8.3 / 10** — **Tier A+ (enterprise-ready operativo)**
+**Score global compuesto:** **8.6 / 10** — **Tier A+ (enterprise-ready operativo)**
 
 ---
 
@@ -55,6 +56,7 @@ VigiEPP evolucionó de un monolito frontend (~4354 líneas) a una arquitectura *
 | v49 | enterprise events, zones UI, shell | **585** |
 | **v50** | **Ruff CI, OTLP, fixes F821** | 585 |
 | **v51** | **`app-state.js`, `app-bind.js`** | **320** |
+| **v52** | **E2E browser Playwright + fix `ensureAuth`** | **320** |
 
 ---
 
@@ -62,7 +64,7 @@ VigiEPP evolucionó de un monolito frontend (~4354 líneas) a una arquitectura *
 
 `auth`, `enterprise`, `zones`, `reports`, `detect-live`, `identity-workers`, `identity-enroll`, `kiosk`, `teach`, `mass`, `camera`, `silhouette-guide`, `overlay-canvas`, `audio-alerts`, `ppe-profiles`, `live-panel`, `app-modes`, `identity-card`, `app-health`, `settings-form`, `app-boot`, `audit-log`, `identity-backup`, `app-shell-events`, **`app-state`**, **`app-bind`**, `dom`, `http`, `settings`, `mobile`, `geometry`
 
-**Pendiente P3:** E2E browser (Playwright) para enrolar/identificar.
+**Pendiente P3:** ESLint frontend en CI; runbook deploy.
 
 ---
 
@@ -70,9 +72,8 @@ VigiEPP evolucionó de un monolito frontend (~4354 líneas) a una arquitectura *
 
 | Prioridad | Item | Impacto | Esfuerzo |
 |-----------|------|---------|----------|
-| **P1** | E2E browser (enrolar + identificar) | Alto | Medio |
-| **P2** | Runbook deploy + rotación PIN | Medio | Bajo |
-| **P3** | ESLint frontend en CI | Medio | Bajo |
+| **P1** | Runbook deploy + rotación PIN | Medio | Bajo |
+| **P2** | ESLint frontend en CI | Medio | Bajo |
 | **P3** | CSP más estricta | Bajo | Medio |
 | **P3** | Pin estricto dependencias ML | Bajo | Bajo |
 

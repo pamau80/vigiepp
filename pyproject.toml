@@ -12,3 +12,6 @@ ignore = [
     "SIM102", # if anidados legibles en stream_rtsp
     "SIM117", # pytest.raises + websocket_connect
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B017", "S101"]
