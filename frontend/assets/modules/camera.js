@@ -4,7 +4,7 @@ import { $, escapeHtml } from "./dom.js";
 export function createCameraController({
   api,
   els,
-  settings,
+  settings: _settings,
   requiredQueryValue,
   isMobile,
   isIOS,
@@ -254,7 +254,7 @@ export function createCameraController({
       if (hint) {
         hint.textContent = preferredFacing === "user" ? "Cámara frontal" : "Cámara trasera";
       }
-    } catch (err) {
+    } catch (_) {
       preferredFacing = preferredFacing === "user" ? "environment" : "user";
       els.overlayHint.hidden = false;
       els.overlayHint.querySelector("p").textContent = "No se pudo cambiar de cámara en este dispositivo.";

@@ -1,4 +1,4 @@
-import { $, $$ } from "./dom.js";
+import { $$ } from "./dom.js";
 import { videoCoverSize } from "./geometry.js";
 
 const ZONES_CANVAS_HANDLE = 10;

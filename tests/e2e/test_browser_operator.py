@@ -6,7 +6,7 @@ import re
 
 from playwright.sync_api import Page, expect
 
-from tests.e2e.helpers import E2E_OPERATOR_PIN, ui_login
+from tests.e2e.helpers import E2E_OPERATOR_PIN, E2E_PIN, ui_login
 
 
 def test_browser_operator_login_and_kiosk(page: Page, base_url: str) -> None:
@@ -17,7 +17,6 @@ def test_browser_operator_login_and_kiosk(page: Page, base_url: str) -> None:
     expect(page.locator("body")).to_have_class(re.compile(r"kiosk-mode"))
     expect(page.locator("#kioskOverlay")).not_to_have_class("hidden")
 
-    # Modo portería oculta la nav — solo vista kiosk + monitoreo
     nav_display = page.evaluate(
         "() => window.getComputedStyle(document.querySelector('.mode-nav')).display"
     )
@@ -32,3 +31,26 @@ def test_browser_operator_login_and_kiosk(page: Page, base_url: str) -> None:
 
     allowed = page.request.post(f"{base_url}/api/detect")
     assert allowed.status != 403
+
+
+def test_browser_operator_exit_kiosk_with_admin_pin(page: Page, base_url: str) -> None:
+    ui_login(page, pin=E2E_OPERATOR_PIN)
+    expect(page.locator("#kioskOverlay")).not_to_have_class("hidden")
+
+    def on_dialog(dialog) -> None:
+        if dialog.type == "prompt":
+            dialog.accept(E2E_PIN)
+        else:
+            dialog.accept()
+
+    page.on("dialog", on_dialog)
+    page.locator("#btnKioskExit").click()
+
+    expect(page.locator("body")).not_to_have_class(re.compile(r"kiosk-mode"))
+    expect(page.locator("#kioskOverlay")).to_be_hidden()
+    expect(page.locator("#roleBadge")).to_be_hidden()
+    expect(page.locator('.mode-btn[data-mode="identity"]')).to_be_visible()
+
+    me = page.request.get(f"{base_url}/api/auth/me")
+    assert me.ok
+    assert me.json().get("role") == "admin"

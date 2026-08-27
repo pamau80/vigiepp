@@ -27,7 +27,7 @@ ruff check backend/app tests
 bandit -q -r backend/app
 npm ci && npm run lint
 pytest tests/ --ignore=tests/e2e -q
-bash scripts/review_browser_e2e.sh   # Playwright 5 tests
+bash scripts/review_browser_e2e.sh   # Playwright 6 tests
 ```
 
 CI usa `VIGIEPP_COMBINED_INFERENCE=0` (sin inferencia pesada).
