@@ -1,5 +1,5 @@
-/* Service worker v47 */
-const CACHE = "vigiepp-shell-v47";
+/* Service worker v48 */
+const CACHE = "vigiepp-shell-v48";
 const ASSETS = ["/assets/styles.css", "/manifest.webmanifest", "/assets/icons/icon-192.png"];
 
 self.addEventListener("install", (event) => {

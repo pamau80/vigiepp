@@ -32,6 +32,12 @@ import { createAudioAlertsController } from "./modules/audio-alerts.js";
 import { createPpeProfilesController } from "./modules/ppe-profiles.js";
 import { createLivePanelController } from "./modules/live-panel.js";
 import { createAppModesController } from "./modules/app-modes.js";
+import { createIdentityCardController } from "./modules/identity-card.js";
+import { createAppHealthController } from "./modules/app-health.js";
+import { createSettingsFormController } from "./modules/settings-form.js";
+import { createBootController } from "./modules/app-boot.js";
+import { createAuditLogController } from "./modules/audit-log.js";
+import { createIdentityBackupController } from "./modules/identity-backup.js";
 
 let ensureAuth;
 let applyRoleUI;
@@ -188,19 +194,10 @@ function bindAuthController(onOperatorLogin) {
     repSideList: $("#repSideList"),
   };
 
-  const APP_BUILD = globalThis.VIGIEPP_BUILD || "v47";
+  const APP_BUILD = globalThis.VIGIEPP_BUILD || "v48";
 
-
-  let eppStreak = 0;
-  let lastScanRefreshAt = 0;
-  const enrollState = { enrolling: false, identifyingNow: false, enrollAbort: false };
-  let lastAccessAllow = null;
-  let lastIdentifyAt = 0;
-  let lastFrameSize = { w: 640, h: 480 };
-  let lastIdentity = null;
-  let lastFaceBox = null;
-  let combinedInference = false;
-  let lastHealth = null;
+  const identityCard = createIdentityCardController({ els });
+  const { displayPersonName, normalizePersonNameForSave, setIdentityCard } = identityCard;
 
   function applyMobileChrome() {
     applyMobileChromeModule(settings, els);
@@ -217,111 +214,18 @@ function bindAuthController(onOperatorLogin) {
     saveSettingsToModule(silent, els.cfgSavedHint);
   }
 
-  function syncSettingsForm() {
-    if (els.cfgSilhouette) els.cfgSilhouette.checked = !!settings.silhouetteEnabled;
-    if (els.cfgSilhouetteGate) els.cfgSilhouetteGate.checked = !!settings.silhouetteGate;
-    if (els.cfgFaceGuide) els.cfgFaceGuide.checked = !!settings.faceGuide;
-    if (els.cfgBodyScale) els.cfgBodyScale.value = String(settings.bodyScale);
-    if (els.cfgFaceScale) els.cfgFaceScale.value = String(settings.faceScale);
-    if (els.cfgGuideY) els.cfgGuideY.value = String(settings.guideOffsetY);
-    if (els.cfgBodyScaleVal) els.cfgBodyScaleVal.textContent = `${settings.bodyScale}%`;
-    if (els.cfgFaceScaleVal) els.cfgFaceScaleVal.textContent = `${settings.faceScale}%`;
-    if (els.cfgGuideYVal) els.cfgGuideYVal.textContent = `${settings.guideOffsetY > 0 ? "+" : ""}${settings.guideOffsetY}`;
-    if (els.cfgAutoAdvance) els.cfgAutoAdvance.checked = !!settings.autoAdvanceEnroll;
-    if (els.cfgPoseAttempts) els.cfgPoseAttempts.value = String(settings.poseAttempts || 8);
-    if (els.cfgIdentifyDefault) els.cfgIdentifyDefault.checked = !!settings.identifyDefault;
-    if (els.cfgIdThresh) {
-      const pct = Math.round((settings.identifyThreshold || 0.33) * 100);
-      els.cfgIdThresh.value = String(pct);
-      if (els.cfgIdThreshVal) els.cfgIdThreshVal.textContent = `${pct}%`;
-    }
-    if (els.cfgShowBoxes) els.cfgShowBoxes.checked = !!settings.showPpeBoxes;
-    if (els.cfgFullscreenDefault) els.cfgFullscreenDefault.checked = !!settings.fullscreenDefault;
-    if (els.cfgAudioAlerts) els.cfgAudioAlerts.checked = !!settings.audioAlerts;
-    if (els.cfgAudioRepeats) {
-      els.cfgAudioRepeats.value = String(settings.audioAlertRepeats ?? 0);
-      if (els.cfgAudioRepeatsVal) {
-        const n = Number(settings.audioAlertRepeats) || 0;
-        els.cfgAudioRepeatsVal.textContent = n <= 0 ? "sin límite" : String(n);
-      }
-    }
-    if (els.cfgAnonymize) els.cfgAnonymize.checked = !!settings.anonymizeFaces;
-    if (els.cfgShowZones) els.cfgShowZones.checked = !!settings.showZones;
-    if (els.chkIdentify) els.chkIdentify.checked = !!settings.identifyDefault;
-    if (els.chkFullscreen) els.chkFullscreen.checked = !!settings.fullscreenDefault;
-    const qrEl = $("#cfgQrOnlyMode");
-    const retEl = $("#cfgRetentionDays");
-    const retVal = $("#cfgRetentionVal");
-    if (qrEl) qrEl.checked = !!settings.qrOnlyMode;
-    if (retEl) {
-      retEl.value = String(settings.retentionDays ?? 90);
-      if (retVal) retVal.textContent = String(settings.retentionDays ?? 90);
-    }
-  }
+  let eppStreak = 0;
+  let lastScanRefreshAt = 0;
+  const enrollState = { enrolling: false, identifyingNow: false, enrollAbort: false };
+  let lastAccessAllow = null;
+  let lastIdentifyAt = 0;
+  let lastFrameSize = { w: 640, h: 480 };
+  let lastIdentity = null;
+  let lastFaceBox = null;
+  let combinedInference = false;
+  let lastHealth = null;
 
-  async function loadPrivacyServer() {
-    try {
-      const data = await api("/api/privacy/config");
-      const cfg = data.config || {};
-      settings.qrOnlyMode = !!cfg.qr_only_mode;
-      settings.retentionDays = Number(cfg.retention_days) || 90;
-      applyCfgToDom();
-    } catch (_) {}
-  }
 
-  async function savePrivacyServer() {
-    try {
-      await api("/api/privacy/config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          qr_only_mode: !!settings.qrOnlyMode,
-          retention_days: Number(settings.retentionDays) || 90,
-        }),
-      });
-    } catch (_) {}
-  }
-
-  function readSettingsFromForm() {
-    settings.silhouetteEnabled = !!els.cfgSilhouette?.checked;
-    settings.silhouetteGate = !!els.cfgSilhouetteGate?.checked;
-    settings.faceGuide = !!els.cfgFaceGuide?.checked;
-    settings.bodyScale = Math.max(55, Math.min(130, Number(els.cfgBodyScale?.value) || 100));
-    settings.faceScale = Math.max(55, Math.min(140, Number(els.cfgFaceScale?.value) || 100));
-    settings.guideOffsetY = Math.max(-20, Math.min(20, Number(els.cfgGuideY?.value) || 0));
-    settings.autoAdvanceEnroll = !!els.cfgAutoAdvance?.checked;
-    settings.poseAttempts = Math.max(1, Math.min(20, Number(els.cfgPoseAttempts?.value) || 8));
-    settings.identifyDefault = !!els.cfgIdentifyDefault?.checked;
-    if (els.cfgIdThresh) {
-      settings.identifyThreshold = Math.max(0.25, Math.min(0.65, (Number(els.cfgIdThresh.value) || 33) / 100));
-      if (els.cfgIdThreshVal) els.cfgIdThreshVal.textContent = `${Math.round(settings.identifyThreshold * 100)}%`;
-    }
-    settings.showPpeBoxes = !!els.cfgShowBoxes?.checked;
-    settings.fullscreenDefault = !!els.cfgFullscreenDefault?.checked;
-    settings.audioAlerts = !!els.cfgAudioAlerts?.checked;
-    settings.audioAlertRepeats = Math.max(0, Math.min(10, Number(els.cfgAudioRepeats?.value) || 0));
-    if (els.cfgAudioRepeatsVal) {
-      els.cfgAudioRepeatsVal.textContent =
-        settings.audioAlertRepeats <= 0 ? "sin límite" : String(settings.audioAlertRepeats);
-    }
-    settings.anonymizeFaces = !!els.cfgAnonymize?.checked;
-    settings.showZones = !!els.cfgShowZones?.checked;
-    settings.qrOnlyMode = !!$("#cfgQrOnlyMode")?.checked;
-    settings.retentionDays = Math.max(
-      7,
-      Math.min(365, Number($("#cfgRetentionDays")?.value) || settings.retentionDays || 90)
-    );
-    if ($("#cfgRetentionVal")) $("#cfgRetentionVal").textContent = String(settings.retentionDays);
-    savePrivacyServer();
-    if (els.cfgBodyScaleVal) els.cfgBodyScaleVal.textContent = `${settings.bodyScale}%`;
-    if (els.cfgFaceScaleVal) els.cfgFaceScaleVal.textContent = `${settings.faceScale}%`;
-    if (els.cfgGuideYVal)
-      els.cfgGuideYVal.textContent = `${settings.guideOffsetY > 0 ? "+" : ""}${settings.guideOffsetY}`;
-    if (els.chkIdentify) els.chkIdentify.checked = settings.identifyDefault;
-    if (els.chkFullscreen) els.chkFullscreen.checked = settings.fullscreenDefault;
-    saveSettings();
-    guide.applyGuideMode();
-  }
 
 
 
@@ -336,188 +240,18 @@ function bindAuthController(onOperatorLogin) {
 
 
 
-  function applyHealth(health) {
-    if (!health) return false;
-    lastHealth = health;
-    combinedInference = !!health.combined_inference;
-    const idOn = !!els.chkIdentify?.checked;
-    const idReady = !!health.identity_ready;
-    const eppReady = !!health.model_ready;
-    const ready = idOn ? idReady && eppReady : eppReady || idReady;
-    els.modelStatus.classList.toggle("ready", ready);
-    els.modelStatus.classList.toggle("error", !ready && !!health.warning);
-    if (idOn) {
-      if (idReady && eppReady) {
-        els.modelStatusText.textContent = `ID+EPP listos · ${health.workers_ready || 0} persona(s)`;
-      } else if (idReady) {
-        els.modelStatusText.textContent = "ID lista · EPP cargando (10–30 s)…";
-      } else if (eppReady) {
-        els.modelStatusText.textContent = "EPP lista · ID cargando…";
-      } else {
-        els.modelStatusText.textContent = health.warning || "Cargando ID+EPP…";
-      }
-    } else if (ready) {
-      els.modelStatusText.textContent = `IA lista · ${health.model || "EPP"}`;
-    } else {
-      els.modelStatusText.textContent = health.warning || "Cargando IA…";
-    }
-    if (els.fpsLabel && health.build) {
-      const mode =
-        idOn && combinedInference ? "ID+EPP·1" : idOn ? "ID+EPP" : "EPP";
-      els.fpsLabel.textContent = `${health.build} · ${mode}`;
-    }
-    enterprise.updateEnterpriseHints(health, { combinedInference, els });
-    workers.showPersistBanner(health);
-    return ready;
-  }
-
-  async function boot() {
-    await ensureAuth();
-    try {
-      const health = await api("/api/health");
-      applyHealth(health);
-    } catch {
-      els.modelStatus.classList.add("error");
-      els.modelStatusText.textContent = "Backend no disponible";
-    }
-
-    await ppeProfiles.loadProfiles();
-    await ppeProfiles.loadCatalog();
-    ppeProfiles.bindPpeChipContainer(els.requiredChips);
-    ppeProfiles.bindPpeChipContainer(els.cfgPpeChips);
-    ppeProfiles.renderProfile();
-
-    await workers.refreshWorkers();
-    await teach.refreshTeach();
-    await workers.refreshScans();
-    await camera.refreshCameras();
-    await loadZones();
-    loadSettings();
-    await loadPrivacyServer();
-    settings.fullscreenDefault = false;
-    if (els.chkFullscreen) els.chkFullscreen.checked = false;
-    syncSettingsForm();
-    applyMobileChrome();
-    guide.applyGuideMode();
-    modes.setAppMode("live");
-    if (settings.kioskMode) kiosk.setKioskMode(true);
-    camera.hideLiveVideo();
-    await camera.refreshCameraPermissionHint();
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.getRegistrations().then((regs) => {
-        regs.forEach((r) => r.unregister().catch(() => {}));
-      });
-      setTimeout(() => {
-        navigator.serviceWorker.register("/assets/sw.js?v=47").catch(() => {});
-      }, 400);
-    }
-    const offlineBadge = $("#offlineBadge");
-    const syncOffline = () => {
-      if (!offlineBadge) return;
-      offlineBadge.classList.toggle("hidden", navigator.onLine);
-      offlineBadge.textContent = navigator.onLine ? "" : "Sin red · modo local";
-    };
-    syncOffline();
-    window.addEventListener("online", syncOffline);
-    window.addEventListener("offline", syncOffline);
-    window.addEventListener("orientationchange", () => {
-      setTimeout(() => {
-        syncViewportHeight();
-        camera.syncCanvasSize();
-        guide.applyGuideMode();
-      }, 250);
-    });
-    window.visualViewport?.addEventListener("resize", () => {
-      syncViewportHeight();
-      camera.syncCanvasSize();
-    });
-    window.addEventListener("resize", syncViewportHeight);
-  }
 
 
 
 
 
 
-  /** Títulos médicos → término de faena (expertos SSO / EPP). */
-  function displayPersonName(name) {
-    let n = String(name || "").trim();
-    if (!n) return n;
-    n = n.replace(/^(dra\.?|dr\.?|doctora|doctor)\b\.?\s*/i, "Especialista ");
-    n = n.replace(/\s{2,}/g, " ").trim();
-    return n;
-  }
-
-  function normalizePersonNameForSave(name) {
-    return displayPersonName(name);
-  }
-
-  function setIdentityCard(identity) {
-    if (!identity) {
-      els.identityName.textContent = "Sin identificar";
-      els.identityRut.textContent = "Enrola personas en Enrolar personas";
-      els.identityMethod.textContent = "";
-      els.personChip.classList.add("hidden");
-      return;
-    }
-    const known = !!identity.known;
-    const displayName = displayPersonName(identity.name);
-    els.identityName.textContent = displayName || (known ? "—" : "Desconocido");
-    els.identityRut.textContent =
-      identity.rut && !String(identity.rut).startsWith("SIN-RUT")
-        ? `RUT ${identity.rut}`
-        : known
-          ? "Sin RUT"
-          : "No está en el registro";
-    const score =
-      identity.score != null ? `${Math.round(Number(identity.score) * 100)}%` : null;
-    const confMap = {
-      high: "confianza alta",
-      medium: "confianza media",
-      low: "confianza baja",
-      ambiguous: "ambigüedad",
-      none: "",
-    };
-    const confTxt = confMap[identity.confidence] || "";
-    if (known) {
-      els.identityMethod.textContent = [
-        "Rostro reconocido",
-        score,
-        confTxt,
-      ]
-        .filter(Boolean)
-        .join(" · ");
-    } else if (identity.faces_detected) {
-      const why =
-        identity.gallery_size === 0
-          ? "Sin plantillas en servidor. Re-enrolá en Personas"
-          : identity.reject_reason || "sin coincidencia";
-      els.identityMethod.textContent = [
-        "No identificado",
-        score,
-        why,
-      ]
-        .filter(Boolean)
-        .join(" · ");
-    } else {
-      els.identityMethod.textContent = "Sin rostro detectado";
-    }
-
-    els.personChip.classList.remove("hidden");
-    els.personChip.classList.toggle("unknown", !known);
-    els.personChipName.textContent = els.identityName.textContent;
-    els.personChipRut.textContent = els.identityRut.textContent;
-  }
 
 
 
 
 
 
-  // Events
-  $("#cfgQrOnlyMode")?.addEventListener("change", () => readSettingsFromForm());
-  $("#cfgRetentionDays")?.addEventListener("input", () => readSettingsFromForm());
-  $("#btnAuditRefresh")?.addEventListener("click", () => refreshAudit());
   $("#cfgSiteSelect")?.addEventListener("change", async (ev) => {
     const siteId = ev.target.value;
     try {
@@ -600,48 +334,6 @@ function bindAuthController(onOperatorLogin) {
     if (camera.hasMediaStream()) camera.syncCanvasSize();
   });
 
-  [
-    els.cfgSilhouette,
-    els.cfgSilhouetteGate,
-    els.cfgFaceGuide,
-    els.cfgAutoAdvance,
-    els.cfgIdentifyDefault,
-    els.cfgShowBoxes,
-    els.cfgFullscreenDefault,
-    els.cfgAudioAlerts,
-    els.cfgAnonymize,
-    els.cfgShowZones,
-  ].forEach((el) => {
-    if (el) el.addEventListener("change", readSettingsFromForm);
-  });
-  [els.cfgBodyScale, els.cfgFaceScale, els.cfgGuideY, els.cfgIdThresh, els.cfgAudioRepeats].forEach((el) => {
-    if (!el) return;
-    el.addEventListener("input", () => {
-      readSettingsFromForm();
-      if (el === els.cfgAudioRepeats) audio.resetSpeakIncident();
-    });
-    el.addEventListener("change", () => {
-      readSettingsFromForm();
-      if (el === els.cfgAudioRepeats) audio.resetSpeakIncident();
-    });
-  });
-  if (els.cfgPoseAttempts) {
-    els.cfgPoseAttempts.addEventListener("change", readSettingsFromForm);
-  }
-  if (els.chkIdentify) {
-    els.chkIdentify.addEventListener("change", () => {
-      settings.identifyDefault = !!els.chkIdentify.checked;
-      if (els.cfgIdentifyDefault) els.cfgIdentifyDefault.checked = settings.identifyDefault;
-      saveSettings();
-    });
-  }
-  if (els.chkFullscreen) {
-    els.chkFullscreen.addEventListener("change", () => {
-      settings.fullscreenDefault = !!els.chkFullscreen.checked;
-      if (els.cfgFullscreenDefault) els.cfgFullscreenDefault.checked = settings.fullscreenDefault;
-      saveSettings();
-    });
-  }
 
   els.btnZoneAdd?.addEventListener("click", () => {
     zones.zonesCache = readZonesFromEditor();
@@ -723,72 +415,6 @@ function bindAuthController(onOperatorLogin) {
     await ensureAuth(true);
   });
 
-  async function authHeaders() {
-    const headers = {};
-    const token = sessionStorage.getItem("vigiepp.token");
-    if (token) headers["X-VigiEPP-Key"] = token;
-    return headers;
-  }
-
-  $("#btnBackupExport")?.addEventListener("click", async () => {
-    try {
-      const res = await fetch("/api/identity/backup", {
-        credentials: "include",
-        headers: await authHeaders(),
-      });
-      if (res.status === 401) {
-        await ensureAuth(true);
-        throw new Error("Sesión expirada");
-      }
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const blob = await res.blob();
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `vigiepp-personas-${new Date().toISOString().slice(0, 10)}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(a.href);
-      if (els.workerListHint) els.workerListHint.textContent = "Backup descargado";
-    } catch (err) {
-      if (els.workerListHint) els.workerListHint.textContent = err.message || "No se pudo exportar";
-    }
-  });
-
-  $("#btnConsentExport")?.addEventListener("click", () => {
-    downloadUrl("/api/identity/consent.csv");
-  });
-
-  $("#backupImportFile")?.addEventListener("change", async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    const mode = $("#backupImportMode")?.value || "merge";
-    if (mode === "replace" && !confirm("¿Reemplazar TODAS las personas por el backup?")) return;
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("mode", mode);
-    try {
-      if (els.workerListHint) els.workerListHint.textContent = "Restaurando…";
-      const res = await fetch("/api/identity/backup/restore", {
-        method: "POST",
-        credentials: "include",
-        headers: await authHeaders(),
-        body: fd,
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
-      await workers.refreshWorkers();
-      if (els.workerListHint) {
-        els.workerListHint.textContent =
-          mode === "replace"
-            ? `Restaurado · ${data.workers || 0} personas`
-            : `Fusionado · +${data.added || 0} / ~${data.updated || 0} · total ${data.workers || 0}`;
-      }
-    } catch (err) {
-      if (els.workerListHint) els.workerListHint.textContent = err.message || "Restore falló";
-    }
-  });
 
   const zones = createZonesController({
     api,
@@ -805,6 +431,7 @@ function bindAuthController(onOperatorLogin) {
     startZonesCanvasLoop,
     stopZonesCanvasLoop,
     drawZonesEditorCanvas,
+    syncZonesCanvasSize,
   } = zones;
 
   const audio = createAudioAlertsController({ settings });
@@ -816,6 +443,12 @@ function bindAuthController(onOperatorLogin) {
     saveSettings,
   });
 
+  const auditLog = createAuditLogController({ api });
+
+  let settingsForm;
+  let appHealth;
+  let bootCtrl;
+
   let modes;
   let livePanel;
 
@@ -825,6 +458,15 @@ function bindAuthController(onOperatorLogin) {
     saveSettings,
     enrollState,
     getAppMode: () => modes.getAppMode(),
+  });
+
+  settingsForm = createSettingsFormController({
+    api,
+    els,
+    settings,
+    saveSettings,
+    applyGuideMode: guide.applyGuideMode,
+    onAudioRepeatsChange: () => audio.resetSpeakIncident(),
   });
 
   let overlay;
@@ -860,6 +502,15 @@ function bindAuthController(onOperatorLogin) {
       lastFaceBox = v;
     },
   });
+
+  appHealth = createAppHealthController({
+    els,
+    enterprise,
+    workers,
+    setCombinedInference: (v) => { combinedInference = v; },
+    setLastHealth: (v) => { lastHealth = v; },
+  });
+  const { applyHealth } = appHealth;
 
   const detectLive = createDetectLiveController({
     api,
@@ -956,7 +607,7 @@ function bindAuthController(onOperatorLogin) {
     loadZones,
     setConfigSectionCallbacks: {
       onSectionChange: (id) => {
-        if (id === "audit") refreshAudit();
+        if (id === "audit") auditLog.refreshAudit();
         if (id === "enterprise") {
           refreshSitesUi();
           refreshEhsUi();
@@ -1028,7 +679,6 @@ function bindAuthController(onOperatorLogin) {
     enableIdentifyForPorteria: modes.enableIdentifyForPorteria,
     sleep,
     hasMediaStream: camera.hasMediaStream,
-    setCaptureButtonsVisible,
   });
 
   workers.bindWorkerEvents();
@@ -1044,6 +694,32 @@ function bindAuthController(onOperatorLogin) {
   mass.bindMassEvents();
   teach.bindTeachEvents();
   enroll.bindEnrollEvents();
+
+  bootCtrl = createBootController({
+    api,
+    els,
+    settings,
+    ensureAuth,
+    applyHealth,
+    applyMobileChrome,
+    loadSettings,
+    ppeProfiles,
+    workers,
+    teach,
+    camera,
+    loadZones,
+    settingsForm,
+    guide,
+    modes,
+    kiosk,
+    buildVersion: "48",
+  });
+  const { boot } = bootCtrl;
+
+  const identityBackup = createIdentityBackupController({ els, workers, ensureAuth });
+  identityBackup.bindBackupEvents(downloadUrl);
+  auditLog.bindAuditEvents();
+  settingsForm.bindSettingsEvents();
 
   bindAuthController(() => {
     modes.setAppMode("live");

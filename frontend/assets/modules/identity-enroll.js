@@ -24,9 +24,16 @@ export function createEnrollController({
   enableIdentifyForPorteria,
   sleep,
   hasMediaStream,
-  setCaptureButtonsVisible,
 }) {
   let capturePoseResolver = null;
+
+  function setCaptureButtonsVisible(show) {
+    for (const btn of [els.btnCapturePose, els.btnCapturePoseId]) {
+      if (!btn) continue;
+      btn.classList.toggle("hidden", !show);
+      btn.disabled = !show;
+    }
+  }
 
   function waitForCaptureClick() {
     return new Promise((resolve, reject) => {
