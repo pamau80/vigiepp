@@ -24,7 +24,7 @@ jobs:
         run: ruff check backend/app tests --ignore E501
 
       - name: Bandit
-        run: bandit -q -r backend/app -x tests || true
+        run: bandit -q -r backend/app -x tests
 
       - name: Run pytest
         run: pytest tests/ -v --tb=short

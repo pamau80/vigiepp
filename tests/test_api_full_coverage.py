@@ -18,10 +18,10 @@ def client(tmp_path, monkeypatch):
     return TestClient(app)
 
 
-def test_build_v40(client):
+def test_build_v41(client):
     r = client.get("/api/health")
     assert r.status_code == 200
-    assert r.json()["build"] == "v40"
+    assert r.json()["build"] == "v41"
 
 
 def test_all_get_endpoints(client):
@@ -114,7 +114,7 @@ def test_notifications_test_send(client):
 def test_cameras_crud(client):
     r = client.post(
         "/api/cameras",
-        json={"name": "TestCam", "url": "rtsp://127.0.0.1/stream"},
+        json={"name": "TestCam", "url": "rtsp://192.168.1.50/stream"},
     )
     assert r.status_code == 200
     cam = r.json()["camera"]

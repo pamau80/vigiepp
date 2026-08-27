@@ -736,17 +736,58 @@
           <p class="card-meta" id="cfgEnterpriseHint">—</p>
           <p class="card-kicker" style="margin-top:1rem">Conectores EHS</p>
           <p class="card-meta">Exporta incidentes EPP a webhook, SafetyCloud o SAP EWM.</p>
+          <p class="card-meta" style="font-weight:600;margin-top:0.5rem">Webhook genérico</p>
           <label class="cfg-row">
             <span><strong>Webhook EHS</strong><small>URL POST JSON</small></span>
             <input type="url" id="cfgEhsWebhookUrl" placeholder="https://..." />
+          </label>
+          <label class="cfg-row">
+            <span><strong>Auth header</strong><small>Authorization (opcional)</small></span>
+            <input type="password" id="cfgEhsWebhookAuth" placeholder="Bearer …" autocomplete="new-password" />
           </label>
           <label class="cfg-row cfg-toggle-row">
             <span><strong>Webhook activo</strong></span>
             <input type="checkbox" id="cfgEhsWebhookEnabled" />
           </label>
+          <p class="card-meta" style="font-weight:600;margin-top:0.75rem">SafetyCloud</p>
+          <label class="cfg-row">
+            <span><strong>URL SafetyCloud</strong><small>Endpoint JSON EHS</small></span>
+            <input type="url" id="cfgEhsSafetyUrl" placeholder="https://..." />
+          </label>
+          <label class="cfg-row">
+            <span><strong>API key</strong><small>X-API-Key (opcional)</small></span>
+            <input type="password" id="cfgEhsSafetyKey" placeholder="Dejar vacío para no cambiar" autocomplete="new-password" />
+          </label>
+          <label class="cfg-row">
+            <span><strong>Código sitio</strong><small>site_code en payload</small></span>
+            <input type="text" id="cfgEhsSafetySite" placeholder="faena-norte" maxlength="80" />
+          </label>
+          <label class="cfg-row cfg-toggle-row">
+            <span><strong>SafetyCloud activo</strong></span>
+            <input type="checkbox" id="cfgEhsSafetyEnabled" />
+          </label>
+          <p class="card-meta" style="font-weight:600;margin-top:0.75rem">SAP EWM</p>
+          <label class="cfg-row">
+            <span><strong>URL SAP EWM</strong><small>Stub incident POST</small></span>
+            <input type="url" id="cfgEhsSapUrl" placeholder="https://..." />
+          </label>
+          <label class="cfg-row">
+            <span><strong>Client ID</strong><small>Header opcional</small></span>
+            <input type="password" id="cfgEhsSapClient" placeholder="Dejar vacío para no cambiar" autocomplete="new-password" />
+          </label>
+          <label class="cfg-row">
+            <span><strong>Planta</strong><small>Plant en payload</small></span>
+            <input type="text" id="cfgEhsSapPlant" placeholder="PL01" maxlength="40" />
+          </label>
+          <label class="cfg-row cfg-toggle-row">
+            <span><strong>SAP EWM activo</strong></span>
+            <input type="checkbox" id="cfgEhsSapEnabled" />
+          </label>
           <div class="rep-actions" style="margin:0.5rem 0">
             <button type="button" class="btn secondary" id="btnEhsSave">Guardar EHS</button>
             <button type="button" class="btn ghost" id="btnEhsTest">Probar webhook</button>
+            <button type="button" class="btn ghost" id="btnEhsTestSafety">Probar SafetyCloud</button>
+            <button type="button" class="btn ghost" id="btnEhsTestSap">Probar SAP</button>
           </div>
           <p class="card-meta" id="cfgEhsHint">—</p>
         </div>
@@ -777,7 +818,7 @@
     <span id="fpsLabel">— ms</span>
   </footer>
 
-  <script src="/assets/lib/constants.js?v=40"></script>
-  <script type="module" src="/assets/app.js?v=40"></script>
+  <script src="/assets/lib/constants.js?v=41"></script>
+  <script type="module" src="/assets/app.js?v=41"></script>
 </body>
 </html>

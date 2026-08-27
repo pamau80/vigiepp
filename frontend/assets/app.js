@@ -153,7 +153,7 @@ const api = createApi({
     repSideList: $("#repSideList"),
   };
 
-  const APP_BUILD = globalThis.VIGIEPP_BUILD || "v40";
+  const APP_BUILD = globalThis.VIGIEPP_BUILD || "v41";
 
   function isLiveMode() {
     return appMode === "live" || appMode === "monitor";
@@ -1345,25 +1345,76 @@ const api = createApi({
     const hint = $("#cfgEhsHint");
     const urlEl = $("#cfgEhsWebhookUrl");
     const enEl = $("#cfgEhsWebhookEnabled");
+    const authEl = $("#cfgEhsWebhookAuth");
+    const safetyUrl = $("#cfgEhsSafetyUrl");
+    const safetyKey = $("#cfgEhsSafetyKey");
+    const safetySite = $("#cfgEhsSafetySite");
+    const safetyEn = $("#cfgEhsSafetyEnabled");
+    const sapUrl = $("#cfgEhsSapUrl");
+    const sapClient = $("#cfgEhsSapClient");
+    const sapPlant = $("#cfgEhsSapPlant");
+    const sapEn = $("#cfgEhsSapEnabled");
     if (!urlEl) return;
     try {
       const data = await api("/api/ehs/config");
-      const w = data.config?.connectors?.webhook || {};
+      const c = data.config?.connectors || {};
+      const w = c.webhook || {};
+      const sc = c.safetycloud || {};
+      const sap = c.sap_ewm || {};
       urlEl.value = w.url || "";
       if (enEl) enEl.checked = !!w.enabled;
-      if (hint) hint.textContent = w.enabled ? "Webhook EHS activo" : "Webhook EHS desactivado";
+      if (authEl) {
+        authEl.value = "";
+        authEl.placeholder = w.auth_header_set ? "Configurado — nuevo valor para cambiar" : "Bearer …";
+      }
+      if (safetyUrl) safetyUrl.value = sc.url || "";
+      if (safetySite) safetySite.value = sc.site_code || "";
+      if (safetyEn) safetyEn.checked = !!sc.enabled;
+      if (safetyKey) {
+        safetyKey.value = "";
+        safetyKey.placeholder = sc.api_key_set ? "Configurado — nuevo valor para cambiar" : "API key";
+      }
+      if (sapUrl) sapUrl.value = sap.url || "";
+      if (sapPlant) sapPlant.value = sap.plant || "";
+      if (sapEn) sapEn.checked = !!sap.enabled;
+      if (sapClient) {
+        sapClient.value = "";
+        sapClient.placeholder = sap.client_id_set ? "Configurado — nuevo valor para cambiar" : "Client ID";
+      }
+      const active = [w.enabled && "Webhook", sc.enabled && "SafetyCloud", sap.enabled && "SAP"].filter(Boolean);
+      if (hint) hint.textContent = active.length ? `Activos: ${active.join(", ")}` : "Sin conectores EHS activos";
     } catch (e) {
       if (hint) hint.textContent = String(e.message || e);
     }
   }
 
   async function saveEhsConfig() {
-    const url = ($("#cfgEhsWebhookUrl")?.value || "").trim();
-    const enabled = !!$("#cfgEhsWebhookEnabled")?.checked;
+    const connectors = {
+      webhook: {
+        url: ($("#cfgEhsWebhookUrl")?.value || "").trim(),
+        enabled: !!$("#cfgEhsWebhookEnabled")?.checked,
+      },
+      safetycloud: {
+        url: ($("#cfgEhsSafetyUrl")?.value || "").trim(),
+        enabled: !!$("#cfgEhsSafetyEnabled")?.checked,
+        site_code: ($("#cfgEhsSafetySite")?.value || "").trim(),
+      },
+      sap_ewm: {
+        url: ($("#cfgEhsSapUrl")?.value || "").trim(),
+        enabled: !!$("#cfgEhsSapEnabled")?.checked,
+        plant: ($("#cfgEhsSapPlant")?.value || "").trim(),
+      },
+    };
+    const authHdr = ($("#cfgEhsWebhookAuth")?.value || "").trim();
+    if (authHdr) connectors.webhook.auth_header = authHdr;
+    const scKey = ($("#cfgEhsSafetyKey")?.value || "").trim();
+    if (scKey) connectors.safetycloud.api_key = scKey;
+    const sapClient = ($("#cfgEhsSapClient")?.value || "").trim();
+    if (sapClient) connectors.sap_ewm.client_id = sapClient;
     await api("/api/ehs/config", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ connectors: { webhook: { url, enabled } } }),
+      body: JSON.stringify({ connectors }),
     });
     await refreshEhsUi();
   }
@@ -1420,7 +1471,7 @@ const api = createApi({
         regs.forEach((r) => r.unregister().catch(() => {}));
       });
       setTimeout(() => {
-        navigator.serviceWorker.register("/assets/sw.js?v=34").catch(() => {});
+        navigator.serviceWorker.register("/assets/sw.js?v=41").catch(() => {});
       }, 400);
     }
     const offlineBadge = $("#offlineBadge");
@@ -3753,9 +3804,25 @@ const api = createApi({
   $("#btnEhsTest")?.addEventListener("click", async () => {
     try {
       const r = await api("/api/ehs/test/webhook", { method: "POST" });
-      els.repSideSummary.textContent = r.ok ? `EHS test OK: ${r.detail || ""}` : "EHS test falló";
+      els.repSideSummary.textContent = r.ok ? `EHS webhook OK: ${r.detail || ""}` : "EHS webhook falló";
     } catch (err) {
-      els.repSideSummary.textContent = err.message || "EHS test falló";
+      els.repSideSummary.textContent = err.message || "EHS webhook falló";
+    }
+  });
+  $("#btnEhsTestSafety")?.addEventListener("click", async () => {
+    try {
+      const r = await api("/api/ehs/test/safetycloud", { method: "POST" });
+      els.repSideSummary.textContent = r.ok ? `SafetyCloud OK: ${r.detail || ""}` : "SafetyCloud falló";
+    } catch (err) {
+      els.repSideSummary.textContent = err.message || "SafetyCloud falló";
+    }
+  });
+  $("#btnEhsTestSap")?.addEventListener("click", async () => {
+    try {
+      const r = await api("/api/ehs/test/sap_ewm", { method: "POST" });
+      els.repSideSummary.textContent = r.ok ? `SAP EWM OK: ${r.detail || ""}` : "SAP EWM falló";
+    } catch (err) {
+      els.repSideSummary.textContent = err.message || "SAP EWM falló";
     }
   });
   els.fileInput.addEventListener("change", async (e) => {
