@@ -3,9 +3,9 @@
 **Modelo:** un servidor por faena, en la misma red LAN que NVR/cámaras.  
 **Build referencia:** v57+ · **Edge on-prem** — datos e inferencia permanecen en sitio.
 
----
+Ver [RUNBOOK_ENTRENAR_EPP_FAENA.md](RUNBOOK_ENTRENAR_EPP_FAENA.md) — color/tipo de casco, ropa, lentes y guantes se entrenan en sitio (pestaña EPP).
 
-## 1. Requisitos
+---
 
 | Componente | Mínimo | Recomendado faena |
 |------------|--------|-------------------|
