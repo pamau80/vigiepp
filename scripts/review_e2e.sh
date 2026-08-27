@@ -17,11 +17,11 @@ export PYTHONPATH="${PYTHONPATH:-}:$ROOT/backend"
 ok() { echo "✓ $1"; PASS=$((PASS+1)); }
 bad() { echo "✗ $1"; FAIL=$((FAIL+1)); }
 
-echo "=== VigiEPP E2E Review v41 ==="
+echo "=== VigiEPP E2E Review v42 ==="
 
 # Health
 H=$(curl -s "$BASE/api/health")
-echo "$H" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['build']=='v41'; assert 'default_pins' not in d; assert 'privacy' in d" && ok "health v41 sin default_pins" || bad "health"
+echo "$H" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['build']=='v42'; assert 'default_pins' not in d; assert 'privacy' in d" && ok "health v42 sin default_pins" || bad "health"
 
 # Auth login
 curl -s -c "$COOKIE" -X POST "$BASE/api/auth/login" -H 'Content-Type: application/json' -d '{"pin":"vigiepp"}' | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('ok')" && ok "auth login" || bad "auth login"

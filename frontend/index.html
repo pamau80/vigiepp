@@ -46,25 +46,25 @@
       </div>
     </div>
     <nav class="mode-nav" role="tablist" aria-label="Módulos VigiEPP">
-      <button class="mode-btn active" data-mode="live" type="button" title="Vigilancia en vivo">
+      <button class="mode-btn active" data-mode="live" type="button" role="tab" aria-selected="true" aria-controls="liveWorkspace" title="Vigilancia en vivo">
         <span class="mode-full">Vivo</span><span class="mode-short" aria-hidden="true">▶</span>
       </button>
-      <button class="mode-btn" data-mode="mass" type="button" title="Vigilancia masiva NVR">
+      <button class="mode-btn" data-mode="mass" type="button" role="tab" aria-selected="false" aria-controls="massWorkspace" title="Vigilancia masiva NVR">
         <span class="mode-full">Masivo</span><span class="mode-short" aria-hidden="true">⊞</span>
       </button>
-      <button class="mode-btn" data-mode="devices" type="button" title="NVR / DVR / cámaras">
+      <button class="mode-btn" data-mode="devices" type="button" role="tab" aria-selected="false" aria-controls="devicesWorkspace" title="NVR / DVR / cámaras">
         <span class="mode-full">Equipos</span><span class="mode-short" aria-hidden="true">⎔</span>
       </button>
-      <button class="mode-btn" data-mode="identity" type="button" title="Personas">
+      <button class="mode-btn" data-mode="identity" type="button" role="tab" aria-selected="false" title="Personas">
         <span class="mode-full">Personas</span><span class="mode-short" aria-hidden="true">👤</span>
       </button>
-      <button class="mode-btn" data-mode="teach" type="button" title="Ropa / EPP">
+      <button class="mode-btn" data-mode="teach" type="button" role="tab" aria-selected="false" title="Ropa / EPP">
         <span class="mode-full">EPP</span><span class="mode-short" aria-hidden="true">⛨</span>
       </button>
-      <button class="mode-btn" data-mode="config" type="button" title="Configuración">
+      <button class="mode-btn" data-mode="config" type="button" role="tab" aria-selected="false" aria-controls="configBlock" title="Configuración">
         <span class="mode-full">Config</span><span class="mode-short" aria-hidden="true">⚙</span>
       </button>
-      <button class="mode-btn" data-mode="reports" type="button" title="Informes">
+      <button class="mode-btn" data-mode="reports" type="button" role="tab" aria-selected="false" aria-controls="reportsDesk" title="Informes">
         <span class="mode-full">Informes</span><span class="mode-short" aria-hidden="true">📊</span>
       </button>
     </nav>
@@ -81,10 +81,10 @@
       <div class="stage-toolbar" id="monitorToolbar" data-workspace="live">
         <div class="source-group">
           <span class="toolbar-label">Fuente en vivo</span>
-          <div class="tabs" role="tablist">
-            <button class="tab active" data-source="camera" type="button">Webcam</button>
-            <button class="tab" data-source="rtsp" type="button">Un canal IP</button>
-            <button class="tab" data-source="upload" type="button">Foto</button>
+          <div class="tabs" role="tablist" aria-label="Fuente en vivo">
+            <button class="tab active" data-source="camera" type="button" role="tab" aria-selected="true">Webcam</button>
+            <button class="tab" data-source="rtsp" type="button" role="tab" aria-selected="false">Un canal IP</button>
+            <button class="tab" data-source="upload" type="button" role="tab" aria-selected="false">Foto</button>
           </div>
         </div>
         <label class="field inline profile-field">
@@ -364,14 +364,14 @@
       </div>
 
       <div class="controls control-bar hidden" id="configControls">
-        <nav class="cfg-nav" id="cfgNav" aria-label="Secciones de configuración">
-          <button type="button" class="cfg-nav-btn active" data-cfg-sec="guides">Guías</button>
-          <button type="button" class="cfg-nav-btn" data-cfg-sec="audio">Audio</button>
-          <button type="button" class="cfg-nav-btn" data-cfg-sec="zones">Zonas</button>
-          <button type="button" class="cfg-nav-btn" data-cfg-sec="monitor">Monitoreo</button>
-          <button type="button" class="cfg-nav-btn" data-cfg-sec="privacy">Privacidad</button>
-          <button type="button" class="cfg-nav-btn" data-cfg-sec="enterprise">Enterprise</button>
-          <button type="button" class="cfg-nav-btn" data-cfg-sec="audit">Bitácora</button>
+        <nav class="cfg-nav" id="cfgNav" role="tablist" aria-label="Secciones de configuración">
+          <button type="button" class="cfg-nav-btn active" data-cfg-sec="guides" role="tab" aria-selected="true">Guías</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="audio" role="tab" aria-selected="false">Audio</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="zones" role="tab" aria-selected="false">Zonas</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="monitor" role="tab" aria-selected="false">Monitoreo</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="privacy" role="tab" aria-selected="false">Privacidad</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="enterprise" role="tab" aria-selected="false">Enterprise</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="audit" role="tab" aria-selected="false">Bitácora</button>
         </nav>
         <p class="hint">Elegí una sección arriba o en el panel. Los cambios se aplican al instante.</p>
       </div>
@@ -818,7 +818,7 @@
     <span id="fpsLabel">— ms</span>
   </footer>
 
-  <script src="/assets/lib/constants.js?v=41"></script>
-  <script type="module" src="/assets/app.js?v=41"></script>
+  <script src="/assets/lib/constants.js?v=42"></script>
+  <script type="module" src="/assets/app.js?v=42"></script>
 </body>
 </html>

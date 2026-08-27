@@ -13,6 +13,12 @@ import {
   isAndroid,
   syncViewportHeight,
 } from "./modules/mobile.js";
+import { createAuthController } from "./modules/auth.js";
+import { createEnterpriseController } from "./modules/enterprise.js";
+
+let ensureAuth;
+let applyRoleUI;
+let userRole = "admin";
 
 const api = createApi({
   onUnauthorized: async () => {
@@ -22,6 +28,18 @@ const api = createApi({
     throw new Error("Sesión expirada. Ingresá el PIN de nuevo.");
   },
 });
+
+const enterprise = createEnterpriseController(api);
+const { refreshSitesUi, refreshEhsUi, saveEhsConfig } = enterprise;
+
+function bindAuthController(onOperatorLogin) {
+  const ctrl = createAuthController({ onOperatorLogin });
+  ensureAuth = ctrl.ensureAuth;
+  applyRoleUI = (role) => {
+    userRole = role || "admin";
+    ctrl.applyRoleUI(role);
+  };
+}
 
   const els = {
     profileSelect: $("#profileSelect"),
@@ -153,7 +171,7 @@ const api = createApi({
     repSideList: $("#repSideList"),
   };
 
-  const APP_BUILD = globalThis.VIGIEPP_BUILD || "v41";
+  const APP_BUILD = globalThis.VIGIEPP_BUILD || "v42";
 
   function isLiveMode() {
     return appMode === "live" || appMode === "monitor";
@@ -478,98 +496,6 @@ const api = createApi({
 
   function requiredQueryValue(profileId) {
     return JSON.stringify(getEffectiveRequired(profileId || els.profileSelect?.value || "general"));
-  }
-
-  function showAuthGate(show, hint = "") {
-    const gate = $("#authGate");
-    if (!gate) return;
-    gate.classList.toggle("hidden", !show);
-    document.body.classList.toggle("auth-locked", !!show);
-    const h = $("#authHint");
-    if (h) h.textContent = hint || "";
-    if (show) $("#authPin")?.focus();
-  }
-
-  let userRole = "admin";
-
-  function applyRoleUI(role) {
-    userRole = role || "admin";
-    sessionStorage.setItem("vigiepp.role", userRole);
-    document.body.dataset.role = userRole;
-    const isOp = userRole === "operator";
-    $$(".mode-btn").forEach((b) => {
-      const mode = b.dataset.mode;
-      const allow = !isOp || mode === "live" || mode === "monitor";
-      b.classList.toggle("hidden", !allow);
-      b.disabled = !allow;
-    });
-    if (isOp) {
-      setAppMode("live");
-      setKioskMode(true);
-    }
-    const tag = $(".brand-tag");
-    if (tag) tag.textContent = isOp ? "Portería · operador" : "EPP + identidad · Chile";
-  }
-
-  async function ensureAuth(force = false) {
-    try {
-      const st = await fetch("/api/auth/status", { credentials: "include" }).then((r) => r.json());
-      if (!st.auth_enabled) {
-        showAuthGate(false);
-        $("#btnLogout")?.classList.add("hidden");
-        applyRoleUI("admin");
-        return true;
-      }
-      if (!force) {
-        const me = await fetch("/api/auth/me", {
-          credentials: "include",
-          headers: sessionStorage.getItem("vigiepp.token")
-            ? { "X-VigiEPP-Key": sessionStorage.getItem("vigiepp.token") }
-            : {},
-        });
-        if (me.ok) {
-          const data = await me.json().catch(() => ({}));
-          showAuthGate(false);
-          $("#btnLogout")?.classList.remove("hidden");
-          applyRoleUI(data.role || sessionStorage.getItem("vigiepp.role") || "admin");
-          return true;
-        }
-      }
-    } catch (_) {
-      /* show gate */
-    }
-
-    return new Promise((resolve) => {
-      showAuthGate(true, "PIN admin o portería (operador)");
-      const form = $("#authForm");
-      const onSubmit = async (e) => {
-        e.preventDefault();
-        const pin = $("#authPin")?.value || "";
-        const hint = $("#authHint");
-        try {
-          const res = await fetch("/api/auth/login", {
-            method: "POST",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ pin }),
-          });
-          const data = await res.json().catch(() => ({}));
-          if (!res.ok) {
-            if (hint) hint.textContent = data.detail || "PIN incorrecto";
-            return;
-          }
-          if (data.token) sessionStorage.setItem("vigiepp.token", data.token);
-          applyRoleUI(data.role || "admin");
-          showAuthGate(false);
-          $("#btnLogout")?.classList.remove("hidden");
-          form?.removeEventListener("submit", onSubmit);
-          resolve(true);
-        } catch (err) {
-          if (hint) hint.textContent = err.message || "Error de red";
-        }
-      };
-      form?.addEventListener("submit", onSubmit);
-    });
   }
 
   function sleep(ms) {
@@ -1301,122 +1227,9 @@ const api = createApi({
         idOn && combinedInference ? "ID+EPP·1" : idOn ? "ID+EPP" : "EPP";
       els.fpsLabel.textContent = `${health.build} · ${mode}`;
     }
-    updateEnterpriseHints(health);
+    enterprise.updateEnterpriseHints(health, { combinedInference, els });
     showPersistBanner(health);
     return ready;
-  }
-
-  function updateEnterpriseHints(health) {
-    const hint = $("#cfgCombinedHint");
-    const ent = $("#cfgEnterpriseHint");
-    if (hint) {
-      hint.textContent = combinedInference
-        ? "Inferencia combinada activa: ID + EPP en el mismo frame (edge / volumen persistente)."
-        : "Inferencia separada: alterna EPP e identidad para evitar OOM en cloud.";
-    }
-    if (ent && health) {
-      const site = health.active_site?.name || "Faena principal";
-      ent.textContent = `Sitio activo: ${site} · datos en ${health.data_dir || "—"}`;
-    }
-    const oidcBtn = $("#btnOidcLogin");
-    if (oidcBtn) {
-      const oidcOn = !!health?.oidc?.enabled;
-      oidcBtn.hidden = !oidcOn;
-    }
-  }
-
-  async function refreshSitesUi() {
-    const sel = $("#cfgSiteSelect");
-    if (!sel) return;
-    try {
-      const data = await api("/api/sites");
-      sel.innerHTML = (data.sites || [])
-        .map(
-          (s) =>
-            `<option value="${s.id}" ${s.id === data.active_site_id ? "selected" : ""}>${s.name}</option>`
-        )
-        .join("");
-    } catch (_) {
-      sel.innerHTML = `<option value="default">Faena principal</option>`;
-    }
-  }
-
-  async function refreshEhsUi() {
-    const hint = $("#cfgEhsHint");
-    const urlEl = $("#cfgEhsWebhookUrl");
-    const enEl = $("#cfgEhsWebhookEnabled");
-    const authEl = $("#cfgEhsWebhookAuth");
-    const safetyUrl = $("#cfgEhsSafetyUrl");
-    const safetyKey = $("#cfgEhsSafetyKey");
-    const safetySite = $("#cfgEhsSafetySite");
-    const safetyEn = $("#cfgEhsSafetyEnabled");
-    const sapUrl = $("#cfgEhsSapUrl");
-    const sapClient = $("#cfgEhsSapClient");
-    const sapPlant = $("#cfgEhsSapPlant");
-    const sapEn = $("#cfgEhsSapEnabled");
-    if (!urlEl) return;
-    try {
-      const data = await api("/api/ehs/config");
-      const c = data.config?.connectors || {};
-      const w = c.webhook || {};
-      const sc = c.safetycloud || {};
-      const sap = c.sap_ewm || {};
-      urlEl.value = w.url || "";
-      if (enEl) enEl.checked = !!w.enabled;
-      if (authEl) {
-        authEl.value = "";
-        authEl.placeholder = w.auth_header_set ? "Configurado — nuevo valor para cambiar" : "Bearer …";
-      }
-      if (safetyUrl) safetyUrl.value = sc.url || "";
-      if (safetySite) safetySite.value = sc.site_code || "";
-      if (safetyEn) safetyEn.checked = !!sc.enabled;
-      if (safetyKey) {
-        safetyKey.value = "";
-        safetyKey.placeholder = sc.api_key_set ? "Configurado — nuevo valor para cambiar" : "API key";
-      }
-      if (sapUrl) sapUrl.value = sap.url || "";
-      if (sapPlant) sapPlant.value = sap.plant || "";
-      if (sapEn) sapEn.checked = !!sap.enabled;
-      if (sapClient) {
-        sapClient.value = "";
-        sapClient.placeholder = sap.client_id_set ? "Configurado — nuevo valor para cambiar" : "Client ID";
-      }
-      const active = [w.enabled && "Webhook", sc.enabled && "SafetyCloud", sap.enabled && "SAP"].filter(Boolean);
-      if (hint) hint.textContent = active.length ? `Activos: ${active.join(", ")}` : "Sin conectores EHS activos";
-    } catch (e) {
-      if (hint) hint.textContent = String(e.message || e);
-    }
-  }
-
-  async function saveEhsConfig() {
-    const connectors = {
-      webhook: {
-        url: ($("#cfgEhsWebhookUrl")?.value || "").trim(),
-        enabled: !!$("#cfgEhsWebhookEnabled")?.checked,
-      },
-      safetycloud: {
-        url: ($("#cfgEhsSafetyUrl")?.value || "").trim(),
-        enabled: !!$("#cfgEhsSafetyEnabled")?.checked,
-        site_code: ($("#cfgEhsSafetySite")?.value || "").trim(),
-      },
-      sap_ewm: {
-        url: ($("#cfgEhsSapUrl")?.value || "").trim(),
-        enabled: !!$("#cfgEhsSapEnabled")?.checked,
-        plant: ($("#cfgEhsSapPlant")?.value || "").trim(),
-      },
-    };
-    const authHdr = ($("#cfgEhsWebhookAuth")?.value || "").trim();
-    if (authHdr) connectors.webhook.auth_header = authHdr;
-    const scKey = ($("#cfgEhsSafetyKey")?.value || "").trim();
-    if (scKey) connectors.safetycloud.api_key = scKey;
-    const sapClient = ($("#cfgEhsSapClient")?.value || "").trim();
-    if (sapClient) connectors.sap_ewm.client_id = sapClient;
-    await api("/api/ehs/config", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ connectors }),
-    });
-    await refreshEhsUi();
   }
 
   async function boot() {
@@ -1471,7 +1284,7 @@ const api = createApi({
         regs.forEach((r) => r.unregister().catch(() => {}));
       });
       setTimeout(() => {
-        navigator.serviceWorker.register("/assets/sw.js?v=41").catch(() => {});
+        navigator.serviceWorker.register("/assets/sw.js?v=42").catch(() => {});
       }, 400);
     }
     const offlineBadge = $("#offlineBadge");
@@ -1524,7 +1337,9 @@ const api = createApi({
       el.classList.toggle("hidden", el.getAttribute("data-cfg-section") !== id);
     });
     $$(".cfg-nav-btn").forEach((btn) => {
-      btn.classList.toggle("active", btn.getAttribute("data-cfg-sec") === id);
+      const on = btn.getAttribute("data-cfg-sec") === id;
+      btn.classList.toggle("active", on);
+      btn.setAttribute("aria-selected", on ? "true" : "false");
     });
     const panel = $("#sidePanel");
     if (panel && appMode === "config") panel.scrollTop = 0;
@@ -1586,7 +1401,11 @@ const api = createApi({
     );
     document.body.classList.add(`mode-${mode}`);
 
-    $$(".mode-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === mode));
+    $$(".mode-btn").forEach((b) => {
+      const on = b.dataset.mode === mode;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-selected", on ? "true" : "false");
+    });
 
     els.monitorToolbar?.classList.toggle("hidden", mode !== "live");
     $("#massToolbar")?.classList.toggle("hidden", mode !== "mass");
@@ -1669,7 +1488,10 @@ const api = createApi({
   function setSource(mode) {
     sourceMode = mode;
     $$(".tab").forEach((t) => {
-      if (t.dataset.source) t.classList.toggle("active", t.dataset.source === mode);
+      if (!t.dataset.source) return;
+      const on = t.dataset.source === mode;
+      t.classList.toggle("active", on);
+      t.setAttribute("aria-selected", on ? "true" : "false");
     });
     const showCamBar = mode === "camera" || mode === "identity" || mode === "teach";
     els.cameraControls.classList.toggle("hidden", !showCamBar);
@@ -2652,7 +2474,7 @@ const api = createApi({
           .map((w) => {
             const active = w.active !== false;
             const photo = w.photo_url
-              ? `<img class="worker-photo" src="${w.photo_url}?t=${encodeURIComponent(w.last_seen || w.face_samples || 0)}" alt="" />`
+              ? `<img class="worker-photo" src="${w.photo_url}?t=${encodeURIComponent(w.last_seen || w.face_samples || 0)}" alt="Foto de ${escapeHtml(w.name || "trabajador")}" />`
               : `<div class="worker-photo placeholder" aria-hidden="true"></div>`;
             const qn = w.quality || 0;
             const ready =
@@ -4159,7 +3981,7 @@ const api = createApi({
             : `Falta: ${(c.missing || []).join(", ") || "EPP"}`;
         const thumb = c.thumb ? `data:image/jpeg;base64,${c.thumb}` : "";
         return `<div class="mass-cell ${cls}" data-mass-id="${escapeHtml(c.id || "")}">
-          ${thumb ? `<img src="${thumb}" alt="" />` : `<div class="mass-cell-meta" style="top:40%">Sin imagen</div>`}
+          ${thumb ? `<img src="${thumb}" alt="Vista ${escapeHtml(c.name || "canal")} — ${escapeHtml(status)}" />` : `<div class="mass-cell-meta" style="top:40%">Sin imagen</div>`}
           <div class="mass-cell-meta"><strong>${escapeHtml(c.name || "Canal")}</strong> · ${escapeHtml(status)}</div>
         </div>`;
       })
@@ -4349,6 +4171,11 @@ const api = createApi({
     });
     await refreshCameras();
     alert("Canal guardado para Vivo (máx. 4)");
+  });
+
+  bindAuthController(() => {
+    setAppMode("live");
+    setKioskMode(true);
   });
 
   boot();
