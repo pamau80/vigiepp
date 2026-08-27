@@ -161,7 +161,7 @@ class PPEDetector:
             self.model_name = "SafetyVision YOLOv8s (EPP)"
             self.ready = True
             logger.info("Modelo listo: %s (%s)", self.model_name, weights.name)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             self.error = str(exc)
             self.ready = False
             logger.exception("No se pudo cargar el modelo EPP: %s", exc)

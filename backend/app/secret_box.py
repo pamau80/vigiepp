@@ -53,7 +53,7 @@ def encrypt_text(plain: str) -> str | None:
         return None
     try:
         return f.encrypt(plain.encode("utf-8")).decode("ascii")
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.exception("encrypt failed")
         return None
 

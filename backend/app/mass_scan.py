@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 
@@ -93,7 +94,7 @@ def run_mass_scan(
             ch = futures[fut]
             try:
                 cell, frame = fut.result()
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.exception("fetch canal %s falló", ch.get("id"))
                 cell = {
                     "id": ch.get("id"),

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
@@ -14,8 +14,8 @@ router = APIRouter(prefix="/api/privacy", tags=["privacy"])
 
 
 class PrivacyPatchBody(BaseModel):
-    qr_only_mode: Optional[bool] = None
-    retention_days: Optional[int] = Field(None, ge=7, le=365)
+    qr_only_mode: bool | None = None
+    retention_days: int | None = Field(None, ge=7, le=365)
 
 
 @router.get("/config")

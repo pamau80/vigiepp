@@ -6,7 +6,6 @@ import threading
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-
 from app.mass_scan import run_mass_scan
 
 

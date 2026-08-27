@@ -19,7 +19,7 @@ def is_private_hostname(host: str) -> bool:
         ip = ipaddress.ip_address(h)
         return bool(ip.is_private or ip.is_loopback or ip.is_link_local)
     except ValueError:
-        return h.endswith(".lan") or h.endswith(".home")
+        return h.endswith((".lan", ".home"))
 
 
 def is_blocked_host(host: str) -> bool:

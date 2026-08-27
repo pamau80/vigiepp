@@ -4,18 +4,17 @@ from __future__ import annotations
 
 import json
 import logging
-import shutil
 import subprocess
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import cv2
 import numpy as np
 
-from .paths import custom_weights_path, teach_dataset_dir, teach_runs_dir
+from .paths import teach_dataset_dir, teach_runs_dir
 
 logger = logging.getLogger("vigiepp.teach")
 
@@ -85,7 +84,7 @@ class TeachStore:
             "classes": [c["id"] for c in TEACHABLE_CLASSES],
             "custom_classes": [],
             "samples": {},
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
         }
         self._write_meta(meta)
         return meta

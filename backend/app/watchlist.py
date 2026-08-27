@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from .cameras import validate_rtsp
@@ -34,7 +34,7 @@ def _load() -> dict[str, Any]:
 
 
 def _save(payload: dict[str, Any]) -> None:
-    payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+    payload["updated_at"] = datetime.now(UTC).isoformat()
     WATCH_FILE.parent.mkdir(parents=True, exist_ok=True)
     WATCH_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     try:

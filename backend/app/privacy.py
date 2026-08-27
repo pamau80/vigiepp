@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -49,7 +49,7 @@ def save_config(patch: dict[str, Any]) -> dict[str, Any]:
         cfg["qr_only_mode"] = bool(patch["qr_only_mode"])
     if "retention_days" in patch:
         cfg["retention_days"] = max(7, min(365, int(patch["retention_days"] or 90)))
-    cfg["updated_at"] = datetime.now(timezone.utc).isoformat()
+    cfg["updated_at"] = datetime.now(UTC).isoformat()
     path = _config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     with _lock:
@@ -64,7 +64,7 @@ def qr_only_enabled() -> bool:
 
 def apply_retention(days: int | None = None) -> dict[str, Any]:
     days = max(7, min(365, int(days or get_config().get("retention_days") or 90)))
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff = datetime.now(UTC) - timedelta(days=days)
     evidence_removed = 0
     scans_removed = 0
 
@@ -74,7 +74,7 @@ def apply_retention(days: int | None = None) -> dict[str, Any]:
     if ev_dir.is_dir():
         for p in ev_dir.glob("*.jpg"):
             try:
-                mtime = datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc)
+                mtime = datetime.fromtimestamp(p.stat().st_mtime, tz=UTC)
                 if mtime < cutoff:
                     p.unlink(missing_ok=True)
                     evidence_removed += 1

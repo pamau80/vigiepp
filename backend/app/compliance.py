@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 
 from .profiles import IndustryProfile, get_profile
 
-
 # Mapeo: clase del modelo → categoría interna
 CLASS_TO_CATEGORY: dict[str, str] = {
     "hardhat": "casco",

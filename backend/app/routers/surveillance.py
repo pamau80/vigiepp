@@ -25,8 +25,6 @@ def surveillance_mass_scan(
     required: str = "",
 ) -> dict[str, Any]:
     """Analiza EPP en todos los canales activos de la watchlist."""
-    from .. import mass_scan as mass_scan_mod
-    from .. import watchlist as watch_mod
 
     enabled = [c for c in watch_mod.list_channels() if c.get("enabled")]
     result = mass_scan_mod.run_mass_scan(

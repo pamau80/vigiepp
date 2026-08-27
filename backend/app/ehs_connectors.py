@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from urllib.request import Request, urlopen
 
@@ -117,7 +117,7 @@ def _load() -> dict[str, Any]:
 
 
 def _save(payload: dict[str, Any]) -> None:
-    payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+    payload["updated_at"] = datetime.now(UTC).isoformat()
     path = _config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -157,7 +157,7 @@ def _format_payload(connector_id: str, incident: dict[str, Any]) -> dict[str, An
             "source": "VigiEPP",
             "type": "ppe_incident",
             "site": incident.get("site") or "",
-            "timestamp": incident.get("ts") or datetime.now(timezone.utc).isoformat(),
+            "timestamp": incident.get("ts") or datetime.now(UTC).isoformat(),
             "worker": {
                 "name": incident.get("worker_name"),
                 "rut": incident.get("worker_rut"),
@@ -175,7 +175,7 @@ def _format_payload(connector_id: str, incident: dict[str, Any]) -> dict[str, An
             "Plant": incident.get("plant") or "",
             "Description": incident.get("summary") or "Incumplimiento EPP",
             "PersonnelId": incident.get("worker_rut") or "",
-            "Timestamp": incident.get("ts") or datetime.now(timezone.utc).isoformat(),
+            "Timestamp": incident.get("ts") or datetime.now(UTC).isoformat(),
         }
     return {
         "ok": True,
@@ -184,7 +184,7 @@ def _format_payload(connector_id: str, incident: dict[str, Any]) -> dict[str, An
     }
 
 
-def _post_json(url: str, body: dict[str, Any], headers: dict[str, str] = None) -> tuple[bool, str]:
+def _post_json(url: str, body: dict[str, Any], headers: dict[str, str] | None = None) -> tuple[bool, str]:
     ok, msg = validate_outbound_url(url)
     if not ok:
         return False, msg
@@ -194,7 +194,7 @@ def _post_json(url: str, body: dict[str, Any], headers: dict[str, str] = None) -
         hdrs.update(headers)
     try:
         req = Request(url, data=data, method="POST", headers=hdrs)
-        with urlopen(req, timeout=12) as resp:  # noqa: S310
+        with urlopen(req, timeout=12) as resp:
             return True, f"HTTP {resp.status}"
     except Exception as exc:  # noqa: BLE001
         return False, str(exc)
@@ -239,7 +239,7 @@ def push_incident(incident: dict[str, Any]) -> list[dict[str, Any]]:
 
 def test_connector(connector_id: str) -> dict[str, Any]:
     sample = {
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": datetime.now(UTC).isoformat(),
         "worker_name": "Prueba EHS",
         "worker_rut": "11.111.111-1",
         "profile": "general",

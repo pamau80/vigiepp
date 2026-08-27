@@ -4,12 +4,25 @@ import hmac
 import json
 import logging
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import JSONResponse
 
 from .. import auth as auth_mod
 from .. import metrics as metrics_mod
-from ..detect_pipeline import DETECT_IMGSZ_MAX, build_response, detect_frame, detect_lock
+from ..detect_pipeline import (
+    DETECT_IMGSZ_MAX,
+    build_response,
+    detect_frame,
+    detect_lock,
+)
 from ..detector import PPEDetector, decode_image_bytes, encode_jpeg
 from ..profiles import parse_required_list
 
@@ -113,7 +126,7 @@ async def ws_detect(websocket: WebSocket) -> None:
                 detect_lock.release()
     except WebSocketDisconnect:
         logger.info("WebSocket cerrado")
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.exception("Error en WebSocket")
         try:
             await websocket.close()

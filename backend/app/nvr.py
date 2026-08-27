@@ -7,13 +7,13 @@ import logging
 import re
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-from .paths import data_dir
 from . import secret_box as secret_mod
+from .paths import data_dir
 from .security_urls import validate_lan_http_host
 
 logger = logging.getLogger("vigiepp.nvr")
@@ -128,7 +128,7 @@ def _load() -> dict[str, Any]:
 
 
 def _save(payload: dict[str, Any]) -> None:
-    payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+    payload["updated_at"] = datetime.now(UTC).isoformat()
     NVR_FILE.parent.mkdir(parents=True, exist_ok=True)
     NVR_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     try:
@@ -266,7 +266,7 @@ def _http_probe(url: str, timeout: float = 4.0) -> tuple[bool, str]:
         return False, msg
     try:
         req = Request(url, method="GET")
-        with urlopen(req, timeout=timeout) as resp:  # noqa: S310
+        with urlopen(req, timeout=timeout) as resp:
             body = resp.read(2048).decode("utf-8", errors="replace")
             return True, body[:500]
     except Exception as exc:  # noqa: BLE001
@@ -294,7 +294,7 @@ def _onvif_soap_post(host: str, http_port: int, envelope: str, timeout: float = 
             method="POST",
             headers={"Content-Type": "application/soap+xml; charset=utf-8"},
         )
-        with urlopen(req, timeout=timeout) as resp:  # noqa: S310
+        with urlopen(req, timeout=timeout) as resp:
             body = resp.read(8192).decode("utf-8", errors="replace")
             return True, body
     except Exception as exc:  # noqa: BLE001
@@ -304,7 +304,7 @@ def _onvif_soap_post(host: str, http_port: int, envelope: str, timeout: float = 
 def parse_onvif_device_info(xml: str) -> dict[str, str]:
     out: dict[str, str] = {}
     for tag in ("Manufacturer", "Model", "FirmwareVersion", "SerialNumber", "HardwareId"):
-        m = re.search(rf"<(?:tds:)?{tag}>([^<]+)", xml, re.I)
+        m = re.search(rf"<(?:tds:)?{tag}>([^<]+)", xml, re.IGNORECASE)
         if m:
             out[tag.lower()] = m.group(1).strip()
     return out

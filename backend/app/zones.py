@@ -5,8 +5,7 @@ from __future__ import annotations
 import json
 import threading
 import uuid
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import UTC, datetime
 from typing import Any
 
 from .paths import data_dir
@@ -126,7 +125,7 @@ def _ensure() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     if not ZONES_FILE.exists():
         payload = dict(DEFAULT)
-        payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+        payload["updated_at"] = datetime.now(UTC).isoformat()
         ZONES_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
@@ -160,7 +159,7 @@ def save_zones(zones: list[dict[str, Any]]) -> dict[str, Any]:
                 "color": str(z.get("color") or "#e85d04")[:20],
             }
         )
-    payload = {"zones": cleaned, "updated_at": datetime.now(timezone.utc).isoformat()}
+    payload = {"zones": cleaned, "updated_at": datetime.now(UTC).isoformat()}
     with _lock:
         ZONES_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     try:

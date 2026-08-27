@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import APIRouter
 
 router = APIRouter(prefix="/api/nvr", tags=['nvr'])
 
 from fastapi import HTTPException
-from pydantic import BaseModel, Field
-from typing import Any
+from pydantic import BaseModel
+
 
 class NVRProbeBody(BaseModel):
     vendor: str = "dahua"

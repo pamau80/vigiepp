@@ -16,11 +16,11 @@ from .. import privacy as privacy_mod
 from .. import tenants as tenants_mod
 from ..detector import PPEDetector
 from ..identity import IdentityRegistry
-from ..profiles import list_profiles, PPE_CATALOG
+from ..profiles import PPE_CATALOG, list_profiles
 
 router = APIRouter(prefix="/api", tags=["core"])
 
-BUILD_VERSION = "v49"
+BUILD_VERSION = "v50"
 
 
 @router.get("/health")
@@ -56,6 +56,8 @@ def health() -> dict[str, Any]:
     active_site = tenants_mod.get_site(tenants_mod.get_active_site_id())
     privacy_cfg = privacy_mod.get_config()
     pin_warn = bool(auth_mod.using_default_pins() and on_render)
+    from ..otel_trace import enabled as otel_enabled
+    from ..otel_trace import otlp_mode
     from ..stream_rtsp import active_stream_count
 
     return {
@@ -81,6 +83,7 @@ def health() -> dict[str, Any]:
         "production_pin_warning": pin_warn,
         "rtsp_streams_active": active_stream_count(),
         "email_transport": notif_mod.email_transport_status().get("mode"),
+        "otel": {"enabled": otel_enabled(), "mode": otlp_mode()},
     }
 
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import APIRouter
 
@@ -8,7 +8,7 @@ router = APIRouter(prefix="/api/watchlist", tags=['watchlist'])
 
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
-from typing import Any
+
 
 class WatchChannelBody(BaseModel):
     name: str = ""
@@ -68,36 +68,4 @@ def watchlist_delete(channel_id: str) -> dict[str, Any]:
     if not ok:
         raise HTTPException(404, "Canal no encontrado")
     return {"ok": True, "deleted": channel_id}
-
-
-def _resize_frame(frame: np.ndarray, max_dim: int = 720) -> np.ndarray:
-    h, w = frame.shape[:2]
-    if max(h, w) <= max_dim:
-        return frame
-    scale = max_dim / max(h, w)
-    return cv2.resize(frame, (int(w * scale), int(h * scale)))
-
-
-def _thumb_b64(frame: np.ndarray, max_w: int = 320) -> str:
-    h, w = frame.shape[:2]
-    if w > max_w:
-        scale = max_w / w
-        frame = cv2.resize(frame, (max_w, int(h * scale)))
-    jpeg = encode_jpeg(frame, quality=72)
-    return base64.b64encode(jpeg).decode("ascii")
-
-
-def _compliance_cell_fields(payload: dict[str, Any]) -> dict[str, Any]:
-    comp = payload.get("compliance") or {}
-    persons = comp.get("persons") or []
-    missing: list[str] = []
-    for p in persons:
-        for m in p.get("missing") or []:
-            missing.append(str(m))
-    return {
-        "compliant": comp.get("overall_compliant"),
-        "missing": missing,
-        "alerts": comp.get("alerts") or [],
-    }
-
 

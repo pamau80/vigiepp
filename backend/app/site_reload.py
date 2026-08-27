@@ -8,11 +8,11 @@ logger = logging.getLogger("vigiepp.site_reload")
 
 
 def reload_site_context() -> None:
+    from . import notifications as notif_mod
+    from . import nvr as nvr_mod
+    from . import watchlist as watch_mod
     from .identity import IdentityRegistry
     from .teach import TeachStore
-    from . import notifications as notif_mod
-    from . import watchlist as watch_mod
-    from . import nvr as nvr_mod
 
     IdentityRegistry.reset_for_site()
     TeachStore.reset_for_site()
@@ -23,6 +23,6 @@ def reload_site_context() -> None:
         from .stream_rtsp import stop_all
 
         stop_all()
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.debug("stop_all streams omitido", exc_info=True)
     logger.info("Contexto de sitio recargado")

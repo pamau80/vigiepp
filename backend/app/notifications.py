@@ -9,14 +9,13 @@ import ssl
 import threading
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.message import EmailMessage
-from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-from . import hardware_alarm as hw_mod
 from . import access_gate as gate_mod
+from . import hardware_alarm as hw_mod
 from . import whatsapp_cloud as wa_mod
 from .paths import data_dir
 
@@ -194,7 +193,7 @@ def _format_message(cfg: dict[str, Any], payload: dict[str, Any]) -> tuple[str, 
         "profile": payload.get("profile") or "—",
         "summary": payload.get("summary") or "—",
         "missing": ", ".join(payload.get("missing") or []) or "—",
-        "ts": payload.get("ts") or datetime.now(timezone.utc).isoformat(),
+        "ts": payload.get("ts") or datetime.now(UTC).isoformat(),
     }
     subject = str(tpl.get("subject") or "Alerta VigiEPP").format(**ctx)
     body = str(tpl.get("body") or "{summary}").format(**ctx)
@@ -302,9 +301,8 @@ def _append_log(entry: dict[str, Any]) -> None:
     DATA_DIR = data_dir()
     LOG_FILE = DATA_DIR / "notification_log.jsonl"
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with _lock:
-        with LOG_FILE.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    with _lock, LOG_FILE.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 def recent_log(limit: int = 30) -> list[dict[str, Any]]:
@@ -345,7 +343,7 @@ def send_notification(
     if not force and not cfg.get("enabled"):
         return {"ok": False, "skipped": True, "reason": "notificaciones desactivadas"}
 
-    now = datetime.now(timezone.utc).timestamp()
+    now = datetime.now(UTC).timestamp()
     cooldown = float(cfg.get("cooldown_seconds") or 0)
     key = _cooldown_key(kind, payload)
     if not force and cooldown > 0:
@@ -434,7 +432,7 @@ def send_notification(
                     _last_sent_keys.pop(k, None)
 
     entry = {
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": datetime.now(UTC).isoformat(),
         "kind": kind,
         "ok": any_ok,
         "subject": subject,
@@ -473,7 +471,7 @@ def maybe_notify_scan(identity: dict[str, Any] | None, compliance: dict[str, Any
             "profile": profile,
             "summary": compliance.get("summary"),
             "missing": missing,
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
             "compliant": False,
         },
         force=False,
@@ -497,7 +495,7 @@ def maybe_notify_unknown(identity: dict[str, Any] | None, profile: str) -> None:
             "profile": profile,
             "summary": "Rostro detectado sin identidad enrolada / activa",
             "missing": ["identidad"],
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
             "compliant": False,
             "faces_detected": (identity or {}).get("faces_detected"),
             "score": (identity or {}).get("score"),
@@ -531,7 +529,7 @@ def maybe_notify_zones(
             "summary": summary,
             "missing": ["zona"],
             "zone": summary,
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
             "compliant": False,
         },
         force=True,
@@ -576,7 +574,7 @@ def maybe_access_gate(
             "profile": profile,
             "summary": "Control de acceso sincronizado",
             "missing": [],
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
             "compliant": ok_epp,
             "gate": gate_result,
         }
@@ -598,7 +596,7 @@ def maybe_access_gate(
                 for m in (p.get("missing") or [])
             ])
         ),
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": datetime.now(UTC).isoformat(),
         "compliant": ok_epp,
         "gate": gate_result,
     }

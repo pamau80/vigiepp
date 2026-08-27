@@ -1,4 +1,5 @@
 import { $, $$ } from "./modules/dom.js";
+import { createApi } from "./modules/http.js";
 import {
   getSettings,
   loadSettings as loadSettingsFromModule,
@@ -191,7 +192,7 @@ function bindAuthController(onOperatorLogin) {
     repSideList: $("#repSideList"),
   };
 
-  const APP_BUILD = globalThis.VIGIEPP_BUILD || "v49";
+  const APP_BUILD = globalThis.VIGIEPP_BUILD || "v50";
 
   const identityCard = createIdentityCardController({ els });
   const { displayPersonName, normalizePersonNameForSave, setIdentityCard } = identityCard;
@@ -548,7 +549,7 @@ function bindAuthController(onOperatorLogin) {
     guide,
     modes,
     kiosk,
-    buildVersion: "49",
+    buildVersion: "50",
   });
   const { boot } = bootCtrl;
 

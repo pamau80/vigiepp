@@ -102,7 +102,7 @@ def oidc_callback(response: Response, code: str = "", state: str = "") -> dict[s
                 "name": user.get("name") or user.get("preferred_username"),
             },
         }
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.exception("OIDC callback falló")
         raise HTTPException(401, "OIDC falló") from exc
 

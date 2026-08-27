@@ -6,7 +6,7 @@ import json
 import re
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -41,7 +41,7 @@ def _load() -> dict[str, Any]:
 
 def _save(payload: dict[str, Any]) -> None:
     path = _sites_file()
-    payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+    payload["updated_at"] = datetime.now(UTC).isoformat()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -103,7 +103,7 @@ def create_site(name: str) -> dict[str, Any]:
             "name": name,
             "slug": slug,
             "active": True,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
         }
         sites.append(site)
         data["sites"] = sites

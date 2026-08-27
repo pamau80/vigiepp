@@ -5,7 +5,7 @@ import csv
 import io
 import threading
 import zipfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import cv2
@@ -28,8 +28,6 @@ def identity_workers() -> list[dict[str, Any]]:
 @router.get("/consent.csv")
 def identity_consent_csv() -> Response:
     """Export CSV de consentimiento biométrico (Ley 19.628 / DS 44)."""
-    import csv
-    import io
 
     workers = IdentityRegistry.get().list_workers()
     buf = io.StringIO()
@@ -63,7 +61,7 @@ def identity_consent_csv() -> Response:
                 w.get("face_samples") or 0,
             ]
         )
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M")
     return Response(
         content=buf.getvalue().encode("utf-8-sig"),
         media_type="text/csv; charset=utf-8",
@@ -77,7 +75,7 @@ def identity_backup() -> Response:
     from .. import backup as backup_mod
 
     data = backup_mod.build_backup_zip()
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M")
     return Response(
         content=data,
         media_type="application/zip",
@@ -117,7 +115,6 @@ def identity_delete(worker_id: str) -> dict[str, Any]:
     ok = IdentityRegistry.get().delete_worker(worker_id)
     if not ok:
         raise HTTPException(404, "Trabajador no encontrado")
-    from .. import audit as audit_mod
 
     audit_mod.log("worker_delete", detail=worker_id)
     return {"ok": True, "deleted": worker_id}
@@ -126,7 +123,13 @@ def identity_delete(worker_id: str) -> dict[str, Any]:
 @router.patch("/workers/{worker_id}")
 async def identity_update(worker_id: str, request: Request) -> dict[str, Any]:
     """Actualiza ficha: nombre, RUT, activo, grupo, notas."""
-    from .identity import compute_quality, normalize_person_name, normalize_rut, validate_rut, worker_public
+    from .identity import (
+        compute_quality,
+        normalize_person_name,
+        normalize_rut,
+        validate_rut,
+        worker_public,
+    )
 
     body = await request.json()
     reg = IdentityRegistry.get()

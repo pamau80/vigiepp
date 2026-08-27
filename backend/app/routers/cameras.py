@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import APIRouter
 
@@ -8,6 +8,7 @@ router = APIRouter(prefix="/api/cameras", tags=['cameras'])
 
 from fastapi import HTTPException
 from pydantic import BaseModel
+
 
 class CameraBody(BaseModel):
     name: str = ""

@@ -59,7 +59,7 @@ def _load_sessions() -> None:
                             "expires_at": float(meta["expires_at"]),
                             "role": meta.get("role") or ROLE_ADMIN,
                         }
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.warning("No se pudieron cargar sesiones persistidas", exc_info=True)
     _sessions_loaded = True
 
@@ -69,7 +69,7 @@ def _persist_sessions() -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(_sessions, ensure_ascii=False), encoding="utf-8")
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.warning("No se pudieron guardar sesiones", exc_info=True)
 
 
@@ -270,9 +270,7 @@ def is_public_path(path: str) -> bool:
         return True
     if path == "/metrics" and metrics_public():
         return True
-    if path.startswith("/assets/"):
-        return True
-    return False
+    return bool(path.startswith("/assets/"))
 
 
 def is_admin_only(method: str, path: str) -> bool:
@@ -287,7 +285,7 @@ def is_admin_only(method: str, path: str) -> bool:
             return True
         if path == "/api/identity/workers":
             return True
-        if path.startswith("/api/notifications/config") or path.startswith("/api/notifications/log"):
+        if path.startswith(("/api/notifications/config", "/api/notifications/log")):
             return True
         if path.startswith("/api/teach/"):
             return True
@@ -295,9 +293,7 @@ def is_admin_only(method: str, path: str) -> bool:
             return True
         if path.startswith("/api/reports/"):
             return True
-        if path.startswith("/api/evidence/"):
-            return True
-        return False
+        return bool(path.startswith("/api/evidence/"))
 
     if path in ("/api/detect", "/api/identity/identify"):
         return False
@@ -314,9 +310,7 @@ def is_admin_only(method: str, path: str) -> bool:
         return True
     if path.startswith("/api/notifications/"):
         return True
-    if path.startswith("/api/cameras"):
-        return True
-    return False
+    return bool(path.startswith("/api/cameras"))
 
 
 def set_session_cookie(response: Response, token: str) -> None:
@@ -369,7 +363,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if request.scope.get("type") == "websocket":
             return await call_next(request)
 
-        needs_auth = path.startswith("/api/") or path.startswith("/ws/") or path == "/metrics"
+        needs_auth = path.startswith(("/api/", "/ws/")) or path == "/metrics"
         if needs_auth:
             token = extract_token(request)
             ok = session_valid(token) or (

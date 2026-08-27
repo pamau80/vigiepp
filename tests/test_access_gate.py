@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.access_gate import DEFAULT_GATE, merge_gate, sync_from_scan
+from app.access_gate import merge_gate, sync_from_scan
 
 
 def test_merge_gate_defaults():

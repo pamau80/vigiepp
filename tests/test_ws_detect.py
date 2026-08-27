@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 
 @pytest.fixture()
@@ -31,12 +32,11 @@ def test_ws_detect_rejects_pin_bearer(tmp_path, monkeypatch):
     from app.main import app
 
     client = TestClient(app)
-    with pytest.raises(Exception):  # noqa: B017 — Starlette cierra con 4401
-        with client.websocket_connect(
-            "/ws/detect",
-            headers={"X-VigiEPP-Key": "ws-audit-pin"},
-        ) as ws:
-            ws.send_text('{"profile":"general"}')
+    with pytest.raises(WebSocketDisconnect), client.websocket_connect(
+        "/ws/detect",
+        headers={"X-VigiEPP-Key": "ws-audit-pin"},
+    ) as ws:
+        ws.send_text('{"profile":"general"}')
 
 
 def test_ws_detect_accepts_session_token(tmp_path, monkeypatch):

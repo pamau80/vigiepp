@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -12,16 +12,16 @@ router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
 
 class NotifyConfigBody(BaseModel):
-    enabled: Optional[bool] = None
-    on_non_compliant: Optional[bool] = None
-    on_unknown_face: Optional[bool] = None
-    on_zone_alert: Optional[bool] = None
-    only_known_workers: Optional[bool] = None
-    cooldown_seconds: Optional[int] = None
-    access_control: Optional[dict[str, Any]] = None
-    channels: Optional[dict[str, Any]] = None
-    template: Optional[dict[str, str]] = None
-    recipients_extra: Optional[list[str]] = None
+    enabled: bool | None = None
+    on_non_compliant: bool | None = None
+    on_unknown_face: bool | None = None
+    on_zone_alert: bool | None = None
+    only_known_workers: bool | None = None
+    cooldown_seconds: int | None = None
+    access_control: dict[str, Any] | None = None
+    channels: dict[str, Any] | None = None
+    template: dict[str, str] | None = None
+    recipients_extra: list[str] | None = None
 
 
 class NotifySendBody(BaseModel):
@@ -30,7 +30,7 @@ class NotifySendBody(BaseModel):
     profile: str = "general"
     summary: str = "Notificación de prueba VigiEPP"
     missing: list[str] = Field(default_factory=list)
-    worker_id: Optional[str] = None
+    worker_id: str | None = None
     force: bool = True
 
 
@@ -67,7 +67,7 @@ def notifications_send(body: NotifySendBody) -> dict[str, Any]:
             "summary": body.summary,
             "missing": body.missing,
             "worker_id": body.worker_id,
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
         },
         force=body.force,
         kind="manual",
@@ -84,7 +84,7 @@ def notifications_test() -> dict[str, Any]:
             "summary": "Esta es una notificación de prueba",
             "missing": ["casco"],
             "worker_id": "test",
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
         },
         force=True,
         kind="test",

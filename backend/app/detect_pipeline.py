@@ -8,9 +8,8 @@ import os
 import threading
 import time
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import urlparse
 
 import cv2
 import numpy as np
@@ -25,7 +24,7 @@ from . import zones as zones_mod
 from .compliance import evaluate
 from .detector import PPEDetector, decode_image_bytes, encode_jpeg
 from .identity import IdentityRegistry, IdentityService
-from .profiles import get_profile, parse_required_list
+from .profiles import get_profile
 from .scanlog import ScanEvent, log_scan
 
 logger = logging.getLogger("vigiepp.detect")
@@ -76,7 +75,7 @@ def build_response(
     # Safety score en vivo 0–100 (promedio scores de personas; penaliza zonas)
     if persons:
         avg = sum(float(p.get("score") or 0) for p in persons) / max(1, len(persons))
-        live_score = int(round(avg * 100))
+        live_score = round(avg * 100)
     elif detections:
         live_score = 40 if zone_bad else 70
     else:
@@ -164,7 +163,7 @@ def identify_on_frame(frame: np.ndarray, threshold: float = 0.42) -> dict[str, A
             "active": person.get("active", True),
             "gallery_size": result.get("gallery_size", 0),
         }
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.exception("Identificación en detect falló")
         return None
 
@@ -207,7 +206,7 @@ def maybe_log(
         try:
             if identity:
                 notif_mod.maybe_notify_scan(identity, compliance_block, profile)
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("Notificación automática falló")
         return None
 
@@ -218,7 +217,7 @@ def maybe_log(
         try:
             jpeg = encode_jpeg(frame_bgr, quality=72)
             evidence_id = evidence_mod.save_evidence_jpeg(jpeg)
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("No se pudo guardar evidencia")
 
     if identity:
@@ -227,7 +226,7 @@ def maybe_log(
             missing.extend(p.get("missing") or [])
         log_scan(
             ScanEvent(
-                ts=datetime.now(timezone.utc).isoformat(),
+                ts=datetime.now(UTC).isoformat(),
                 worker_name=identity.get("name"),
                 worker_rut=identity.get("rut"),
                 worker_id=identity.get("id"),
@@ -242,7 +241,7 @@ def maybe_log(
     try:
         if identity:
             notif_mod.maybe_notify_scan(identity, compliance_block, profile)
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.exception("Notificación automática falló")
     try:
         from . import ehs_connectors as ehs_mod
@@ -252,7 +251,7 @@ def maybe_log(
             site = tenants_mod.get_site(tenants_mod.get_active_site_id())
             ehs_mod.push_incident(
                 {
-                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "ts": datetime.now(UTC).isoformat(),
                     "worker_name": identity.get("name"),
                     "worker_rut": identity.get("rut"),
                     "worker_id": identity.get("id"),
@@ -264,7 +263,7 @@ def maybe_log(
                     "site": (site or {}).get("name") or "",
                 }
             )
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.exception("EHS push falló")
     return evidence_id
 
@@ -277,7 +276,7 @@ def maybe_notify_unknown(profile: str, identity: dict | None) -> None:
         return
     try:
         notif_mod.maybe_notify_unknown(identity, profile)
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.exception("Notificación de desconocido falló")
 
 
@@ -381,7 +380,7 @@ def detect_frame(
                 },
                 status_code=503,
             )
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("Inferencia falló")
             return JSONResponse(
                 {
@@ -416,13 +415,13 @@ def detect_frame(
             (payload.get("zones") or {}).get("alerts") or [],
             profile,
         )
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.exception("Notificación de zona falló")
     try:
         access = notif_mod.maybe_access_gate(identity, payload["compliance"], profile)
         if access is not None:
             payload["access"] = access
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.exception("Access gate falló")
     metrics_mod.inc("detect_requests_total")
     metrics_mod.observe_detect_ms((time.perf_counter() - t0) * 1000.0)

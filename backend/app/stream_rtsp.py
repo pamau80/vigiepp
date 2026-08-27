@@ -6,7 +6,6 @@ import logging
 import os
 import threading
 import time
-from typing import Optional
 
 import cv2
 import numpy as np
@@ -20,11 +19,11 @@ class RTSPStream:
     def __init__(self, url: str, reconnect_sec: float = 3.0) -> None:
         self.url = url.strip()
         self.reconnect_sec = reconnect_sec
-        self._cap: Optional[cv2.VideoCapture] = None
-        self._frame: Optional[np.ndarray] = None
+        self._cap: cv2.VideoCapture | None = None
+        self._frame: np.ndarray | None = None
         self._lock = threading.Lock()
         self._running = False
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self.last_error: str | None = None
         self.connected = False
 
@@ -78,7 +77,7 @@ class RTSPStream:
                 self._frame = frame
             self.connected = True
 
-    def read(self) -> Optional[np.ndarray]:
+    def read(self) -> np.ndarray | None:
         with self._lock:
             if self._frame is None:
                 return None

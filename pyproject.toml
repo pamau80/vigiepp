@@ -1,0 +1,14 @@
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+ignore = [
+    "E501",
+    "B008",   # FastAPI File() en defaults
+    "S110",   # try/except/pass en paths no críticos
+    "TRY401", # logging.exception con exc explícito
+    "TRY004", # tipo de excepción en validación
+    "SIM102", # if anidados legibles en stream_rtsp
+    "SIM117", # pytest.raises + websocket_connect
+]

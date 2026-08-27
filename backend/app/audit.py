@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import threading
 from contextvars import ContextVar
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from .paths import data_dir
@@ -29,7 +29,7 @@ def _audit_file() -> Any:
 def log(action: str, *, actor: str | None = None, detail: str = "", extra: dict[str, Any] | None = None) -> None:
     who = (actor or current_actor() or "system")[:64]
     row = {
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": datetime.now(UTC).isoformat(),
         "action": action,
         "actor": who,
         "detail": (detail or "")[:400],

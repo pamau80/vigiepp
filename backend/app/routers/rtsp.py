@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import cv2
 from typing import Any
 
+import cv2
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse, Response
+from pydantic import BaseModel
 
 from .. import stream_rtsp as stream_mod
 from ..detect_pipeline import (
@@ -15,7 +16,6 @@ from ..detect_pipeline import (
 )
 from ..detector import PPEDetector, encode_jpeg
 from ..profiles import parse_required_list
-from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/rtsp", tags=["rtsp"])
 

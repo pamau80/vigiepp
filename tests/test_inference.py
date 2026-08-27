@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-import os
-
-import pytest
-
 
 def test_combined_inference_env_off(monkeypatch):
     monkeypatch.setenv("VIGIEPP_COMBINED_INFERENCE", "0")

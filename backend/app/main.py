@@ -18,10 +18,9 @@ from . import auth as auth_mod
 from . import privacy as privacy_mod
 from .detector import PPEDetector
 from .identity import IdentityRegistry
-from .routers import register_routers
-from .routers.core import BUILD_VERSION
 from .request_limits import MaxBodySizeMiddleware
 from .request_metrics import RequestMetricsMiddleware
+from .routers import register_routers
 from .security_headers import SecurityHeadersMiddleware
 from .startup_checks import run_startup_security_checks
 from .stream_rtsp import stop_all
@@ -44,12 +43,12 @@ async def lifespan(_: FastAPI):
                 result = cloud_mod.pull_and_restore_if_empty()
             if result.get("restored"):
                 logger.info("Identidad restaurada desde volumen durable: %s", result.get("workers"))
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("Durable persist pull falló")
         try:
             IdentityRegistry.get()
             logger.info("Identidad facial precargada")
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("Precarga de identidad facial falló")
 
         def _lazy_yolo() -> None:
@@ -57,13 +56,13 @@ async def lifespan(_: FastAPI):
             try:
                 PPEDetector.get()
                 logger.info("Modelo EPP precargado (lazy, post-identidad)")
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.exception("Precarga lazy EPP falló")
 
         threading.Thread(target=_lazy_yolo, name="epp-lazy", daemon=True).start()
         try:
             privacy_mod.apply_retention()
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("Retención inicial falló")
 
     threading.Thread(target=_warm, name="vigiepp-warm", daemon=True).start()

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import os
-
-import pytest
-
-from app.security_urls import edge_outbound_allowed, validate_lan_http_host, validate_outbound_url
+from app.security_urls import (
+    edge_outbound_allowed,
+    validate_lan_http_host,
+    validate_outbound_url,
+)
 
 
 def test_validate_outbound_public_ok():

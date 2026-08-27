@@ -68,9 +68,7 @@ class RedisStateStore:
             ts = float(raw)
         except ValueError:
             return False
-        if time.time() - ts > _STATE_TTL:
-            return False
-        return True
+        return not time.time() - ts > _STATE_TTL
 
 
 _store: StateStore | None = None
@@ -92,7 +90,7 @@ def get_store() -> StateStore:
             _store = RedisStateStore(url)
             logger.info("OIDC state: Redis (%s)", url.split("@")[-1])
             return _store
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("OIDC Redis no disponible — fallback memoria")
     _store = MemoryStateStore()
     return _store

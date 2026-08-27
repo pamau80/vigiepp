@@ -9,7 +9,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 from urllib.parse import urljoin, urlparse
 
@@ -88,7 +88,7 @@ def _host_private(host: str) -> bool:
         ip = ipaddress.ip_address(h)
         return bool(ip.is_private or ip.is_loopback or ip.is_link_local)
     except ValueError:
-        return h.endswith(".lan") or h.endswith(".home")
+        return h.endswith((".lan", ".home"))
 
 
 def _cooldown(key: str, seconds: float) -> bool:
@@ -155,7 +155,7 @@ def execute(
     rut: str | None = None,
 ) -> dict[str, Any]:
     cfg = merge_gate(gate)
-    ts = datetime.now(timezone.utc).isoformat()
+    ts = datetime.now(UTC).isoformat()
     if not cfg.get("enabled"):
         return {"ok": False, "skipped": True, "action": action, "detail": "gate disabled", "ts": ts}
 
