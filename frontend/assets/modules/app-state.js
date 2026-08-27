@@ -51,6 +51,7 @@ export function createAppElements() {
     complianceValue: $("#complianceValue"),
     complianceSummary: $("#complianceSummary"),
     statusPill: $("#statusPill"),
+    detDetails: $("#detDetails"),
     detList: $("#detList"),
     alertList: $("#alertList"),
     scanList: $("#scanList"),

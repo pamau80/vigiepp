@@ -469,10 +469,12 @@
         <p class="card-meta" id="ppeSelectHint">Tocá cada ítem para marcarlo obligatorio u opcional.</p>
         <div class="chips ppe-chips" id="requiredChips" role="group" aria-label="EPP obligatorio"></div>
         <button type="button" class="btn ghost btn-sm" id="btnResetPpe">Restaurar defaults del perfil</button>
-        <p class="card-kicker list-label">Detectado ahora</p>
-        <ul class="item-list" id="detList">
-          <li class="muted">Sin detecciones</li>
-        </ul>
+        <details class="det-details" id="detDetails">
+          <summary class="card-kicker list-label">EPP detectado</summary>
+          <ul class="item-list" id="detList">
+            <li class="muted">Sin detecciones</li>
+          </ul>
+        </details>
       </section>
 
       <section class="card" data-live-only>

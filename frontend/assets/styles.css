@@ -333,6 +333,35 @@ input, select, textarea, button {
   background: rgba(214, 40, 40, 0.18);
 }
 .list-label { margin-top: 0.75rem; }
+.det-details {
+  margin-top: 0.75rem;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  padding-top: 0.55rem;
+}
+.det-details > summary {
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.det-details > summary::-webkit-details-marker { display: none; }
+.det-details > summary::after {
+  content: "▾";
+  float: right;
+  opacity: 0.45;
+  font-size: 0.85em;
+}
+.det-details[open] > summary::after { transform: rotate(180deg); }
+.item-list .conf.ok {
+  color: #8fd4a8;
+  font-weight: 600;
+}
+.card-meta.conf-high { color: #9edfb5; }
+.card-meta.conf-medium { color: #c9d8cf; }
+.card-meta.conf-low,
+.card-meta.conf-ambiguous { color: #ffb89a; }
+.card-meta.conf-none { color: var(--muted); }
+
+.panel-section[data-show="live"] { display: none !important; }
 
 .panel-section[data-show] { display: none; }
 .panel[data-mode="monitor"] .panel-section[data-show="monitor"],
@@ -1713,7 +1742,32 @@ body.kiosk-mode .panel,
 body.kiosk-mode .top-status,
 body.kiosk-mode #offlineBadge,
 body.kiosk-mode .source-group,
-body.kiosk-mode .profile-field {
+body.kiosk-mode .profile-field,
+body.kiosk-mode #monitorToolbar,
+body.kiosk-mode #cameraControls,
+body.kiosk-mode #btnKiosk,
+body.kiosk-mode #fpsLabel,
+body.kiosk-mode .person-chip,
+body.kiosk-mode .live-badge,
+body.kiosk-mode .align-badge,
+body.kiosk-mode .sil-zoom,
+body.kiosk-mode #overlayHintSub,
+body.kiosk-mode #speedHint,
+body.kiosk-mode #lblFullscreen,
+body.kiosk-mode .control-bar .check {
+  display: none !important;
+}
+body.kiosk-mode #overlayHint {
+  padding-bottom: 0.5rem;
+}
+body.kiosk-mode #overlayHintText {
+  font-size: 0.95rem;
+}
+body:not(.is-mobile):not(.kiosk-mode) .person-chip {
+  display: none !important;
+}
+body[data-role="operator"] .top-status,
+body[data-role="operator"] #fpsLabel {
   display: none !important;
 }
 body.kiosk-mode .layout {

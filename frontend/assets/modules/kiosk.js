@@ -1,4 +1,5 @@
 import { $ } from "./dom.js";
+import { buildKioskDetail } from "../lib/identity-confidence.js";
 
 /** Modo portería / kiosk con salida protegida por PIN admin. */
 export function createKioskController({
@@ -79,8 +80,7 @@ export function createKioskController({
         id?.known && id?.name ? displayPersonName(id.name) : hasPeople ? "Sin identificar" : "Acercá a la cámara";
     }
     if (detail) {
-      const miss = (c.persons?.[0]?.missing || []).slice(0, 3).join(", ");
-      detail.textContent = !hasPeople ? "" : ok ? id?.rut || "EPP OK" : miss || c.summary || "Revisá EPP";
+      detail.textContent = buildKioskDetail(payload);
     }
   }
 

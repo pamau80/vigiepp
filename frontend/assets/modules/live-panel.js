@@ -77,9 +77,13 @@ export function createLivePanelController({
     }
     kiosk.updateKioskBanner(payload);
 
-    if (els.safetyScoreLive) {
-      els.safetyScoreLive.textContent =
-        payload.safety_score != null ? `Safety Score · ${payload.safety_score}/100` : "";
+    if (els.safetyScoreLive && !settings.kioskMode) {
+      const score = payload.safety_score;
+      if (score != null && hasPeople && (score < 100 || !ok)) {
+        els.safetyScoreLive.textContent = `Indicador EPP · ${score}/100`;
+      } else {
+        els.safetyScoreLive.textContent = "";
+      }
     }
     if (els.exposureLive) {
       const ex = payload.exposure;
@@ -112,17 +116,25 @@ export function createLivePanelController({
       audio.speakAlert(payload.access.allow ? "Acceso permitido" : "Acceso denegado");
     }
 
-    const dets = payload.detections || [];
-    els.detList.innerHTML = dets.length
-      ? dets
-          .map(
-            (d) =>
-              `<li><span>${d.label_es || d.label}</span><span class="conf">${Math.round(
-                d.confidence * 100
-              )}%</span></li>`
-          )
-          .join("")
-      : `<li class="muted">Sin detecciones en este frame</li>`;
+    const person = (c.persons || [])[0];
+    const missing = person?.missing || [];
+    const present = person?.present || [];
+    if (els.detDetails) {
+      els.detDetails.open = hasPeople && (!ok || missing.length > 0);
+    }
+    if (missing.length) {
+      els.detList.innerHTML = missing
+        .map((item) => `<li class="warn"><span>Falta</span><span>${item}</span></li>`)
+        .join("");
+    } else if (present.length) {
+      els.detList.innerHTML = present
+        .map((item) => `<li><span>${item}</span><span class="conf ok">OK</span></li>`)
+        .join("");
+    } else if ((payload.detections || []).length) {
+      els.detList.innerHTML = `<li class="muted">Persona detectada · evaluando EPP…</li>`;
+    } else {
+      els.detList.innerHTML = `<li class="muted">Sin detecciones en este frame</li>`;
+    }
 
     const alerts = c.alerts || [];
     const id = payload.identity || getLastIdentity();

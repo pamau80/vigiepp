@@ -1,3 +1,9 @@
+import {
+  CONF_LABELS,
+  formatIdentityAccuracy,
+  identityScorePct,
+} from "../lib/identity-confidence.js";
+
 /** Nombre visible y tarjeta de identidad en el panel. */
 export function createIdentityCardController({ els }) {
   function displayPersonName(name) {
@@ -16,7 +22,10 @@ export function createIdentityCardController({ els }) {
     if (!identity) {
       els.identityName.textContent = "Sin identificar";
       els.identityRut.textContent = "Enrola personas en Enrolar personas";
-      els.identityMethod.textContent = "";
+      if (els.identityMethod) {
+        els.identityMethod.textContent = "";
+        els.identityMethod.className = "card-meta";
+      }
       els.personChip.classList.add("hidden");
       return;
     }
@@ -29,31 +38,29 @@ export function createIdentityCardController({ els }) {
         : known
           ? "Sin RUT"
           : "No está en el registro";
-    const score = identity.score != null ? `${Math.round(Number(identity.score) * 100)}%` : null;
-    const confMap = {
-      high: "confianza alta",
-      medium: "confianza media",
-      low: "confianza baja",
-      ambiguous: "ambigüedad",
-      none: "",
-    };
-    const confTxt = confMap[identity.confidence] || "";
-    if (known) {
-      els.identityMethod.textContent = ["Rostro reconocido", score, confTxt].filter(Boolean).join(" · ");
-    } else if (identity.faces_detected) {
-      const why =
-        identity.gallery_size === 0
-          ? "Sin plantillas en servidor. Re-enrolá en Personas"
-          : identity.reject_reason || "sin coincidencia";
-      els.identityMethod.textContent = ["No identificado", score, why].filter(Boolean).join(" · ");
-    } else {
-      els.identityMethod.textContent = "Sin rostro detectado";
+
+    const score = identityScorePct(identity);
+    const confTxt = CONF_LABELS[identity.confidence] || "";
+    if (els.identityMethod) {
+      els.identityMethod.className = `card-meta conf-${identity.confidence || "none"}`;
+      if (known) {
+        els.identityMethod.textContent = ["Reconocido", score, confTxt].filter(Boolean).join(" · ");
+      } else if (identity.faces_detected) {
+        els.identityMethod.textContent = formatIdentityAccuracy(identity);
+      } else {
+        els.identityMethod.textContent = "Sin rostro detectado";
+      }
     }
 
-    els.personChip.classList.remove("hidden");
-    els.personChip.classList.toggle("unknown", !known);
-    els.personChipName.textContent = els.identityName.textContent;
-    els.personChipRut.textContent = els.identityRut.textContent;
+    const showChip = document.body.classList.contains("is-mobile");
+    if (showChip) {
+      els.personChip.classList.remove("hidden");
+      els.personChip.classList.toggle("unknown", !known);
+      els.personChipName.textContent = els.identityName.textContent;
+      els.personChipRut.textContent = els.identityRut.textContent;
+    } else {
+      els.personChip.classList.add("hidden");
+    }
   }
 
   return { displayPersonName, normalizePersonNameForSave, setIdentityCard };

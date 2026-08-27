@@ -57,7 +57,7 @@ function bindAuthController(onOperatorLogin) {
   };
 }
 
-const APP_BUILD = globalThis.VIGIEPP_BUILD || "v57";
+const APP_BUILD = globalThis.VIGIEPP_BUILD || "v58";
 const els = createAppElements();
 const state = createAppRuntimeState();
 const { settings, loadSettings, saveSettings, applyMobileChrome } = createSettingsStore(els);
