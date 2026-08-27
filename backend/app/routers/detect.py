@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 
@@ -62,7 +63,11 @@ async def ws_detect(websocket: WebSocket) -> None:
             token = header[7:].strip()
         elif header:
             token = header.strip()
-        ok = auth_mod.session_valid(token) or (bool(token) and auth_mod.credentials_ok(token))
+        ok = auth_mod.session_valid(token) or (
+            bool(token)
+            and auth_mod.api_key()
+            and hmac.compare_digest(token, auth_mod.api_key() or "")
+        )
         if not ok:
             await websocket.close(code=4401)
             return

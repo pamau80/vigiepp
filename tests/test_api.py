@@ -41,10 +41,9 @@ def test_metrics_endpoint(client):
 
 
 def test_oidc_state_validation():
-    import time
+    from app.oidc import validate_state
+    from app.oidc_state import store_state
 
-    from app.oidc import _pending, validate_state
-
-    _pending["unit-test-state"] = time.time()
+    store_state("unit-test-state")
     assert validate_state("unit-test-state")
     assert not validate_state("invalid-state")

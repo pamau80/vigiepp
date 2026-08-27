@@ -21,6 +21,7 @@ from .identity import IdentityRegistry
 from .routers import register_routers
 from .routers.core import BUILD_VERSION
 from .request_limits import MaxBodySizeMiddleware
+from .request_metrics import RequestMetricsMiddleware
 from .security_headers import SecurityHeadersMiddleware
 from .startup_checks import run_startup_security_checks
 from .stream_rtsp import stop_all
@@ -98,6 +99,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(MaxBodySizeMiddleware)
+app.add_middleware(RequestMetricsMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(auth_mod.AuthMiddleware)
 

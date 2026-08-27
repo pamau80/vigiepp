@@ -13,10 +13,12 @@ _counters: dict[str, float] = {
     "detect_busy_total": 0,
     "mass_scans_total": 0,
     "rtsp_streams_active": 0,
+    "http_errors_total": 0,
 }
 _gauges: dict[str, float] = {
     "detect_last_ms": 0.0,
 }
+_http_latency: dict[str, float] = {}
 _start = time.time()
 
 
@@ -34,6 +36,11 @@ def observe_detect_ms(ms: float) -> None:
     set_gauge("detect_last_ms", ms)
 
 
+def observe_http_ms(bucket: str, ms: float) -> None:
+    with _lock:
+        _http_latency[bucket] = float(ms)
+
+
 def prometheus_text(extra: dict[str, Any] | None = None) -> str:
     lines: list[str] = []
     with _lock:
@@ -42,11 +49,17 @@ def prometheus_text(extra: dict[str, Any] | None = None) -> str:
         lines.append("# TYPE vigiepp_uptime_seconds gauge")
         lines.append(f"vigiepp_uptime_seconds {uptime:.3f}")
         for k, v in _counters.items():
-            lines.append(f"# TYPE vigiepp_{k} counter")
-            lines.append(f"vigiepp_{k} {v}")
+            safe = k.replace("-", "_")
+            lines.append(f"# TYPE vigiepp_{safe} counter")
+            lines.append(f"vigiepp_{safe} {v}")
         for k, v in _gauges.items():
-            lines.append(f"# TYPE vigiepp_{k} gauge")
-            lines.append(f"vigiepp_{k} {v}")
+            safe = k.replace("-", "_")
+            lines.append(f"# TYPE vigiepp_{safe} gauge")
+            lines.append(f"vigiepp_{safe} {v}")
+        for k, v in _http_latency.items():
+            safe = k.replace("-", "_")
+            lines.append(f"# TYPE vigiepp_http_last_ms_{safe} gauge")
+            lines.append(f"vigiepp_http_last_ms_{safe} {v:.3f}")
     if extra:
         for k, v in extra.items():
             lines.append(f"vigiepp_{k} {v}")

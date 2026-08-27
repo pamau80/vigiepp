@@ -143,3 +143,10 @@ def test_security_headers_present(auth_client):
     assert r.headers.get("x-content-type-options") == "nosniff"
     assert r.headers.get("content-security-policy")
     assert r.headers.get("x-request-id")
+
+
+def test_http_metrics_in_prometheus(auth_client):
+    auth_client.get("/api/health")
+    r = auth_client.get("/metrics")
+    assert r.status_code == 200
+    assert "vigiepp_http_requests_api_health_total" in r.text

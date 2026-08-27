@@ -6,16 +6,13 @@ import json
 import logging
 import os
 import secrets
-import time
-import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
 
-logger = logging.getLogger("vigiepp.oidc")
+from .oidc_state import store_state, validate_and_consume
 
-_pending: dict[str, float] = {}
-_STATE_TTL = 600.0
+logger = logging.getLogger("vigiepp.oidc")
 
 
 def configured() -> bool:
@@ -59,19 +56,11 @@ def _redirect_uri() -> str:
     return os.getenv("VIGIEPP_OIDC_REDIRECT_URI", "").strip()
 
 
-def _purge_pending() -> None:
-    now = time.time()
-    for k, ts in list(_pending.items()):
-        if now - ts > _STATE_TTL:
-            _pending.pop(k, None)
-
-
 def authorize_url(state: str | None = None) -> str:
     if not configured():
         raise ValueError("OIDC no configurado")
     state = state or secrets.token_urlsafe(16)
-    _purge_pending()
-    _pending[state] = time.time()
+    store_state(state)
     issuer = _validate_issuer_url(os.getenv("VIGIEPP_OIDC_ISSUER", "").strip())
     params = {
         "client_id": os.getenv("VIGIEPP_OIDC_CLIENT_ID", "").strip(),
@@ -84,17 +73,7 @@ def authorize_url(state: str | None = None) -> str:
 
 
 def validate_state(state: str) -> bool:
-    if not state:
-        return False
-    _purge_pending()
-    ts = _pending.get(state)
-    if ts is None:
-        return False
-    if time.time() - ts > _STATE_TTL:
-        _pending.pop(state, None)
-        return False
-    _pending.pop(state, None)
-    return True
+    return validate_and_consume(state)
 
 
 def _groups_from_userinfo(user: dict[str, Any]) -> set[str]:
