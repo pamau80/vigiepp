@@ -29,16 +29,19 @@ def _route_bucket(path: str) -> str:
 class RequestMetricsMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         bucket = _route_bucket(request.url.path)
-        metrics_mod.inc(f"http_requests_{bucket}_total")
-        start = time.perf_counter()
-        try:
-            response = await call_next(request)
-            if response.status_code >= 500:
+        from .otel_trace import span
+
+        with span("http", route=bucket):
+            metrics_mod.inc(f"http_requests_{bucket}_total")
+            start = time.perf_counter()
+            try:
+                response = await call_next(request)
+                if response.status_code >= 500:
+                    metrics_mod.inc("http_errors_total")
+                return response
+            except Exception:
                 metrics_mod.inc("http_errors_total")
-            return response
-        except Exception:
-            metrics_mod.inc("http_errors_total")
-            raise
-        finally:
-            ms = (time.perf_counter() - start) * 1000.0
-            metrics_mod.observe_http_ms(bucket, ms)
+                raise
+            finally:
+                ms = (time.perf_counter() - start) * 1000.0
+                metrics_mod.observe_http_ms(bucket, ms)

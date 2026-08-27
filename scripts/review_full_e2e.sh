@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Revisión E2E completa — todos los módulos API VigiEPP v42
+# Revisión E2E completa — todos los módulos API VigiEPP v43
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -18,11 +18,11 @@ export PYTHONPATH="${PYTHONPATH:-}:$ROOT/backend"
 ok() { echo "✓ $1"; PASS=$((PASS+1)); }
 bad() { echo "✗ $1"; FAIL=$((FAIL+1)); }
 
-echo "=== VigiEPP FULL API Review v42 ==="
+echo "=== VigiEPP FULL API Review v43 ==="
 
 # Health + core
 H=$(curl -s "$BASE/api/health")
-echo "$H" | $PY -c "import sys,json; d=json.load(sys.stdin); assert d['build']=='v42'" && ok "health v42" || bad "health"
+echo "$H" | $PY -c "import sys,json; d=json.load(sys.stdin); assert d['build']=='v43'" && ok "health v43" || bad "health"
 
 curl -s -b "$COOKIE" "$BASE/api/profiles" | $PY -c "import sys,json; assert isinstance(json.load(sys.stdin),list)" && ok "profiles" || bad "profiles"
 curl -s -b "$COOKIE" "$BASE/api/ppe/catalog" | $PY -c "import sys,json; assert 'items' in json.load(sys.stdin)" && ok "ppe catalog" || bad "ppe"

@@ -15,6 +15,10 @@ import {
 } from "./modules/mobile.js";
 import { createAuthController } from "./modules/auth.js";
 import { createEnterpriseController } from "./modules/enterprise.js";
+import { videoCoverSize } from "./modules/geometry.js";
+import { createZonesController } from "./modules/zones.js";
+import { createReportsController } from "./modules/reports.js";
+import { createDetectLiveController } from "./modules/detect-live.js";
 
 let ensureAuth;
 let applyRoleUI;
@@ -171,7 +175,7 @@ function bindAuthController(onOperatorLogin) {
     repSideList: $("#repSideList"),
   };
 
-  const APP_BUILD = globalThis.VIGIEPP_BUILD || "v42";
+  const APP_BUILD = globalThis.VIGIEPP_BUILD || "v43";
 
   function isLiveMode() {
     return appMode === "live" || appMode === "monitor";
@@ -186,11 +190,7 @@ function bindAuthController(onOperatorLogin) {
   let eppStreak = 0;
   let lastScanRefreshAt = 0;
   let mediaStream = null;
-  let camTimer = null;
-  let detectLoopOn = false;
-  let detectBackoffMs = 0;
   let rtspTimer = null;
-  let busy = false;
   let sourceMode = "camera";
   let appMode = "live";
   let enrollAbort = false;
@@ -201,9 +201,6 @@ function bindAuthController(onOperatorLogin) {
   let lastFrameSize = { w: 640, h: 480 };
   let lastIdentity = null;
   let lastFaceBox = null;
-  let lastStats = null;
-  let currentRep = "overview";
-  let notifConfig = null;
   let preferredFacing = "user";
   let combinedInference = false;
   let lastHealth = null;
@@ -719,12 +716,6 @@ function bindAuthController(onOperatorLogin) {
   let speakKey = "";
   let speakCount = 0;
   const SPEAK_GAP_MS = 5500;
-  let zonesCache = [];
-  let selectedZoneIndex = -1;
-  let zonesCanvasRaf = 0;
-  let zonesCanvasDrag = null;
-  const ZONES_CANVAS_HANDLE = 10;
-  let lastAccessAllow = null;
 
   function resetSpeakIncident() {
     speakKey = "";
@@ -774,356 +765,6 @@ function bindAuthController(onOperatorLogin) {
     ctx.fillText("Privado", rx + 6, ry + Math.min(14, rh - 4));
   }
 
-  function drawZonesOverlay(ctx, frameW, frameH, cover, hits) {
-    if (!settings.showZones || !zonesCache.length) return;
-    const sx = cover.w / frameW;
-    const sy = cover.h / frameH;
-    for (const z of zonesCache) {
-      if (!z.enabled) continue;
-      const rx = cover.ox + z.x * frameW * sx;
-      const ry = cover.oy + z.y * frameH * sy;
-      const rw = z.w * frameW * sx;
-      const rh = z.h * frameH * sy;
-      const hit = (hits || []).some((h) => h.zone_id === z.id);
-      ctx.fillStyle = hit ? "rgba(214,40,40,0.18)" : "rgba(232,93,4,0.08)";
-      ctx.strokeStyle = hit ? "rgba(214,40,40,0.85)" : (z.color || "rgba(232,93,4,0.7)");
-      ctx.lineWidth = hit ? 2 : 1.25;
-      ctx.setLineDash(z.type === "vehicle_lane" ? [6, 4] : []);
-      ctx.fillRect(rx, ry, rw, rh);
-      ctx.strokeRect(rx, ry, rw, rh);
-      ctx.setLineDash([]);
-      ctx.font = "600 11px Source Sans 3, sans-serif";
-      ctx.fillStyle = "rgba(238,243,239,0.9)";
-      const label =
-        z.type === "vehicle_lane"
-          ? `Vía · ${z.name}`
-          : z.type === "machinery"
-            ? `Máquina · ${z.name}`
-            : `Zona · ${z.name}`;
-      ctx.fillText(label, rx + 6, ry + 14);
-    }
-  }
-
-  function syncZonesCanvasSize() {
-    const canvas = els.zonesCanvas;
-    if (!canvas) return;
-    const frame = canvas.parentElement;
-    if (!frame) return;
-    const rect = frame.getBoundingClientRect();
-    canvas.width = Math.max(1, Math.round(rect.width));
-    canvas.height = Math.max(1, Math.round(rect.height));
-  }
-
-  function zoneCanvasRect(z, cw, ch) {
-    return {
-      x: (z.x || 0) * cw,
-      y: (z.y || 0) * ch,
-      w: (z.w || 0.2) * cw,
-      h: (z.h || 0.2) * ch,
-    };
-  }
-
-  function clampZoneNorm(z) {
-    const min = 0.05;
-    z.w = Math.max(min, Math.min(0.95, z.w || min));
-    z.h = Math.max(min, Math.min(0.95, z.h || min));
-    z.x = Math.max(0, Math.min(1 - z.w, z.x || 0));
-    z.y = Math.max(0, Math.min(1 - z.h, z.y || 0));
-  }
-
-  function drawZonesEditorCanvas() {
-    const canvas = els.zonesCanvas;
-    if (!canvas) return;
-    syncZonesCanvasSize();
-    const ctx = canvas.getContext("2d");
-    const cw = canvas.width;
-    const ch = canvas.height;
-    ctx.clearRect(0, 0, cw, ch);
-
-    const video = els.liveVideo;
-    if (video && video.videoWidth > 0 && !video.hidden) {
-      const cover = videoCoverSize(video.videoWidth, video.videoHeight, cw, ch);
-      ctx.drawImage(
-        video,
-        cover.ox,
-        cover.oy,
-        cover.w,
-        cover.h
-      );
-    } else {
-      ctx.fillStyle = "#0a0e0c";
-      ctx.fillRect(0, 0, cw, ch);
-      ctx.strokeStyle = "rgba(255,255,255,0.04)";
-      ctx.lineWidth = 1;
-      for (let x = 0; x <= cw; x += cw / 8) {
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, ch);
-        ctx.stroke();
-      }
-      for (let y = 0; y <= ch; y += ch / 8) {
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(cw, y);
-        ctx.stroke();
-      }
-      ctx.font = "500 11px Source Sans 3, sans-serif";
-      ctx.fillStyle = "rgba(238,243,239,0.45)";
-      ctx.textAlign = "center";
-      ctx.fillText("Iniciá la cámara en Monitoreo para ver la vista previa", cw / 2, ch / 2);
-      ctx.textAlign = "left";
-    }
-
-    const zones = zonesCache || [];
-    for (let i = 0; i < zones.length; i++) {
-      const z = zones[i];
-      if (!z.enabled) continue;
-      const { x, y, w, h } = zoneCanvasRect(z, cw, ch);
-      const selected = i === selectedZoneIndex;
-      ctx.fillStyle = selected ? "rgba(232,93,4,0.22)" : "rgba(232,93,4,0.1)";
-      ctx.strokeStyle = selected ? "rgba(232,93,4,0.95)" : (z.color || "rgba(232,93,4,0.75)");
-      ctx.lineWidth = selected ? 2 : 1.25;
-      ctx.setLineDash(z.type === "vehicle_lane" ? [6, 4] : []);
-      ctx.fillRect(x, y, w, h);
-      ctx.strokeRect(x, y, w, h);
-      ctx.setLineDash([]);
-      ctx.font = "600 10px Source Sans 3, sans-serif";
-      ctx.fillStyle = "rgba(238,243,239,0.92)";
-      const label = z.name || `Zona ${i + 1}`;
-      ctx.fillText(label, x + 5, y + 12);
-      if (selected) {
-        const hs = ZONES_CANVAS_HANDLE;
-        ctx.fillStyle = "rgba(232,93,4,0.95)";
-        for (const hx of [x, x + w]) {
-          for (const hy of [y, y + h]) {
-            ctx.fillRect(hx - hs / 2, hy - hs / 2, hs, hs);
-          }
-        }
-      }
-    }
-
-    if (els.zonesPreviewHint) {
-      const hasVideo = video && video.videoWidth > 0 && !video.hidden;
-      els.zonesPreviewHint.textContent = hasVideo
-        ? "Tocá una zona · arrastrá para mover · esquinas para tamaño"
-        : "Sin cámara: ajustá con el lienzo o los deslizadores abajo";
-    }
-  }
-
-  function zonesCanvasPoint(ev) {
-    const canvas = els.zonesCanvas;
-    const rect = canvas.getBoundingClientRect();
-    const clientX = ev.touches?.[0]?.clientX ?? ev.clientX;
-    const clientY = ev.touches?.[0]?.clientY ?? ev.clientY;
-    const px = ((clientX - rect.left) / rect.width) * canvas.width;
-    const py = ((clientY - rect.top) / rect.height) * canvas.height;
-    return { px, py, nx: px / canvas.width, ny: py / canvas.height };
-  }
-
-  function zonesCanvasHit(px, py) {
-    const canvas = els.zonesCanvas;
-    const cw = canvas.width;
-    const ch = canvas.height;
-    const hs = ZONES_CANVAS_HANDLE;
-    for (let i = zonesCache.length - 1; i >= 0; i--) {
-      const z = zonesCache[i];
-      if (!z.enabled) continue;
-      const r = zoneCanvasRect(z, cw, ch);
-      if (i === selectedZoneIndex) {
-        const corners = [
-          { edge: "nw", cx: r.x, cy: r.y },
-          { edge: "ne", cx: r.x + r.w, cy: r.y },
-          { edge: "sw", cx: r.x, cy: r.y + r.h },
-          { edge: "se", cx: r.x + r.w, cy: r.y + r.h },
-        ];
-        for (const c of corners) {
-          if (Math.abs(px - c.cx) <= hs && Math.abs(py - c.cy) <= hs) {
-            return { index: i, mode: "resize", edge: c.edge };
-          }
-        }
-      }
-      if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) {
-        return { index: i, mode: "move" };
-      }
-    }
-    return null;
-  }
-
-  function syncZoneSlidersFromCache(index) {
-    const row = els.zonesList?.querySelector(`[data-zi="${index}"]`);
-    if (!row) return;
-    const z = zonesCache[index];
-    if (!z) return;
-    const set = (attr, val) => {
-      const el = row.querySelector(`[data-z="${attr}"]`);
-      if (el) el.value = String(Math.round(val * 100));
-    };
-    set("x", z.x || 0);
-    set("y", z.y || 0);
-    set("w", z.w || 0.2);
-    set("h", z.h || 0.2);
-  }
-
-  function startZonesCanvasLoop() {
-    stopZonesCanvasLoop();
-    const tick = () => {
-      if (appMode !== "config" || document.querySelector("[data-cfg-section='zones']:not(.hidden)") == null) {
-        zonesCanvasRaf = 0;
-        return;
-      }
-      drawZonesEditorCanvas();
-      zonesCanvasRaf = requestAnimationFrame(tick);
-    };
-    zonesCanvasRaf = requestAnimationFrame(tick);
-  }
-
-  function stopZonesCanvasLoop() {
-    if (zonesCanvasRaf) {
-      cancelAnimationFrame(zonesCanvasRaf);
-      zonesCanvasRaf = 0;
-    }
-  }
-
-  function bindZonesCanvasEvents() {
-    const canvas = els.zonesCanvas;
-    if (!canvas || canvas.dataset.bound) return;
-    canvas.dataset.bound = "1";
-
-    const onDown = (ev) => {
-      if (ev.button !== undefined && ev.button !== 0) return;
-      ev.preventDefault();
-      zonesCache = readZonesFromEditor();
-      const { px, py } = zonesCanvasPoint(ev);
-      const hit = zonesCanvasHit(px, py);
-      if (!hit) {
-        selectedZoneIndex = -1;
-        drawZonesEditorCanvas();
-        return;
-      }
-      selectedZoneIndex = hit.index;
-      const z = zonesCache[hit.index];
-      zonesCanvasDrag = {
-        mode: hit.mode,
-        edge: hit.edge,
-        index: hit.index,
-        startX: z.x,
-        startY: z.y,
-        startW: z.w,
-        startH: z.h,
-        originPx: px,
-        originPy: py,
-      };
-      drawZonesEditorCanvas();
-    };
-
-    const onMove = (ev) => {
-      if (!zonesCanvasDrag) return;
-      ev.preventDefault();
-      const { px, py } = zonesCanvasPoint(ev);
-      const canvasEl = els.zonesCanvas;
-      const cw = canvasEl.width;
-      const ch = canvasEl.height;
-      const dx = (px - zonesCanvasDrag.originPx) / cw;
-      const dy = (py - zonesCanvasDrag.originPy) / ch;
-      const z = zonesCache[zonesCanvasDrag.index];
-      if (!z) return;
-
-      if (zonesCanvasDrag.mode === "move") {
-        z.x = zonesCanvasDrag.startX + dx;
-        z.y = zonesCanvasDrag.startY + dy;
-      } else {
-        const edge = zonesCanvasDrag.edge;
-        let x1 = zonesCanvasDrag.startX;
-        let y1 = zonesCanvasDrag.startY;
-        let x2 = zonesCanvasDrag.startX + zonesCanvasDrag.startW;
-        let y2 = zonesCanvasDrag.startY + zonesCanvasDrag.startH;
-        if (edge.includes("n")) y1 = zonesCanvasDrag.startY + dy;
-        if (edge.includes("s")) y2 = zonesCanvasDrag.startY + zonesCanvasDrag.startH + dy;
-        if (edge.includes("w")) x1 = zonesCanvasDrag.startX + dx;
-        if (edge.includes("e")) x2 = zonesCanvasDrag.startX + zonesCanvasDrag.startW + dx;
-        if (x2 - x1 < 0.05) {
-          if (edge.includes("w")) x1 = x2 - 0.05;
-          else x2 = x1 + 0.05;
-        }
-        if (y2 - y1 < 0.05) {
-          if (edge.includes("n")) y1 = y2 - 0.05;
-          else y2 = y1 + 0.05;
-        }
-        z.x = x1;
-        z.y = y1;
-        z.w = x2 - x1;
-        z.h = y2 - y1;
-      }
-      clampZoneNorm(z);
-      syncZoneSlidersFromCache(zonesCanvasDrag.index);
-      drawZonesEditorCanvas();
-    };
-
-    const onUp = () => {
-      zonesCanvasDrag = null;
-    };
-
-    canvas.addEventListener("mousedown", onDown);
-    canvas.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-    canvas.addEventListener("touchstart", onDown, { passive: false });
-    canvas.addEventListener("touchmove", onMove, { passive: false });
-    window.addEventListener("touchend", onUp);
-  }
-
-  async function loadZones() {
-    try {
-      const data = await api("/api/zones");
-      zonesCache = data.zones || [];
-      renderZonesEditor();
-    } catch (err) {
-      if (els.zonesHint) els.zonesHint.textContent = err.message;
-    }
-  }
-
-  function renderZonesEditor() {
-    if (!els.zonesList) return;
-    els.zonesList.innerHTML = (zonesCache || [])
-      .map(
-        (z, i) => `<div class="zone-row" data-zi="${i}">
-          <label class="check"><input type="checkbox" data-z="en" ${z.enabled ? "checked" : ""}/> On</label>
-          <input data-z="name" value="${String(z.name || "").replace(/"/g, "&quot;")}" placeholder="Nombre"/>
-          <select data-z="type">
-            <option value="restricted" ${z.type === "restricted" || !z.type ? "selected" : ""}>Restringida</option>
-            <option value="vehicle_lane" ${z.type === "vehicle_lane" ? "selected" : ""}>Vía vehículos</option>
-            <option value="machinery" ${z.type === "machinery" ? "selected" : ""}>Maquinaria</option>
-          </select>
-          <span class="zone-sliders">
-            x<input data-z="x" type="range" min="0" max="90" value="${Math.round((z.x || 0) * 100)}"/>
-            y<input data-z="y" type="range" min="0" max="90" value="${Math.round((z.y || 0) * 100)}"/>
-            w<input data-z="w" type="range" min="10" max="90" value="${Math.round((z.w || 0.2) * 100)}"/>
-            h<input data-z="h" type="range" min="10" max="90" value="${Math.round((z.h || 0.2) * 100)}"/>
-          </span>
-          <button type="button" class="btn-mini danger" data-z-del="${i}">X</button>
-        </div>`
-      )
-      .join("") || "<p class='muted'>Sin zonas</p>";
-    bindZonesCanvasEvents();
-    requestAnimationFrame(() => drawZonesEditorCanvas());
-  }
-
-  function readZonesFromEditor() {
-    if (!els.zonesList) return zonesCache;
-    return [...els.zonesList.querySelectorAll(".zone-row")].map((row, i) => {
-      const prev = zonesCache[i] || {};
-      return {
-        id: prev.id || `zona-${Date.now()}-${i}`,
-        name: row.querySelector('[data-z="name"]')?.value || "Zona",
-        type: row.querySelector('[data-z="type"]')?.value || "restricted",
-        enabled: !!row.querySelector('[data-z="en"]')?.checked,
-        x: (Number(row.querySelector('[data-z="x"]')?.value) || 0) / 100,
-        y: (Number(row.querySelector('[data-z="y"]')?.value) || 0) / 100,
-        w: (Number(row.querySelector('[data-z="w"]')?.value) || 20) / 100,
-        h: (Number(row.querySelector('[data-z="h"]')?.value) || 20) / 100,
-        color: prev.color || "#e85d04",
-      };
-    });
-  }
 
   function drawDetections(detections, frameW, frameH, identity, zoneHits) {
     syncCanvasSize();
@@ -1185,17 +826,6 @@ function bindAuthController(onOperatorLogin) {
     }
   }
 
-  function videoCoverSize(srcW, srcH, dstW, dstH) {
-    const scale = Math.max(dstW / srcW, dstH / srcH);
-    const w = srcW * scale;
-    const h = srcH * scale;
-    return { w, h, ox: (dstW - w) / 2, oy: (dstH - h) / 2 };
-  }
-
-  function videoContainSize(srcW, srcH, dstW, dstH) {
-    const scale = Math.min(dstW / srcW, dstH / srcH);
-    return { w: srcW * scale, h: srcH * scale };
-  }
 
   function applyHealth(health) {
     if (!health) return false;
@@ -1284,7 +914,7 @@ function bindAuthController(onOperatorLogin) {
         regs.forEach((r) => r.unregister().catch(() => {}));
       });
       setTimeout(() => {
-        navigator.serviceWorker.register("/assets/sw.js?v=42").catch(() => {});
+        navigator.serviceWorker.register("/assets/sw.js?v=43").catch(() => {});
       }, 400);
     }
     const offlineBadge = $("#offlineBadge");
@@ -1480,7 +1110,7 @@ function bindAuthController(onOperatorLogin) {
     }
     if (mode === "reports") {
       fillRepProfiles();
-      openReport(currentRep || "overview");
+      openReport(reports.getCurrentRep() || "overview");
     }
     requestAnimationFrame(() => syncCanvasSize());
   }
@@ -1558,7 +1188,7 @@ function bindAuthController(onOperatorLogin) {
       if (els.statusPill) els.statusPill.textContent = "Standby";
       if (els.detList) els.detList.innerHTML = `<li class="muted">Sin detecciones</li>`;
       if (els.alertList) els.alertList.innerHTML = `<li class="muted">Sin alertas</li>`;
-      if (appMode === "live" && mediaStream && !detectLoopOn) {
+      if (appMode === "live" && mediaStream && !detectLive.isDetectLoopOn()) {
         startDetectLoop();
       }
     } else if (mode === "rtsp") {
@@ -1601,7 +1231,7 @@ function bindAuthController(onOperatorLogin) {
       );
     }
 
-    if (payload.zones?.defs) zonesCache = payload.zones.defs;
+    if (payload.zones?.defs) zones.zonesCache = payload.zones.defs;
 
     const gateOn = !!settings.silhouetteGate && !!settings.silhouetteEnabled && appMode === "live";
     const aligned = gateOn
@@ -1780,261 +1410,6 @@ function bindAuthController(onOperatorLogin) {
     els.personChipRut.textContent = els.identityRut.textContent;
   }
 
-  async function detectBlob(blob, { identify = false, returnImage = false } = {}) {
-    if (busy) return;
-    busy = true;
-    const t0 = performance.now();
-    try {
-      const fd = new FormData();
-      fd.append("file", blob, "frame.jpg");
-      fd.append("profile", els.profileSelect.value);
-      fd.append("conf", "0.35");
-      fd.append("identify", identify ? "true" : "false");
-      fd.append("return_image", returnImage ? "true" : "false");
-      fd.append("imgsz", "256");
-      fd.append("threshold", String(settings.identifyThreshold || 0.33));
-      fd.append("required", requiredQueryValue());
-      const data = await api("/api/detect", { method: "POST", body: fd }, 18000);
-      if (data?.down || data?._http === 502) {
-        detectBackoffMs = Math.min(10000, Math.max(3500, (detectBackoffMs || 2000) * 1.35));
-        els.fpsLabel.textContent = "reintentando…";
-        if (els.complianceSummary) els.complianceSummary.textContent = "Servidor ocupado. Reintentando…";
-        return;
-      }
-      if (data?.booting || data?._http === 503) {
-        let ready = false;
-        try {
-          const h = await fetch("/api/health", { credentials: "include" }).then((r) => r.json());
-          ready = !!applyHealth(h);
-        } catch (_) {}
-        if (ready) {
-          detectBackoffMs = 900;
-          els.fpsLabel.textContent = "EPP cargando…";
-          if (els.complianceSummary) {
-            els.complianceSummary.textContent =
-              "YOLO cargando (~15 s tras arranque). El escaneo EPP sigue en cola…";
-          }
-        } else {
-          detectBackoffMs = 2200;
-          els.fpsLabel.textContent = "cargando IA…";
-          if (els.complianceSummary) {
-            els.complianceSummary.textContent = data.error || "Modelo cargando…";
-          }
-        }
-        return;
-      }
-      if (data?._http === 429 || data?.busy) {
-        detectBackoffMs = 700;
-        els.fpsLabel.textContent = "IA ocupada";
-        return;
-      }
-      if (!data?.ok) {
-        els.fpsLabel.textContent = "sin frame";
-        return;
-      }
-      updateUi(data);
-      if (identify && data.identity?.known) maybeRefreshScans();
-      if (identify && data.identity?.booting) {
-        els.identityName.textContent = "ID cargando…";
-        els.identityRut.textContent = "El reconocimiento facial aún inicia";
-      }
-      detectBackoffMs = 0;
-      els.fpsLabel.textContent = `${Math.round(performance.now() - t0)} ms IA`;
-    } catch (err) {
-      console.error(err);
-      const msg = String(err?.message || err || "");
-      const down = /502|503|caído|agotado|timeout|HTTP2|protocol|ocupado/i.test(msg);
-      if (down) detectBackoffMs = Math.min(10000, Math.max(3500, (detectBackoffMs || 2000) * 1.35));
-      els.fpsLabel.textContent = down ? "reintentando…" : /401|sesión|PIN/i.test(msg) ? "sesión" : "error IA";
-      if (els.complianceSummary) {
-        els.complianceSummary.textContent = down
-          ? "Servidor ocupado. Reintentando…"
-          : msg;
-      }
-    } finally {
-      busy = false;
-    }
-  }
-
-  function captureBlob(quality = 0.7, maxW = 480) {
-    return new Promise((resolve) => {
-      const video = els.liveVideo;
-      if (!video.videoWidth) return resolve(null);
-      const vw = video.videoWidth;
-      const vh = video.videoHeight;
-
-      // Recorte vertical 3:4 (cuerpo completo) — no horizontal
-      let cropW;
-      let cropH;
-      let sx;
-      let sy;
-      const targetRatio = 3 / 4;
-      if (vw / vh > targetRatio) {
-        cropH = vh;
-        cropW = Math.round(vh * targetRatio);
-        sx = Math.round((vw - cropW) / 2);
-        sy = 0;
-      } else {
-        cropW = vw;
-        cropH = Math.round(vw / targetRatio);
-        sx = 0;
-        sy = Math.max(0, Math.round((vh - cropH) * 0.12));
-      }
-
-      const scale = Math.min(1, maxW / cropW);
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.round(cropW * scale);
-      canvas.height = Math.round(cropH * scale);
-      canvas
-        .getContext("2d")
-        .drawImage(video, sx, sy, cropW, cropH, 0, 0, canvas.width, canvas.height);
-      canvas.toBlob((blob) => resolve(blob), "image/jpeg", quality);
-    });
-  }
-
-  function captureFaceBlob(quality = 0.88, maxW = 560) {
-    return new Promise((resolve) => {
-      const video = els.liveVideo;
-      if (!video.videoWidth) return resolve(null);
-      const vw = video.videoWidth;
-      const vh = video.videoHeight;
-      const side = Math.min(vw, Math.round(vh * 0.62));
-      const sx = Math.max(0, Math.round((vw - side) / 2));
-      const sy = Math.max(0, Math.round(vh * 0.05));
-      const sw = Math.min(side, vw - sx);
-      const sh = Math.min(side, vh - sy);
-      const scale = Math.min(1, maxW / sw);
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.round(sw * scale);
-      canvas.height = Math.round(sh * scale);
-      canvas
-        .getContext("2d")
-        .drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-      canvas.toBlob((blob) => resolve(blob), "image/jpeg", quality);
-    });
-  }
-
-  async function identifyLiveFrame({ flash = false } = {}) {
-    const blob = await captureFaceBlob(flash ? 0.9 : 0.72, flash ? 560 : 400);
-    if (!blob) return null;
-    const fd = new FormData();
-    fd.append("file", blob, "id.jpg");
-    fd.append("threshold", String(settings.identifyThreshold || 0.33));
-    fd.append("return_image", flash ? "true" : "false");
-    const data = await api("/api/identity/identify", { method: "POST", body: fd }, 12000);
-    if (data?.down || data?._http === 502 || data?.booting || data?._http === 503) {
-      detectBackoffMs = Math.min(10000, Math.max(3500, (detectBackoffMs || 2000) * 1.35));
-      if (els.identityMethod) els.identityMethod.textContent = "Identificando… (servidor ocupado)";
-      return null;
-    }
-    if (data?._http === 429 || data?.busy) {
-      detectBackoffMs = 700;
-      return null;
-    }
-    const m0 = data.matches?.[0] || {};
-    const faceBox = m0.box || null;
-    if (faceBox) lastFaceBox = faceBox;
-    const identified = data.identified;
-    const card = {
-      known: !!identified?.id,
-      name: identified?.name || null,
-      rut: identified?.rut || null,
-      score: m0.score,
-      confidence: m0.confidence,
-      reject_reason: m0.reject_reason,
-      faces_detected: data.faces_detected || 0,
-      face_box: faceBox,
-      gallery_size: data.gallery_size,
-    };
-    lastIdentity = card;
-    setIdentityCard(card);
-    drawDetections([], lastFrameSize.w, lastFrameSize.h, card);
-    if (card.known) maybeRefreshScans();
-    return data;
-  }
-
-  function maybeRefreshScans() {
-    const now = Date.now();
-    if (now - lastScanRefreshAt < 10000) return;
-    lastScanRefreshAt = now;
-    refreshScans().catch(() => {});
-  }
-
-  async function tickDetect() {
-    if (!isLiveMode() || sourceMode !== "camera") return;
-    const wantId = !!els.chkIdentify?.checked;
-    const now = Date.now();
-
-    if (wantId && combinedInference) {
-      const blob = await captureBlob(0.42, 320);
-      if (!blob) return;
-      try {
-        await detectBlob(blob, { identify: true, returnImage: false });
-        detectBackoffMs = Math.min(detectBackoffMs || 0, 400);
-      } catch (err) {
-        const msg = String(err?.message || err || "");
-        if (/502|503|caído|agotado|timeout|ocupado/i.test(msg)) {
-          detectBackoffMs = Math.min(10000, Math.max(3500, (detectBackoffMs || 2000) * 1.35));
-        }
-      }
-      return;
-    }
-
-    // 2 escaneos EPP + 1 ID: más fluido y sin cargar YOLO+SFace juntos (cloud)
-    if (wantId) {
-      const dueId = eppStreak >= 2 && now - lastIdentifyAt >= 2800;
-      if (dueId) {
-        lastIdentifyAt = now;
-        eppStreak = 0;
-        try {
-          await identifyLiveFrame();
-          detectBackoffMs = Math.min(detectBackoffMs || 0, 400);
-        } catch (err) {
-          const msg = String(err?.message || err || "");
-          if (/502|503|caído|agotado|timeout|ocupado/i.test(msg)) {
-            detectBackoffMs = Math.min(10000, Math.max(3500, (detectBackoffMs || 2000) * 1.35));
-          }
-          if (els.identityMethod) els.identityMethod.textContent = "Identificando…";
-        }
-        return;
-      }
-      const blob = await captureBlob(0.42, 320);
-      if (!blob) return;
-      await detectBlob(blob, { identify: false, returnImage: false });
-      eppStreak += 1;
-      return;
-    }
-
-    eppStreak = 0;
-    const blob = await captureBlob(0.42, 320);
-    if (!blob) return;
-    await detectBlob(blob, { identify: false, returnImage: false });
-  }
-
-  function startDetectLoop() {
-    if (detectLoopOn) return;
-    detectLoopOn = true;
-    document.body.classList.add("is-scanning");
-    applyGuideMode();
-    const loop = async () => {
-      if (!detectLoopOn) return;
-      await tickDetect();
-      if (!detectLoopOn) return;
-      // Ciclo corto: ~0.7–1.1 s entre frames cuando el servidor responde bien
-      const delay = detectBackoffMs || (els.chkIdentify?.checked ? 900 : 700);
-      camTimer = setTimeout(loop, delay);
-    };
-    loop();
-  }
-
-  function stopDetectLoop() {
-    detectLoopOn = false;
-    if (camTimer) {
-      clearTimeout(camTimer);
-      camTimer = null;
-    }
-  }
-
   function enterFullscreen() {
     const root = document.documentElement;
     const req =
@@ -2164,7 +1539,7 @@ function bindAuthController(onOperatorLogin) {
       mediaStream = null;
       els.liveVideo.srcObject = null;
     }
-    const wasScanning = detectLoopOn;
+    const wasScanning = detectLive.isDetectLoopOn();
     stopDetectLoop();
     try {
       mediaStream = await openCameraStream(preferredFacing);
@@ -2993,520 +2368,6 @@ function bindAuthController(onOperatorLogin) {
     }
   }
 
-  function fillRepProfiles() {
-    if (!els.repProfile || !profiles.length) return;
-    const cur = els.repProfile.value;
-    els.repProfile.innerHTML =
-      `<option value="">Todos</option>` +
-      profiles.map((p) => `<option value="${p.id}">${p.name}</option>`).join("");
-    if (cur) els.repProfile.value = cur;
-  }
-
-  function repQuery() {
-    const days = els.repDays?.value || "7";
-    const profile = els.repProfile?.value || "";
-    const q = new URLSearchParams({ days });
-    if (profile) q.set("profile", profile);
-    return q;
-  }
-
-  async function fetchStats() {
-    lastStats = await api(`/api/reports/stats?${repQuery()}`);
-    const t = lastStats.totals || {};
-    if (els.repSideSummary) {
-      els.repSideSummary.textContent = `${t.scans || 0} escaneos · ${t.compliance_rate || 0}% cumple`;
-    }
-    if (els.repSideList) {
-      els.repSideList.innerHTML = `
-        <li><span>Cumple</span><span class="conf">${t.compliant || 0}</span></li>
-        <li><span>No cumple</span><span class="conf">${t.non_compliant || 0}</span></li>
-        <li><span>Enrolados</span><span class="conf">${t.workers_enrolled || 0}</span></li>`;
-    }
-    return lastStats;
-  }
-
-  function metricHtml(stats) {
-    const t = stats.totals || {};
-    return `<div class="rep-hero">
-      <div class="rep-metric"><b>${t.scans || 0}</b><span>Escaneos</span></div>
-      <div class="rep-metric"><b>${t.compliance_rate || 0}%</b><span>Cumplimiento</span></div>
-      <div class="rep-metric"><b>${t.safety_score ?? t.compliance_rate ?? 0}</b><span>Safety Score</span></div>
-      <div class="rep-metric"><b>${t.non_compliant || 0}</b><span>Incumplimientos</span></div>
-      <div class="rep-metric"><b>${t.workers_enrolled || 0}</b><span>Personas</span></div>
-    </div>`;
-  }
-
-  function barsHtml(rows, labelKey, countKey) {
-    const max = Math.max(1, ...rows.map((r) => r[countKey] || 0));
-    return rows
-      .map((r) => {
-        const pct = Math.round(((r[countKey] || 0) / max) * 100);
-        return `<div class="bar-row"><span>${r[labelKey]}</span><div class="bar-track"><i style="width:${pct}%"></i></div><span>${r[countKey]}</span></div>`;
-      })
-      .join("");
-  }
-
-  function tableWorkers(rows) {
-    if (!rows.length) return `<p class="muted">Sin datos en este rango</p>`;
-    return `<table class="rep-table"><thead><tr><th>Trabajador</th><th>RUT</th><th>OK</th><th>Falla</th><th>Score</th><th>Total</th></tr></thead><tbody>
-      ${rows
-        .map(
-          (w) =>
-            `<tr><td>${w.name || "—"}</td><td>${w.rut || "—"}</td><td>${w.ok}</td><td>${w.bad}</td><td>${w.safety_score ?? "—"}</td><td>${w.total}</td></tr>`
-        )
-        .join("")}
-    </tbody></table>`;
-  }
-
-  function downloadUrl(path) {
-    const a = document.createElement("a");
-    a.href = path;
-    a.download = "";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  }
-
-  async function openReport(key) {
-    currentRep = key;
-    $$(".rep-item").forEach((b) => b.classList.toggle("active", b.dataset.rep === key));
-    if (!els.reportsContent) return;
-    els.reportsContent.innerHTML = `<p class="muted">Cargando…</p>`;
-
-    try {
-      if (key.startsWith("notif_")) {
-        await renderNotifView(key);
-        return;
-      }
-
-      if (key === "csv_all") {
-        downloadUrl(`/api/reports/export.csv?${repQuery()}`);
-        els.reportsContent.innerHTML = `<h3 class="rep-section-title">Exportar CSV</h3><p>Descarga iniciada (todos los escaneos del rango).</p>`;
-        return;
-      }
-      if (key === "csv_bad") {
-        const q = repQuery();
-        q.set("only_bad", "true");
-        downloadUrl(`/api/reports/export.csv?${q}`);
-        els.reportsContent.innerHTML = `<h3 class="rep-section-title">Incumplimientos CSV</h3><p>Descarga iniciada.</p>`;
-        return;
-      }
-      if (key === "txt") {
-        downloadUrl(`/api/reports/summary.txt?${repQuery()}`);
-        els.reportsContent.innerHTML = `<h3 class="rep-section-title">Resumen TXT</h3><p>Descarga iniciada.</p>`;
-        return;
-      }
-
-      const stats = await fetchStats();
-      const days = Number(els.repDays?.value || 7);
-
-      if (key === "safety_score") {
-        const score = stats.totals?.safety_score ?? stats.totals?.compliance_rate ?? 0;
-        const br = stats.totals?.safety_breakdown || {};
-        const ranked = [...(stats.worker_ranking || [])].sort(
-          (a, b) => (b.safety_score || 0) - (a.safety_score || 0)
-        );
-        els.reportsContent.innerHTML = `
-          <h3 class="rep-section-title">Safety Score</h3>
-          <div class="rep-hero">
-            <div class="rep-metric"><b>${score}</b><span>Nota global /100</span></div>
-            <div class="rep-metric"><b>${stats.totals?.compliance_rate || 0}%</b><span>Cumplimiento</span></div>
-            <div class="rep-metric"><b>${stats.totals?.scans || 0}</b><span>Escaneos</span></div>
-          </div>
-          <p class="card-meta">Últimos ${days} días · pondera cumplimiento, faltas críticas y desconocidos.</p>
-          <ul class="item-list">
-            <li><span>Penalización desconocidos</span><span class="conf">-${br.penalty_unknown ?? 0}</span></li>
-            <li><span>Penalización EPP crítico</span><span class="conf">-${br.penalty_critical_missing ?? 0}</span></li>
-            <li><span>Eventos EPP crítico</span><span class="conf">${br.critical_missing_events ?? 0}</span></li>
-          </ul>
-          <h4>Por trabajador</h4>
-          ${tableWorkers(ranked)}`;
-      } else if (key === "overview") {
-        els.reportsContent.innerHTML = `
-          <h3 class="rep-section-title">Resumen general</h3>
-          ${metricHtml(stats)}
-          <p class="card-meta">Últimos ${days} días${stats.profile ? ` · perfil ${stats.profile}` : ""}.</p>
-          <h4>EPP faltante</h4>
-          ${barsHtml(stats.missing_epp || [], "item", "count") || `<p class="muted">Sin faltantes</p>`}`;
-      } else if (key === "byday") {
-        els.reportsContent.innerHTML = `
-          <h3 class="rep-section-title">Cumplimiento por día</h3>
-          ${metricHtml(stats)}
-          <table class="rep-table"><thead><tr><th>Día</th><th>Total</th><th>OK</th><th>Falla</th></tr></thead>
-          <tbody>${(stats.by_day || [])
-            .map((d) => `<tr><td>${d.day}</td><td>${d.total}</td><td>${d.ok}</td><td>${d.bad}</td></tr>`)
-            .join("") || `<tr><td colspan="4">Sin datos</td></tr>`}</tbody></table>`;
-      } else if (key === "ranking") {
-        els.reportsContent.innerHTML = `
-          <h3 class="rep-section-title">Ranking trabajadores</h3>
-          <p class="card-meta">Ordenado por incumplimientos.</p>
-          ${tableWorkers(stats.worker_ranking || [])}`;
-      } else if (key === "missing") {
-        els.reportsContent.innerHTML = `
-          <h3 class="rep-section-title">EPP faltante frecuente</h3>
-          ${barsHtml(stats.missing_epp || [], "item", "count") || `<p class="muted">Sin datos</p>`}`;
-      } else if (key === "profiles") {
-        els.reportsContent.innerHTML = `
-          <h3 class="rep-section-title">Por perfil de faena</h3>
-          ${barsHtml(stats.by_profile || [], "profile", "count") || `<p class="muted">Sin datos</p>`}`;
-      } else if (key === "unknown") {
-        els.reportsContent.innerHTML = `
-          <h3 class="rep-section-title">Sin identidad</h3>
-          ${metricHtml(stats)}
-          <p>Escaneos sin trabajador asociado: <strong>${stats.totals?.unknown_scans || 0}</strong></p>
-          <p class="card-meta">Enrolá en Personas para reducir desconocidos.</p>`;
-      } else if (key === "daily" || key === "weekly" || key === "monthly" || key === "print") {
-        const map = { daily: 1, weekly: 7, monthly: 30, print: days };
-        if (key !== "print") els.repDays.value = String(map[key]);
-        const report = await api(`/api/reports/print?${repQuery()}`);
-        els.reportsContent.innerHTML = `
-          <h3 class="rep-section-title">${report.title || "Informe"}</h3>
-          ${metricHtml(report.stats || stats)}
-          <div class="rep-actions">
-            <button type="button" class="btn primary" id="btnPrintRep">Imprimir / PDF</button>
-            <button type="button" class="btn secondary" id="btnCopyRep">Copiar texto</button>
-            <button type="button" class="btn ghost" id="btnDlTxt">Descargar TXT</button>
-          </div>
-          <pre class="rep-pre" id="repPrintText">${(report.text || "").replace(/</g, "&lt;")}</pre>`;
-        $("#btnPrintRep")?.addEventListener("click", () => {
-          const q = repQuery().toString();
-          const w = window.open(`/api/reports/print.html?${q}`, "_blank");
-          if (w) {
-            w.addEventListener("load", () => {
-              try {
-                w.focus();
-                w.print();
-              } catch (_) {}
-            });
-          }
-        });
-        $("#btnCopyRep")?.addEventListener("click", async () => {
-          await navigator.clipboard.writeText(report.text || "");
-          els.repSideSummary.textContent = "Informe copiado al portapapeles";
-        });
-        $("#btnDlTxt")?.addEventListener("click", () => downloadUrl(`/api/reports/summary.txt?${repQuery()}`));
-      } else {
-        els.reportsContent.innerHTML = `<p class="muted">Opción no implementada</p>`;
-      }
-    } catch (err) {
-      els.reportsContent.innerHTML = `<p class="muted">${err.message}</p>`;
-    }
-  }
-
-  async function renderNotifView(key) {
-    notifConfig = await api("/api/notifications/config");
-    const ch = notifConfig.channels || {};
-    const tpl = notifConfig.template || {};
-
-    if (key === "notif_setup") {
-      const ac = notifConfig.access_control || {};
-      const gate = ac.gate || {};
-      const mb = gate.modbus || {};
-      const hd = gate.http_dual || {};
-      const wg = gate.wiegand || {};
-      const et = notifConfig.email_transport || {};
-      const emailHint =
-        et.mode === "resend"
-          ? "Email real vía Resend"
-          : et.mode === "smtp"
-            ? `Email real vía SMTP (${et.smtp_host || "host"})`
-            : "Sin SMTP/Resend → solo abre mailto en el navegador";
-      const driver = gate.driver || "esp32";
-      els.reportsContent.innerHTML = `
-        <h3 class="rep-section-title">Canales de notificación</h3>
-        <p class="card-meta">${emailHint}</p>
-        <form class="rep-form" id="notifChannelsForm">
-          <label><span>Webhook (Slack / Teams / Discord / genérico)</span>
-            <input type="checkbox" id="nWhEn" ${ch.webhook?.enabled ? "checked" : ""}/> Activar
-            <input type="url" id="nWhUrl" placeholder="https://hooks.slack.com/..." value="${ch.webhook?.url || ""}"/>
-          </label>
-          <label><span>WhatsApp / API webhook</span>
-            <input type="checkbox" id="nWaEn" ${ch.whatsapp_webhook?.enabled ? "checked" : ""}/> Activar
-            <input type="url" id="nWaUrl" placeholder="https://..." value="${ch.whatsapp_webhook?.url || ""}"/>
-          </label>
-          <label><span>WhatsApp Business Cloud (Meta)</span>
-            <input type="checkbox" id="nWaCloudEn" ${ch.whatsapp_cloud?.enabled ? "checked" : ""}/> Activar
-            <small class="card-meta">Token en WHATSAPP_TOKEN / VIGIEPP_WHATSAPP_TOKEN del servidor</small>
-            <input type="text" id="nWaCloudPhoneId" placeholder="Phone number ID" value="${ch.whatsapp_cloud?.phone_number_id || ""}"/>
-            <input type="text" id="nWaCloudTo" placeholder="+56912345678 o varios separados por coma" value="${ch.whatsapp_cloud?.to || ""}"/>
-          </label>
-          <label><span>Email</span>
-            <input type="checkbox" id="nEmEn" ${ch.email?.enabled ? "checked" : ""}/> Activar
-            <input type="email" id="nEmTo" placeholder="seguridad@empresa.cl" value="${ch.email?.to || ""}"/>
-            <input type="email" id="nEmCc" placeholder="cc opcional" value="${ch.email?.cc || ""}"/>
-          </label>
-          <p class="card-kicker">Driver de acceso físico</p>
-          <label><span>Torniquete / relé / Wiegand</span>
-            <select id="nGateDriver">
-              <option value="esp32" ${driver === "esp32" ? "selected" : ""}>ESP32 HTTP (/ok /alarma)</option>
-              <option value="modbus" ${driver === "modbus" ? "selected" : ""}>Modbus TCP (coils)</option>
-              <option value="http_dual" ${driver === "http_dual" ? "selected" : ""}>HTTP dual (allow/deny URL)</option>
-              <option value="wiegand" ${driver === "wiegand" ? "selected" : ""}>Gateway Wiegand HTTP</option>
-            </select>
-            <input type="checkbox" id="nGateHwEn" ${gate.enabled ? "checked" : ""}/> Activar driver
-          </label>
-          <div id="nGateEsp32" class="${driver === "esp32" ? "" : "hidden"}">
-            <p class="card-kicker">ESP32 / baliza</p>
-            <input type="url" id="nHwUrl" placeholder="http://192.168.1.50" value="${gate.esp32?.base_url || ac.hardware?.base_url || ""}"/>
-            <label class="check"><input type="checkbox" id="nHwBad" ${gate.on_non_compliant !== false ? "checked" : ""}/> Alarma en incumplimiento EPP</label>
-            <label class="check"><input type="checkbox" id="nHwUnk" ${gate.on_unknown_face !== false ? "checked" : ""}/> Alarma en rostro desconocido</label>
-            <label class="check"><input type="checkbox" id="nHwOk" ${gate.auto_ok !== false ? "checked" : ""}/> /ok automático si EPP cumple</label>
-          </div>
-          <div id="nGateModbus" class="${driver === "modbus" ? "" : "hidden"}">
-            <p class="card-kicker">Modbus TCP</p>
-            <input type="text" id="nMbHost" placeholder="192.168.1.20" value="${mb.host || ""}"/>
-            <input type="number" id="nMbPort" placeholder="502" value="${mb.port || 502}"/>
-            <input type="number" id="nMbUnit" placeholder="Unit ID" value="${mb.unit_id || 1}"/>
-            <input type="number" id="nMbCoilAllow" placeholder="Coil allow" value="${mb.coil_allow || 0}"/>
-            <input type="number" id="nMbCoilDeny" placeholder="Coil deny" value="${mb.coil_deny || 1}"/>
-          </div>
-          <div id="nGateHttp" class="${driver === "http_dual" ? "" : "hidden"}">
-            <p class="card-kicker">HTTP dual</p>
-            <input type="url" id="nHdAllow" placeholder="URL allow" value="${hd.allow_url || ""}"/>
-            <input type="url" id="nHdDeny" placeholder="URL deny" value="${hd.deny_url || ""}"/>
-          </div>
-          <div id="nGateWiegand" class="${driver === "wiegand" ? "" : "hidden"}">
-            <p class="card-kicker">Wiegand gateway</p>
-            <input type="url" id="nWgBase" placeholder="http://192.168.1.30" value="${wg.base_url || ""}"/>
-            <input type="text" id="nWgAllow" placeholder="/open" value="${wg.allow_path || "/open"}"/>
-            <input type="text" id="nWgDeny" placeholder="/close" value="${wg.deny_path || "/close"}"/>
-          </div>
-          <div class="rep-actions" style="margin:0.5rem 0 1rem">
-            <button type="button" class="btn secondary" id="btnHwAlarma">Probar deny</button>
-            <button type="button" class="btn secondary" id="btnHwOk">Probar allow</button>
-          </div>
-          <pre class="rep-pre" id="hwTestOut" style="display:none">—</pre>
-          <p class="card-kicker">Abrir acceso (portería lógica)</p>
-          <label><span>Control de acceso</span>
-            <input type="checkbox" id="nAcEn" ${ac.enabled ? "checked" : ""}/> Activar gate
-            <small class="card-meta">Allow solo si identidad conocida + EPP OK. Driver físico según selección arriba.</small>
-            <label class="check"><input type="checkbox" id="nAcId" ${ac.require_identity !== false ? "checked" : ""}/> Exigir identidad</label>
-            <label class="check"><input type="checkbox" id="nAcNf" ${ac.notify !== false ? "checked" : ""}/> Notificar decisión</label>
-          </label>
-          <button class="btn primary" type="submit">Guardar canales</button>
-        </form>`;
-      const toggleGatePanels = () => {
-        const d = $("#nGateDriver")?.value || "esp32";
-        $("#nGateEsp32")?.classList.toggle("hidden", d !== "esp32");
-        $("#nGateModbus")?.classList.toggle("hidden", d !== "modbus");
-        $("#nGateHttp")?.classList.toggle("hidden", d !== "http_dual");
-        $("#nGateWiegand")?.classList.toggle("hidden", d !== "wiegand");
-      };
-      $("#nGateDriver")?.addEventListener("change", toggleGatePanels);
-      const hwTest = async (action) => {
-        const out = $("#hwTestOut");
-        if (out) out.style.display = "block";
-        try {
-          const res = await api("/api/notifications/hardware/test", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action }),
-          });
-          if (out) out.textContent = JSON.stringify(res, null, 2);
-          els.repSideSummary.textContent = res.ok ? `Hardware ${action} OK` : `Hardware error: ${res.detail || ""}`;
-        } catch (err) {
-          if (out) out.textContent = String(err.message || err);
-        }
-      };
-      $("#btnHwAlarma")?.addEventListener("click", () => hwTest("alarma"));
-      $("#btnHwOk")?.addEventListener("click", () => hwTest("ok"));
-      $("#notifChannelsForm")?.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const body = {
-          channels: {
-            webhook: { enabled: $("#nWhEn").checked, url: $("#nWhUrl").value.trim() },
-            whatsapp_webhook: { enabled: $("#nWaEn").checked, url: $("#nWaUrl").value.trim() },
-            whatsapp_cloud: {
-              enabled: $("#nWaCloudEn").checked,
-              phone_number_id: $("#nWaCloudPhoneId").value.trim(),
-              to: $("#nWaCloudTo").value.trim(),
-            },
-            email: {
-              enabled: $("#nEmEn").checked,
-              to: $("#nEmTo").value.trim(),
-              cc: $("#nEmCc")?.value.trim() || "",
-            },
-          },
-          access_control: {
-            enabled: $("#nAcEn").checked,
-            require_identity: $("#nAcId").checked,
-            notify: $("#nAcNf").checked,
-            hardware: {
-              enabled: $("#nGateDriver").value === "esp32" && $("#nGateHwEn").checked,
-              base_url: $("#nHwUrl").value.trim(),
-              alarma_path: "/alarma",
-              ok_path: "/ok",
-              method: "GET",
-              on_non_compliant: $("#nHwBad").checked,
-              on_unknown_face: $("#nHwUnk").checked,
-              auto_ok: $("#nHwOk").checked,
-            },
-            gate: {
-              enabled: $("#nGateHwEn").checked,
-              driver: $("#nGateDriver").value,
-              on_non_compliant: $("#nHwBad").checked,
-              on_unknown_face: $("#nHwUnk").checked,
-              auto_ok: $("#nHwOk").checked,
-              esp32: {
-                enabled: $("#nGateDriver").value === "esp32" && $("#nGateHwEn").checked,
-                base_url: $("#nHwUrl").value.trim(),
-                alarma_path: "/alarma",
-                ok_path: "/ok",
-                method: "GET",
-              },
-              modbus: {
-                host: $("#nMbHost").value.trim(),
-                port: Number($("#nMbPort").value) || 502,
-                unit_id: Number($("#nMbUnit").value) || 1,
-                coil_allow: Number($("#nMbCoilAllow").value) || 0,
-                coil_deny: Number($("#nMbCoilDeny").value) || 1,
-              },
-              http_dual: {
-                allow_url: $("#nHdAllow").value.trim(),
-                deny_url: $("#nHdDeny").value.trim(),
-              },
-              wiegand: {
-                base_url: $("#nWgBase").value.trim(),
-                allow_path: $("#nWgAllow").value.trim() || "/open",
-                deny_path: $("#nWgDeny").value.trim() || "/close",
-              },
-            },
-          },
-        };
-        const res = await api("/api/notifications/config", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        notifConfig = res.config;
-        els.repSideSummary.textContent = "Canales guardados";
-      });
-      return;
-    }
-
-    if (key === "notif_rules") {
-      els.reportsContent.innerHTML = `
-        <h3 class="rep-section-title">Reglas de alerta</h3>
-        <p class="card-meta">La coolora es por persona + tipo de alerta (no bloquea a otros).</p>
-        <form class="rep-form" id="notifRulesForm">
-          <label><input type="checkbox" id="nEnabled" ${notifConfig.enabled ? "checked" : ""}/> Activar notificaciones</label>
-          <label><input type="checkbox" id="nOnBad" ${notifConfig.on_non_compliant ? "checked" : ""}/> Avisar en incumplimiento EPP</label>
-          <label><input type="checkbox" id="nOnUnknown" ${notifConfig.on_unknown_face ? "checked" : ""}/> Avisar rostro desconocido</label>
-          <label><input type="checkbox" id="nOnZone" ${notifConfig.on_zone_alert !== false ? "checked" : ""}/> Avisar zonas / near-miss</label>
-          <label><input type="checkbox" id="nOnlyKnown" ${notifConfig.only_known_workers ? "checked" : ""}/> Solo trabajadores conocidos (EPP)</label>
-          <label><span>Cooldownora entre avisos (segundos)</span>
-            <input type="number" id="nCooldown" min="0" max="3600" value="${notifConfig.cooldown_seconds ?? 120}"/>
-          </label>
-          <button class="btn primary" type="submit">Guardar reglas</button>
-        </form>`;
-      $("#notifRulesForm")?.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const res = await api("/api/notifications/config", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            enabled: $("#nEnabled").checked,
-            on_non_compliant: $("#nOnBad").checked,
-            on_unknown_face: $("#nOnUnknown").checked,
-            on_zone_alert: $("#nOnZone").checked,
-            only_known_workers: $("#nOnlyKnown").checked,
-            cooldown_seconds: Number($("#nCooldown").value) || 0,
-          }),
-        });
-        notifConfig = res.config;
-        els.repSideSummary.textContent = "Reglas guardadas";
-      });
-      return;
-    }
-
-    if (key === "notif_template") {
-      els.reportsContent.innerHTML = `
-        <h3 class="rep-section-title">Plantilla de mensaje</h3>
-        <p class="card-meta">Variables: {name} {rut} {profile} {summary} {missing} {ts}</p>
-        <form class="rep-form" id="notifTplForm">
-          <label><span>Asunto</span><input type="text" id="nSub" value="${(tpl.subject || "").replace(/"/g, "&quot;")}"/></label>
-          <label><span>Cuerpo</span><textarea id="nBody">${tpl.body || ""}</textarea></label>
-          <button class="btn primary" type="submit">Guardar plantilla</button>
-        </form>`;
-      $("#notifTplForm")?.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const res = await api("/api/notifications/config", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ template: { subject: $("#nSub").value, body: $("#nBody").value } }),
-        });
-        notifConfig = res.config;
-        els.repSideSummary.textContent = "Plantilla guardada";
-      });
-      return;
-    }
-
-    if (key === "notif_test") {
-      els.reportsContent.innerHTML = `
-        <h3 class="rep-section-title">Probar / enviar ahora</h3>
-        <p>Envía una alerta de prueba por los canales activos o dispara el ESP32.</p>
-        <div class="rep-actions">
-          <button type="button" class="btn primary" id="btnNotifTest">Enviar prueba</button>
-          <button type="button" class="btn secondary" id="btnNotifManual">Enviar alerta manual</button>
-          <button type="button" class="btn secondary" id="btnHwAlarma2">ESP32 /alarma</button>
-          <button type="button" class="btn secondary" id="btnHwOk2">ESP32 /ok</button>
-        </div>
-        <pre class="rep-pre" id="notifTestOut">—</pre>`;
-      $("#btnNotifTest")?.addEventListener("click", async () => {
-        const res = await api("/api/notifications/test", { method: "POST" });
-        $("#notifTestOut").textContent = JSON.stringify(res, null, 2);
-        if (res.mailto) window.location.href = res.mailto;
-      });
-      $("#btnNotifManual")?.addEventListener("click", async () => {
-        const res = await api("/api/notifications/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: "Alerta manual",
-            summary: "Envío manual desde Informes",
-            missing: ["casco"],
-            force: true,
-          }),
-        });
-        $("#notifTestOut").textContent = JSON.stringify(res, null, 2);
-        if (res.mailto) window.location.href = res.mailto;
-      });
-      $("#btnHwAlarma2")?.addEventListener("click", async () => {
-        const res = await api("/api/notifications/hardware/test", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "alarma" }),
-        });
-        $("#notifTestOut").textContent = JSON.stringify(res, null, 2);
-      });
-      $("#btnHwOk2")?.addEventListener("click", async () => {
-        const res = await api("/api/notifications/hardware/test", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "ok" }),
-        });
-        $("#notifTestOut").textContent = JSON.stringify(res, null, 2);
-      });
-      return;
-    }
-
-    if (key === "notif_log") {
-      const log = await api("/api/notifications/log?limit=40");
-      els.reportsContent.innerHTML = `
-        <h3 class="rep-section-title">Historial de envíos</h3>
-        <table class="rep-table"><thead><tr><th>Fecha</th><th>Tipo</th><th>Estado</th><th>Asunto</th></tr></thead>
-        <tbody>${
-          log.length
-            ? log
-                .map(
-                  (r) =>
-                    `<tr><td>${(r.ts || "").slice(0, 19)}</td><td>${r.kind || "—"}</td><td>${r.ok ? "OK" : "Falló"}</td><td>${r.subject || "—"}</td></tr>`
-                )
-                .join("")
-            : `<tr><td colspan="4">Sin envíos aún</td></tr>`
-        }</tbody></table>`;
-    }
-  }
 
   // Events
   $$(".mode-btn").forEach((b) => b.addEventListener("click", () => setAppMode(b.dataset.mode)));
@@ -3517,9 +2378,9 @@ function bindAuthController(onOperatorLogin) {
     if (sec) setConfigSection(sec);
   });
   $$(".rep-item").forEach((b) => b.addEventListener("click", () => openReport(b.dataset.rep)));
-  if (els.btnRepRefresh) els.btnRepRefresh.addEventListener("click", () => openReport(currentRep || "overview"));
-  if (els.repDays) els.repDays.addEventListener("change", () => openReport(currentRep || "overview"));
-  if (els.repProfile) els.repProfile.addEventListener("change", () => openReport(currentRep || "overview"));
+  if (els.btnRepRefresh) els.btnRepRefresh.addEventListener("click", () => openReport(reports.getCurrentRep() || "overview"));
+  if (els.repDays) els.repDays.addEventListener("change", () => openReport(reports.getCurrentRep() || "overview"));
+  if (els.repProfile) els.repProfile.addEventListener("change", () => openReport(reports.getCurrentRep() || "overview"));
   $$(".tab").forEach((t) => {
     if (t.dataset.source) t.addEventListener("click", () => setSource(t.dataset.source));
   });
@@ -3781,10 +2642,10 @@ function bindAuthController(onOperatorLogin) {
   }
 
   els.btnZoneAdd?.addEventListener("click", () => {
-    zonesCache = readZonesFromEditor();
-    zonesCache.push({
+    zones.zonesCache = readZonesFromEditor();
+    zones.zonesCache.push({
       id: `zona-${Date.now()}`,
-      name: `Zona ${zonesCache.length + 1}`,
+      name: `Zona ${zones.zonesCache.length + 1}`,
       type: "restricted",
       enabled: true,
       x: 0.05,
@@ -3793,18 +2654,18 @@ function bindAuthController(onOperatorLogin) {
       h: 0.35,
       color: "#e85d04",
     });
-    selectedZoneIndex = zonesCache.length - 1;
+    zones.selectedZoneIndex = zones.zonesCache.length - 1;
     renderZonesEditor();
   });
   els.btnZoneSave?.addEventListener("click", async () => {
-    zonesCache = readZonesFromEditor();
+    zones.zonesCache = readZonesFromEditor();
     try {
       const res = await api("/api/zones", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ zones: zonesCache }),
+        body: JSON.stringify({ zones: zones.zonesCache }),
       });
-      zonesCache = res.zones || zonesCache;
+      zones.zonesCache = res.zones || zones.zonesCache;
       renderZonesEditor();
       if (els.zonesHint) els.zonesHint.textContent = "Zonas guardadas";
     } catch (err) {
@@ -3818,9 +2679,9 @@ function bindAuthController(onOperatorLogin) {
       if (!confirm(`¿Reemplazar zonas actuales por el preset «${id}»?`)) return;
       try {
         const res = await api(`/api/zones/presets/${id}`, { method: "POST" });
-        zonesCache = res.zones || [];
+        zones.zonesCache = res.zones || [];
         renderZonesEditor();
-        if (els.zonesHint) els.zonesHint.textContent = `Preset «${id}» aplicado · ${zonesCache.length} zonas`;
+        if (els.zonesHint) els.zonesHint.textContent = `Preset «${id}» aplicado · ${zones.zonesCache.length} zonas`;
       } catch (err) {
         if (els.zonesHint) els.zonesHint.textContent = err.message;
       }
@@ -3830,24 +2691,24 @@ function bindAuthController(onOperatorLogin) {
     const btn = e.target.closest("[data-z-del]");
     if (!btn) return;
     const i = Number(btn.getAttribute("data-z-del"));
-    zonesCache = readZonesFromEditor().filter((_, idx) => idx !== i);
-    if (selectedZoneIndex === i) selectedZoneIndex = -1;
-    else if (selectedZoneIndex > i) selectedZoneIndex -= 1;
+    zones.zonesCache = readZonesFromEditor().filter((_, idx) => idx !== i);
+    if (zones.selectedZoneIndex === i) zones.selectedZoneIndex = -1;
+    else if (zones.selectedZoneIndex > i) zones.selectedZoneIndex -= 1;
     renderZonesEditor();
   });
   els.zonesList?.addEventListener("input", (e) => {
     if (!e.target.matches("[data-z]")) return;
-    zonesCache = readZonesFromEditor();
+    zones.zonesCache = readZonesFromEditor();
     const row = e.target.closest(".zone-row");
     if (row) {
       const i = Number(row.getAttribute("data-zi"));
-      if (!Number.isNaN(i)) selectedZoneIndex = i;
+      if (!Number.isNaN(i)) zones.selectedZoneIndex = i;
     }
     drawZonesEditorCanvas();
   });
   els.zonesList?.addEventListener("change", (e) => {
     if (!e.target.matches("[data-z='en'], [data-z='type'], [data-z='name']")) return;
-    zonesCache = readZonesFromEditor();
+    zones.zonesCache = readZonesFromEditor();
     drawZonesEditorCanvas();
   });
 
@@ -4172,6 +3033,73 @@ function bindAuthController(onOperatorLogin) {
     await refreshCameras();
     alert("Canal guardado para Vivo (máx. 4)");
   });
+
+  const zones = createZonesController({
+    api,
+    els,
+    settings,
+    getAppMode: () => appMode,
+  });
+  const {
+    loadZones,
+    renderZonesEditor,
+    readZonesFromEditor,
+    drawZonesOverlay,
+    bindZonesCanvasEvents,
+    startZonesCanvasLoop,
+    stopZonesCanvasLoop,
+    drawZonesEditorCanvas,
+  } = zones;
+
+  const reports = createReportsController({
+    api,
+    els,
+    getProfiles: () => profiles,
+  });
+  const { openReport, fillRepProfiles, downloadUrl } = reports;
+
+  const detectLive = createDetectLiveController({
+    api,
+    els,
+    settings,
+    requiredQueryValue,
+    applyHealth,
+    updateUi,
+    applyGuideMode,
+    isLiveMode,
+    getSourceMode: () => sourceMode,
+    getCombinedInference: () => combinedInference,
+    getEppStreak: () => eppStreak,
+    setEppStreak: (v) => {
+      eppStreak = v;
+    },
+    getLastIdentifyAt: () => lastIdentifyAt,
+    setLastIdentifyAt: (v) => {
+      lastIdentifyAt = v;
+    },
+    getLastScanRefreshAt: () => lastScanRefreshAt,
+    setLastScanRefreshAt: (v) => {
+      lastScanRefreshAt = v;
+    },
+    refreshScans,
+    setIdentityCard,
+    drawDetections,
+    getLastFrameSize: () => lastFrameSize,
+    setLastFaceBox: (v) => {
+      lastFaceBox = v;
+    },
+    setLastIdentity: (v) => {
+      lastIdentity = v;
+    },
+  });
+  const {
+    detectBlob,
+    captureBlob,
+    captureFaceBlob,
+    identifyLiveFrame,
+    startDetectLoop,
+    stopDetectLoop,
+  } = detectLive;
 
   bindAuthController(() => {
     setAppMode("live");
