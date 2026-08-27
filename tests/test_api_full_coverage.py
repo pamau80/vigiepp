@@ -18,10 +18,10 @@ def client(tmp_path, monkeypatch):
     return TestClient(app)
 
 
-def test_build_v43(client):
+def test_build_v44(client):
     r = client.get("/api/health")
     assert r.status_code == 200
-    assert r.json()["build"] == "v43"
+    assert r.json()["build"] == "v44"
 
 
 def test_all_get_endpoints(client):

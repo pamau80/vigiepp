@@ -1,4 +1,4 @@
-import { $, $$ } from "./modules/dom.js";
+import { $, $$, escapeHtml } from "./modules/dom.js";
 import { createApi } from "./modules/http.js";
 import {
   defaultSettings,
@@ -19,6 +19,12 @@ import { videoCoverSize } from "./modules/geometry.js";
 import { createZonesController } from "./modules/zones.js";
 import { createReportsController } from "./modules/reports.js";
 import { createDetectLiveController } from "./modules/detect-live.js";
+
+import { createWorkersController } from "./modules/identity-workers.js";
+import { createEnrollController } from "./modules/identity-enroll.js";
+import { createKioskController } from "./modules/kiosk.js";
+import { createTeachController } from "./modules/teach.js";
+import { createMassController } from "./modules/mass.js";
 
 let ensureAuth;
 let applyRoleUI;
@@ -175,7 +181,7 @@ function bindAuthController(onOperatorLogin) {
     repSideList: $("#repSideList"),
   };
 
-  const APP_BUILD = globalThis.VIGIEPP_BUILD || "v43";
+  const APP_BUILD = globalThis.VIGIEPP_BUILD || "v44";
 
   function isLiveMode() {
     return appMode === "live" || appMode === "monitor";
@@ -193,10 +199,7 @@ function bindAuthController(onOperatorLogin) {
   let rtspTimer = null;
   let sourceMode = "camera";
   let appMode = "live";
-  let enrollAbort = false;
-  let enrolling = false;
-  let capturePoseResolver = null;
-  let identifyingNow = false;
+  const enrollState = { enrolling: false, identifyingNow: false, enrollAbort: false };
   let lastIdentifyAt = 0;
   let lastFrameSize = { w: 640, h: 480 };
   let lastIdentity = null;
@@ -331,13 +334,13 @@ function bindAuthController(onOperatorLogin) {
     const guide = els.silhouetteGuide;
     if (!guide) return;
     // Óvalo facial SOLO en Personas / enrolar — nunca en Monitoreo
-    const wantFace = enrolling || appMode === "identity";
+    const wantFace = enrollState.enrolling || appMode === "identity";
     const scanning = document.body.classList.contains("is-scanning") && appMode === "live";
     const enabled = !scanning && (!!settings.silhouetteEnabled || wantFace);
     guide.classList.toggle("is-off", !enabled);
-    if (els.alignBadge) els.alignBadge.classList.toggle("is-off", !enabled || enrolling || scanning);
+    if (els.alignBadge) els.alignBadge.classList.toggle("is-off", !enabled || enrollState.enrolling || scanning);
     guide.dataset.guide = wantFace ? "face" : "body";
-    guide.classList.toggle("enroll-soft", !!enrolling || wantFace);
+    guide.classList.toggle("enroll-soft", !!enrollState.enrolling || wantFace);
     guide.style.setProperty("--body-scale", String((settings.bodyScale || 100) / 100));
     guide.style.setProperty("--face-scale", String((settings.faceScale || 100) / 100));
     guide.style.setProperty("--guide-y", `${settings.guideOffsetY || 0}%`);
@@ -356,36 +359,6 @@ function bindAuthController(onOperatorLogin) {
       btn.classList.toggle("hidden", !show);
       btn.disabled = !show;
     }
-  }
-
-  function waitForCaptureClick() {
-    return new Promise((resolve, reject) => {
-      if (capturePoseResolver) {
-        capturePoseResolver.reject(new Error("Cancelado"));
-        capturePoseResolver = null;
-      }
-      setCaptureButtonsVisible(true);
-      capturePoseResolver = {
-        resolve: (v) => {
-          capturePoseResolver = null;
-          setCaptureButtonsVisible(false);
-          resolve(v);
-        },
-        reject: (e) => {
-          capturePoseResolver = null;
-          setCaptureButtonsVisible(false);
-          reject(e);
-        },
-      };
-    });
-  }
-
-  function triggerCapturePose() {
-    if (capturePoseResolver) capturePoseResolver.resolve(true);
-  }
-
-  function cancelWaitingCapture() {
-    if (capturePoseResolver) capturePoseResolver.reject(new Error("Cancelado"));
   }
 
   function syncSilZoomUI() {
@@ -414,12 +387,6 @@ function bindAuthController(onOperatorLogin) {
     applyGuideMode();
   }
 
-  const POSES = [
-    { title: "1/4 Frente", hint: "Mirá de frente a la cámara" },
-    { title: "2/4 Izquierda", hint: "Girá la cabeza un poco a tu IZQUIERDA" },
-    { title: "3/4 Derecha", hint: "Girá la cabeza un poco a tu DERECHA" },
-    { title: "4/4 Mentón", hint: "Levantá un poco el mentón" },
-  ];
 
   const PPE_LABEL = {
     casco: "Casco",
@@ -618,7 +585,7 @@ function bindAuthController(onOperatorLogin) {
   }
 
   function faceGuideActive() {
-    return enrolling || identifyingNow || appMode === "identity";
+    return enrollState.enrolling || enrollState.identifyingNow || appMode === "identity";
   }
 
   function setAlignment(state, text) {
@@ -629,7 +596,7 @@ function bindAuthController(onOperatorLogin) {
       }
       return;
     }
-    if (enrolling) return; // overlay de poses maneja el coaching
+    if (enrollState.enrolling) return; // overlay de poses maneja el coaching
     if (els.alignBadge) {
       els.alignBadge.dataset.state = state;
       els.alignBadge.textContent = text;
@@ -662,7 +629,7 @@ function bindAuthController(onOperatorLogin) {
       setAlignment("idle", "Guía off");
       return true; // no bloquea
     }
-    if (enrolling) return true;
+    if (enrollState.enrolling) return true;
     const guide = guideRect(frameW, frameH);
     const boxes = (detections || []).map((d) => d.box);
     if (!boxes.length) {
@@ -821,7 +788,7 @@ function bindAuthController(onOperatorLogin) {
       blurFaceOnCanvas(ctx, faceBox, frameW, frameH, cover);
     }
     // Óvalo facial solo en enrolar / Personas
-    if (faceBox && (enrolling || appMode === "identity")) {
+    if (faceBox && (enrollState.enrolling || appMode === "identity")) {
       drawFaceBox(ctx, faceBox, frameW, frameH, cover);
     }
   }
@@ -858,7 +825,7 @@ function bindAuthController(onOperatorLogin) {
       els.fpsLabel.textContent = `${health.build} · ${mode}`;
     }
     enterprise.updateEnterpriseHints(health, { combinedInference, els });
-    showPersistBanner(health);
+    workers.showPersistBanner(health);
     return ready;
   }
 
@@ -893,9 +860,9 @@ function bindAuthController(onOperatorLogin) {
     bindPpeChipContainer(els.cfgPpeChips);
     renderProfile();
 
-    await refreshWorkers();
-    await refreshTeach();
-    await refreshScans();
+    await workers.refreshWorkers();
+    await teach.refreshTeach();
+    await workers.refreshScans();
     await refreshCameras();
     await loadZones();
     loadSettings();
@@ -906,7 +873,7 @@ function bindAuthController(onOperatorLogin) {
     applyMobileChrome();
     applyGuideMode();
     setAppMode("live");
-    if (settings.kioskMode) setKioskMode(true);
+    if (settings.kioskMode) kiosk.setKioskMode(true);
     hideLiveVideo();
     await refreshCameraPermissionHint();
     if ("serviceWorker" in navigator) {
@@ -914,7 +881,7 @@ function bindAuthController(onOperatorLogin) {
         regs.forEach((r) => r.unregister().catch(() => {}));
       });
       setTimeout(() => {
-        navigator.serviceWorker.register("/assets/sw.js?v=43").catch(() => {});
+        navigator.serviceWorker.register("/assets/sw.js?v=44").catch(() => {});
       }, 400);
     }
     const offlineBadge = $("#offlineBadge");
@@ -1000,20 +967,12 @@ function bindAuthController(onOperatorLogin) {
     if (els.speedHint && reason) els.speedHint.textContent = reason;
   }
 
-  function hasReadyWorkers() {
-    return (workersCache || []).some(
-      (w) =>
-        w.active !== false &&
-        (w.ready === true || (w.face_samples || 0) >= (w.min_samples_ready || 4))
-    );
-  }
-
   function setAppMode(mode) {
     const prevMode = appMode;
     if (mode === "monitor") mode = "live";
     appMode = mode;
 
-    if (mode !== "mass") stopMassLoop();
+    if (mode !== "mass") mass.stopMassLoop();
     if (mode !== "live" && mode !== "identity" && mode !== "teach") {
       stopDetectLoop();
       if (mode !== "live") stopRtsp();
@@ -1080,7 +1039,7 @@ function bindAuthController(onOperatorLogin) {
           ? "camera"
           : sourceMode
       );
-      if (prevMode === "identity" && hasReadyWorkers()) {
+      if (prevMode === "identity" && workers.hasReadyWorkers()) {
         enableIdentifyForPorteria("Identificación ON · volviste de Personas");
       }
     } else if (mode === "identity") setSource("identity");
@@ -1091,8 +1050,8 @@ function bindAuthController(onOperatorLogin) {
     else if (mode === "devices") setSource("devices");
 
     applyGuideMode();
-    if (mode === "identity") refreshWorkers();
-    if (mode === "teach") refreshTeach();
+    if (mode === "identity") workers.refreshWorkers();
+    if (mode === "teach") teach.refreshTeach();
     if (mode === "config") {
       loadZones();
       setConfigSection(localStorage.getItem("vigiepp-cfg-sec") || "guides");
@@ -1100,13 +1059,13 @@ function bindAuthController(onOperatorLogin) {
       stopZonesCanvasLoop();
     }
     if (mode === "mass") {
-      fillMassProfiles();
-      refreshWatchlistUi();
-      renderMassGridPlaceholder();
+      mass.fillMassProfiles();
+      mass.refreshWatchlistUi();
+      mass.renderMassGridPlaceholder();
     }
     if (mode === "devices") {
-      refreshNvrDevices();
-      refreshWatchlistUi();
+      mass.refreshNvrDevices();
+      mass.refreshWatchlistUi();
     }
     if (mode === "reports") {
       fillRepProfiles();
@@ -1257,7 +1216,7 @@ function bindAuthController(onOperatorLogin) {
       else if (!hasPeople) pill.textContent = "Standby";
       else pill.textContent = ok ? "OK" : "Alerta";
     }
-    updateKioskBanner(payload);
+    kiosk.updateKioskBanner(payload);
 
     if (els.safetyScoreLive) {
       els.safetyScoreLive.textContent =
@@ -1320,15 +1279,7 @@ function bindAuthController(onOperatorLogin) {
       lastIdentity = payload.identity;
       setIdentityCard(payload.identity);
       if (payload.identity.faces_detected > 0 && settings.faceGuide && appMode === "live") {
-        identifyingNow = true;
-        applyGuideMode();
-        clearTimeout(window.__vigieppFaceGuideTimer);
-        window.__vigieppFaceGuideTimer = setTimeout(() => {
-          if (!enrolling) {
-            identifyingNow = false;
-            applyGuideMode();
-          }
-        }, 2800);
+        enroll.flashIdentifyingGuide();
       }
     } else if (appMode === "live" && !els.chkIdentify?.checked) {
       els.identityName.textContent = "ID apagada";
@@ -1701,672 +1652,8 @@ function bindAuthController(onOperatorLogin) {
     applyGuideMode();
   }
 
-  let workersCache = [];
-  let workerFilter = "active"; // active | all | inactive
 
-  function formatLastSeen(iso) {
-    if (!iso) return "Nunca visto";
-    try {
-      const d = new Date(iso);
-      if (Number.isNaN(d.getTime())) return "Nunca visto";
-      const diff = (Date.now() - d.getTime()) / 1000;
-      if (diff < 90) return "Ahora";
-      if (diff < 3600) return `Hace ${Math.round(diff / 60)} min`;
-      if (diff < 86400) return `Hace ${Math.round(diff / 3600)} h`;
-      return d.toLocaleString("es-CL", { dateStyle: "short", timeStyle: "short" });
-    } catch (_) {
-      return "Nunca visto";
-    }
-  }
 
-  function qualityLabel(q, ready) {
-    if (ready === false) return "NO LISTO";
-    const n = Number(q) || 0;
-    if (n >= 85) return "Alta";
-    if (n >= 60) return "Media";
-    if (n > 0) return "Baja";
-    return "Sin fotos";
-  }
-
-  async function refreshWorkers() {
-    try {
-      workersCache = await api("/api/identity/workers");
-      if (!workersCache.length) {
-        const restored = await restoreBrowserBackupIfServerEmpty();
-        if (restored) {
-          workersCache = await api("/api/identity/workers");
-          if (els.enrollCoach) {
-            els.enrollCoach.textContent =
-              "Se restauró el respaldo de este navegador (Render Free borra el disco al dormir).";
-          }
-        }
-      } else {
-        scheduleBrowserBackup();
-      }
-      renderWorkerList();
-    } catch (err) {
-      console.error(err);
-      if (els.workerListHint) els.workerListHint.textContent = "No se pudo cargar la lista";
-    }
-  }
-
-  const IDB_NAME = "vigiepp-persist";
-  const IDB_STORE = "backups";
-  const IDB_KEY = "identity-latest";
-  let browserBackupTimer = null;
-
-  function idbOpen() {
-    return new Promise((resolve, reject) => {
-      const req = indexedDB.open(IDB_NAME, 1);
-      req.onupgradeneeded = () => {
-        const db = req.result;
-        if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
-      };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    });
-  }
-
-  async function saveBrowserBackupBlob(blob) {
-    const db = await idbOpen();
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction(IDB_STORE, "readwrite");
-      tx.objectStore(IDB_STORE).put({ blob, savedAt: Date.now(), bytes: blob.size }, IDB_KEY);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-    db.close();
-  }
-
-  async function loadBrowserBackupBlob() {
-    const db = await idbOpen();
-    const row = await new Promise((resolve, reject) => {
-      const tx = db.transaction(IDB_STORE, "readonly");
-      const req = tx.objectStore(IDB_STORE).get(IDB_KEY);
-      req.onsuccess = () => resolve(req.result || null);
-      req.onerror = () => reject(req.error);
-    });
-    db.close();
-    return row;
-  }
-
-  function scheduleBrowserBackup() {
-    if (browserBackupTimer) clearTimeout(browserBackupTimer);
-    browserBackupTimer = setTimeout(() => {
-      syncBrowserBackupFromServer().catch(() => {});
-    }, 1500);
-  }
-
-  async function syncBrowserBackupFromServer() {
-    const res = await fetch("/api/identity/backup", { credentials: "same-origin" });
-    if (!res.ok) return;
-    const blob = await res.blob();
-    if (!blob || blob.size < 80) return;
-    await saveBrowserBackupBlob(blob);
-  }
-
-  async function restoreBrowserBackupIfServerEmpty() {
-    const stored = await loadBrowserBackupBlob();
-    if (!stored?.blob) return false;
-    const fd = new FormData();
-    fd.append("file", stored.blob, "identity-browser-backup.zip");
-    fd.append("mode", "replace");
-    await api("/api/identity/backup/restore", { method: "POST", body: fd }, 90000);
-    return true;
-  }
-
-  function showPersistBanner(health) {
-    const el = $("#persistBanner");
-    if (!el) return;
-    const cloud = health?.cloud_backup || {};
-    if (cloud.configured || (health?.data_persistent && !health?.data_ephemeral_risk)) {
-      el.classList.add("hidden");
-      el.textContent = "";
-      return;
-    }
-    el.classList.remove("hidden");
-    el.innerHTML =
-      "<strong>Falta volumen durable:</strong> Render Free no guarda disco. " +
-      "Solución gratis: corré <code>activate-free-durable.ps1</code> (Hugging Face, sin pago). " +
-      "Las personas quedan en un dataset privado y sobreviven al sleep.";
-  }
-
-  function renderWorkerList() {
-    const q = (els.workerSearch?.value || "").trim().toLowerCase();
-    let list = workersCache.filter((w) => {
-      if (workerFilter === "active") return w.active !== false;
-      if (workerFilter === "inactive") return w.active === false;
-      return true;
-    });
-    if (q) {
-      list = list.filter((w) => {
-        const blob = `${w.name || ""} ${w.rut || ""} ${w.group || ""}`.toLowerCase();
-        return blob.includes(q);
-      });
-    }
-    const html = list.length
-      ? list
-          .map((w) => {
-            const active = w.active !== false;
-            const photo = w.photo_url
-              ? `<img class="worker-photo" src="${w.photo_url}?t=${encodeURIComponent(w.last_seen || w.face_samples || 0)}" alt="Foto de ${escapeHtml(w.name || "trabajador")}" />`
-              : `<div class="worker-photo placeholder" aria-hidden="true"></div>`;
-            const qn = w.quality || 0;
-            const ready =
-              w.ready === true ||
-              ((w.face_samples || 0) >= (w.min_samples_ready || 4) && (w.embedding_count || w.face_samples || 0) >= 3);
-            const qLabel = qualityLabel(qn, ready);
-            const consentLabel = w.consent_ok
-              ? `consentimiento ${formatLastSeen(w.consent_at)}`
-              : "sin consentimiento";
-            return `<li data-worker-id="${w.id}" class="${active ? "" : "is-inactive"}">
-              ${photo}
-              <div class="worker-meta">
-                <strong>${escapeHtml(displayPersonName(w.name) || "Sin nombre")}${active ? "" : " · inactivo"}${ready ? "" : " · incompleto"}</strong>
-                <span class="conf">${escapeHtml(w.rut || "—")}${w.group ? " · " + escapeHtml(w.group) : ""}</span>
-                <span class="conf">${w.face_samples || 0}/4 muestras · calidad ${qn}% (${qLabel}) · ${formatLastSeen(w.last_seen)}</span>
-                <span class="conf">${consentLabel}</span>
-              </div>
-              <div class="worker-actions">
-                <button type="button" class="btn-mini" data-toggle-active="${w.id}">${active ? "Desactivar" : "Activar"}</button>
-                <button type="button" class="btn-mini" data-edit="${w.id}">Editar</button>
-                <button type="button" class="btn-mini" data-reset="${w.id}">Rehacer</button>
-                <button type="button" class="btn-mini danger" data-del="${w.id}">Eliminar</button>
-              </div>
-            </li>`;
-          })
-          .join("")
-      : `<li class="muted">${workersCache.length ? "Sin coincidencias" : "Nadie enrolado"}</li>`;
-    if (els.workerList) els.workerList.innerHTML = html;
-    const actives = workersCache.filter((w) => w.active !== false).length;
-    if (els.workerListHint) {
-      els.workerListHint.textContent = workersCache.length
-        ? `${actives} activas / ${workersCache.length} total · Inactivo = no se identifica`
-        : "";
-    }
-  }
-
-  function escapeHtml(str) {
-    return String(str)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  }
-
-  async function deleteWorker(id) {
-    const w = workersCache.find((x) => x.id === id);
-    const label = w ? `${w.name} (${w.rut || "sin RUT"})` : id;
-    if (!confirm(`¿Eliminar a ${label}?\n\nSe borran ficha, fotos y reconocimiento. No se puede deshacer.`)) {
-      return;
-    }
-    if (els.workerListHint) els.workerListHint.textContent = "Eliminando…";
-    try {
-      await api(`/api/identity/workers/${id}`, { method: "DELETE" });
-      if (lastIdentity?.name && w && lastIdentity.name === w.name) {
-        setIdentityCard(null);
-        lastIdentity = null;
-        lastFaceBox = null;
-      }
-      if (els.enrollCoach) els.enrollCoach.textContent = `Eliminado: ${w?.name || id}`;
-      await refreshWorkers();
-    } catch (err) {
-      if (els.workerListHint) els.workerListHint.textContent = err.message || "No se pudo eliminar";
-      if (els.enrollCoach) els.enrollCoach.textContent = err.message || "Error al eliminar";
-      alert(err.message || "No se pudo eliminar");
-    }
-  }
-
-  async function toggleWorkerActive(id) {
-    const w = workersCache.find((x) => x.id === id);
-    if (!w) return;
-    const next = !(w.active !== false);
-    try {
-      await api(`/api/identity/workers/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ active: next }),
-      });
-      if (els.enrollCoach) {
-        els.enrollCoach.textContent = next ? `Activado: ${w.name}` : `Desactivado: ${w.name} (no se identificará)`;
-      }
-      await refreshWorkers();
-    } catch (err) {
-      alert(err.message || "No se pudo cambiar estado");
-    }
-  }
-
-  async function editWorker(id) {
-    const w = workersCache.find((x) => x.id === id);
-    if (!w) return;
-    const name = prompt("Nombre (usá «Especialista …» en vez de Dr./Dra.)", displayPersonName(w.name || ""));
-    if (name === null) return;
-    const rutDefault = w.rut?.startsWith("SIN-RUT") ? "" : w.rut || "";
-    const rut = prompt("RUT", rutDefault);
-    if (rut === null) return;
-    const group = prompt("Grupo / contratista / cuadrilla", w.group || "");
-    if (group === null) return;
-    try {
-      const data = await api(`/api/identity/workers/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: normalizePersonNameForSave(name.trim()),
-          rut: rut.trim(),
-          group: group.trim(),
-        }),
-      });
-      if (els.enrollCoach) {
-        els.enrollCoach.textContent = `Actualizado: ${displayPersonName(data.worker?.name || name)}`;
-      }
-      if (data.worker) {
-        els.workerName.value = displayPersonName(data.worker.name || "");
-        els.workerRut.value = data.worker.rut?.startsWith("SIN-RUT") ? "" : data.worker.rut || "";
-      }
-      await refreshWorkers();
-    } catch (err) {
-      alert(err.message || "No se pudo editar");
-    }
-  }
-
-  async function resetWorkerFaces(id) {
-    const w = workersCache.find((x) => x.id === id);
-    const label = w?.name || id;
-    if (!confirm(`¿Borrar solo las fotos de ${label} y volver a enrolar?\n\nSe mantiene nombre, RUT y grupo.`)) return;
-    try {
-      const data = await api(`/api/identity/workers/${id}/reset-faces`, { method: "POST" });
-      await refreshWorkers();
-      if (data.worker) {
-        els.workerName.value = data.worker.name || "";
-        els.workerRut.value = data.worker.rut?.startsWith("SIN-RUT") ? "" : data.worker.rut || "";
-      }
-      if (els.enrollCoach) els.enrollCoach.textContent = "Rostros borrados. Enrolá 4 poses o adjuntá fotos.";
-    } catch (err) {
-      alert(err.message || "No se pudo rehacer");
-    }
-  }
-
-  async function refreshScans() {
-    try {
-      const scans = await api("/api/scans/recent?limit=8");
-      els.scanList.innerHTML = scans.length
-        ? scans
-            .map((s) => {
-              const who = s.worker_name || "Sin nombre";
-              const st = s.compliant ? "OK" : "Falta EPP";
-              const ev = s.evidence_id
-                ? ` <a class="evidence-link" href="/api/evidence/${encodeURIComponent(s.evidence_id)}" target="_blank" rel="noopener">foto</a>`
-                : "";
-              return `<li><span>${who}${ev}</span><span class="conf">${st}</span></li>`;
-            })
-            .join("")
-        : `<li class="muted">Aún no hay escaneos con identidad</li>`;
-    } catch (_) {}
-  }
-
-  function setKioskMode(on) {
-    settings.kioskMode = !!on;
-    saveSettings(true);
-    document.body.classList.toggle("kiosk-mode", settings.kioskMode);
-    $("#kioskOverlay")?.classList.toggle("hidden", !settings.kioskMode);
-    const btn = $("#btnKiosk");
-    if (btn) btn.classList.toggle("active", settings.kioskMode);
-    if (settings.kioskMode) {
-      setAppMode("live");
-      if (els.chkIdentify) {
-        els.chkIdentify.checked = true;
-        settings.identifyDefault = true;
-      }
-    }
-  }
-
-  async function requestAdminPinToExitKiosk() {
-    const pin = window.prompt("Salir de portería requiere PIN de administrador:");
-    if (pin == null) return false;
-    if (!String(pin).trim()) return false;
-    try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pin: String(pin).trim() }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        window.alert(data.detail || "PIN incorrecto");
-        return false;
-      }
-      if ((data.role || "") !== "admin") {
-        window.alert("Solo el PIN de administrador puede salir del modo portería.");
-        return false;
-      }
-      if (data.token) sessionStorage.setItem("vigiepp.token", data.token);
-      applyRoleUI("admin");
-      return true;
-    } catch (err) {
-      window.alert(err.message || "Error de red");
-      return false;
-    }
-  }
-
-  async function exitKioskSafe() {
-    if (!settings.kioskMode) return;
-    const ok = await requestAdminPinToExitKiosk();
-    if (ok) setKioskMode(false);
-  }
-
-  function updateKioskBanner(payload) {
-    if (!settings.kioskMode) return;
-    const c = payload?.compliance || {};
-    const ok = !!c.overall_compliant;
-    const hasPeople = (c.persons || []).length > 0 || (payload?.detections || []).length > 0;
-    const id = payload?.identity || lastIdentity;
-    const res = $("#kioskResult");
-    const name = $("#kioskName");
-    const detail = $("#kioskDetail");
-    const overlay = $("#kioskOverlay");
-    if (!res || !overlay) return;
-    overlay.dataset.state = !hasPeople ? "idle" : ok ? "ok" : "bad";
-    res.textContent = !hasPeople ? "En espera" : ok ? "CUMPLE" : "NO CUMPLE";
-    if (name) {
-      name.textContent = id?.known && id?.name ? displayPersonName(id.name) : hasPeople ? "Sin identificar" : "Acercá a la cámara";
-    }
-    if (detail) {
-      const miss = (c.persons?.[0]?.missing || []).slice(0, 3).join(", ");
-      detail.textContent = !hasPeople ? "" : ok ? id?.rut || "EPP OK" : miss || c.summary || "Revisá EPP";
-    }
-  }
-
-  function setPoseUI(stepIndex, countdownText, okCount = 0) {
-    const pose = POSES[stepIndex];
-    const progressed = Math.max(okCount, stepIndex);
-    const width = `${Math.round((progressed / POSES.length) * 100)}%`;
-    const label = pose
-      ? `${pose.title} · OK ${okCount}/${POSES.length}`
-      : `Completado · ${okCount}/${POSES.length}`;
-    if (els.poseProgress) {
-      els.poseProgress.classList.remove("hidden");
-      if (els.poseBarFill) els.poseBarFill.style.width = width;
-      if (els.poseStepLabel) els.poseStepLabel.textContent = label;
-    }
-    els.enrollOverlay.classList.remove("hidden");
-    if (pose) {
-      els.enrollPoseTitle.textContent = pose.title;
-      els.enrollPoseHint.textContent = pose.hint;
-    }
-    els.enrollCount.textContent = countdownText || "";
-    if (els.enrollCoach && pose) els.enrollCoach.textContent = pose.hint;
-  }
-
-  function endPoseUI() {
-    cancelWaitingCapture();
-    setCaptureButtonsVisible(false);
-    els.enrollOverlay.classList.add("hidden");
-    els.enrollCount.textContent = "";
-    if (els.poseBarFill) els.poseBarFill.style.width = "100%";
-    if (els.poseStepLabel) els.poseStepLabel.textContent = "4/4 completo";
-    enrolling = false;
-    document.body.classList.remove("is-enrolling");
-    applyGuideMode();
-  }
-
-  async function enrollWorker() {
-    if (enrolling) return;
-    if (!els.workerName.value.trim() && !els.workerRut.value.trim()) {
-      if (els.enrollCoach) els.enrollCoach.textContent = "Escribí al menos el nombre";
-      return;
-    }
-    if (!els.chkBiometricConsent?.checked) {
-      if (els.enrollCoach) {
-        els.enrollCoach.textContent = "Marcá el consentimiento biométrico antes de enrolar.";
-      }
-      return;
-    }
-    enrolling = true;
-    enrollAbort = false;
-    document.body.classList.add("is-enrolling");
-    stopDetectLoop();
-    applyGuideMode();
-    els.btnEnroll.disabled = true;
-    if (els.btnIdentify) els.btnIdentify.disabled = true;
-    els.btnCancelEnroll.classList.remove("hidden");
-    try {
-      if (!mediaStream) await startCamera({ silentDetect: true });
-      else stopDetectLoop();
-      showLive();
-      const name = normalizePersonNameForSave(els.workerName.value.trim());
-      const rut = els.workerRut.value.trim();
-      let okCount = 0;
-
-      for (let i = 0; i < POSES.length; i++) {
-        if (enrollAbort) throw new Error("Cancelado");
-        let captured = false;
-        while (!captured) {
-          if (enrollAbort) throw new Error("Cancelado");
-          setPoseUI(i, "Pulsá «Tomar foto»", okCount);
-          if (els.enrollCoach) els.enrollCoach.textContent = `${POSES[i].hint} · después pulsá Tomar foto`;
-          try {
-            await waitForCaptureClick();
-          } catch (waitErr) {
-            throw waitErr.message === "Cancelado" ? waitErr : new Error("Cancelado");
-          }
-          if (enrollAbort) throw new Error("Cancelado");
-          setPoseUI(i, "Capturando…", okCount);
-          const blob = await captureBlob(0.92, 960);
-          if (!blob) {
-            els.enrollCount.textContent = "Sin cámara — reintentá";
-            if (els.enrollCoach) els.enrollCoach.textContent = "No hay imagen de cámara. Revisá permisos y reintentá.";
-            continue;
-          }
-          const fd = new FormData();
-          fd.append("file", blob, `pose_${i}.jpg`);
-          fd.append("name", name);
-          fd.append("rut", rut);
-          fd.append("consent", "true");
-          try {
-            const last = await api("/api/identity/enroll", { method: "POST", body: fd }, 20000);
-            if (last.face_box) {
-              lastFaceBox = last.face_box;
-              drawDetections([], lastFrameSize.w, lastFrameSize.h, {
-                face_box: last.face_box,
-                known: true,
-                name: last.worker?.name,
-              });
-            }
-            if (last.face_enrolled) {
-              okCount += 1;
-              captured = true;
-              setPoseUI(i, "OK · siguiente pose", okCount);
-              if (last.worker?.name) els.workerName.value = last.worker.name;
-              await sleep(450);
-              break;
-            }
-            const why = last.error || last.message || "Sin rostro válido";
-            els.enrollCount.textContent = "Calidad baja — reintentá";
-            if (els.enrollCoach) {
-              els.enrollCoach.textContent = why;
-            }
-          } catch (e) {
-            els.enrollCount.textContent = "Rechazado — reintentá";
-            if (els.enrollCoach) els.enrollCoach.textContent = e.message;
-          }
-        }
-      }
-      endPoseUI();
-      await refreshWorkers();
-      const done =
-        okCount >= 4
-          ? `Listo ${okCount}/4. Andá a Monitoreo: la identificación ya quedó activa.`
-          : `Incompleto ${okCount}/4. Rehacé poses con luz frontal (calidad obligatoria).`;
-      if (els.enrollCoach) els.enrollCoach.textContent = done;
-      if (okCount >= 4) {
-        enableIdentifyForPorteria("Identificación ON tras enrolar");
-      }
-    } catch (err) {
-      if (els.enrollCoach) els.enrollCoach.textContent = err.message;
-      endPoseUI();
-    } finally {
-      enrolling = false;
-      document.body.classList.remove("is-enrolling");
-      setCaptureButtonsVisible(false);
-      applyGuideMode();
-      els.btnEnroll.disabled = false;
-      if (els.btnIdentify) els.btnIdentify.disabled = false;
-      els.btnCancelEnroll.classList.add("hidden");
-      showLive();
-    }
-  }
-
-  async function uploadFacePhotos(fileList) {
-    const name = normalizePersonNameForSave(els.workerName.value.trim());
-    const rut = els.workerRut.value.trim();
-    if (!name && !rut) {
-      if (els.enrollCoach) els.enrollCoach.textContent = "Escribí nombre o RUT antes de adjuntar fotos";
-      return;
-    }
-    if (!els.chkBiometricConsent?.checked) {
-      if (els.enrollCoach) els.enrollCoach.textContent = "Marcá el consentimiento biométrico antes de adjuntar fotos.";
-      return;
-    }
-    const files = [...(fileList || [])].slice(0, 40);
-    if (!files.length) return;
-    if (els.enrollCoach) els.enrollCoach.textContent = `Cargando ${files.length} fotos de rostro…`;
-    const fd = new FormData();
-    fd.append("name", name);
-    fd.append("rut", rut);
-    fd.append("consent", "true");
-    for (const f of files) fd.append("files", f, f.name);
-    try {
-      const data = await api("/api/identity/enroll-photos", { method: "POST", body: fd }, 120000);
-      if (els.enrollCoach) els.enrollCoach.textContent = data.message;
-      if (data.worker?.name) els.workerName.value = data.worker.name;
-      await refreshWorkers();
-    } catch (err) {
-      if (els.enrollCoach) els.enrollCoach.textContent = err.message;
-    }
-  }
-
-  async function identifyWorker() {
-    identifyingNow = true;
-    applyGuideMode();
-    stopDetectLoop();
-    if (!mediaStream) await startCamera({ silentDetect: true });
-    showLive();
-    try {
-      const data = await identifyLiveFrame({ flash: true });
-      if (!data) {
-        els.identityMethod.textContent = els.identityMethod.textContent || "Sin resultado. Reintentá.";
-      } else if (data.image_b64) {
-        els.annotatedImg.hidden = false;
-        els.annotatedImg.src = `data:image/jpeg;base64,${data.image_b64}`;
-        await sleep(1200);
-        showLive();
-      }
-    } catch (err) {
-      els.identityMethod.textContent = err.message || "No se pudo identificar";
-    } finally {
-      identifyingNow = false;
-      applyGuideMode();
-    }
-  }
-
-  async function refreshTeach() {
-    try {
-      const guide = await api("/api/teach/guide");
-      const classes = guide.classes || [];
-      els.teachClass.innerHTML = classes
-        .map((c) => `<option value="${c.id}">${c.name} (${c.count})</option>`)
-        .join("");
-      els.teachStats.textContent = `${guide.stats?.total_samples || 0} ejemplos · ${guide.stats?.class_count || classes.length} clases`;
-      const sel = classes.find((c) => c.id === els.teachClass.value);
-      if (sel) els.teachHint.textContent = sel.hint;
-      if (els.teachClassList) {
-        const top = [...classes].sort((a, b) => (b.count || 0) - (a.count || 0)).slice(0, 12);
-        els.teachClassList.innerHTML = top.length
-          ? top
-              .map(
-                (c) =>
-                  `<li><span>${c.custom ? "★ " : ""}${c.name}</span><span class="conf">${c.count}</span></li>`
-              )
-              .join("")
-          : `<li class="muted">Sin ejemplos aún</li>`;
-      }
-    } catch (_) {}
-  }
-
-  async function saveTeachSample() {
-    if (!mediaStream) await startCamera({ silentDetect: true });
-    const blob = await captureBlob(0.8, 720);
-    const fd = new FormData();
-    fd.append("file", blob, "sample.jpg");
-    fd.append("class_id", els.teachClass.value);
-    const data = await api("/api/teach/sample", { method: "POST", body: fd });
-    els.teachHint.textContent = data.message;
-    await refreshTeach();
-  }
-
-  async function uploadTeachPhotos(fileList) {
-    const files = [...(fileList || [])].slice(0, 80);
-    if (!files.length) return;
-    const classId = els.teachClass.value;
-    if (!classId) {
-      els.teachHint.textContent = "Elegí o creá una clase primero";
-      return;
-    }
-    els.teachHint.textContent = `Subiendo ${files.length} fotos…`;
-    const fd = new FormData();
-    fd.append("class_id", classId);
-    for (const f of files) fd.append("files", f, f.name);
-    try {
-      const data = await api("/api/teach/samples", { method: "POST", body: fd }, 120000);
-      els.teachHint.textContent = data.message;
-      await refreshTeach();
-    } catch (err) {
-      els.teachHint.textContent = err.message;
-    }
-  }
-
-  async function uploadTeachVideo(file) {
-    if (!file) return;
-    const classId = els.teachClass.value;
-    if (!classId) {
-      els.teachHint.textContent = "Elegí o creá una clase primero";
-      return;
-    }
-    els.teachHint.textContent = "Procesando video (extrayendo frames)…";
-    const fd = new FormData();
-    fd.append("file", file, file.name);
-    fd.append("class_id", classId);
-    fd.append("max_frames", "40");
-    fd.append("stride", "12");
-    try {
-      const data = await api("/api/teach/video", { method: "POST", body: fd }, 300000);
-      els.teachHint.textContent = data.message;
-      await refreshTeach();
-    } catch (err) {
-      els.teachHint.textContent = err.message;
-    }
-  }
-
-  async function createTeachClass() {
-    const name = els.teachNewClass?.value?.trim();
-    if (!name) {
-      els.teachHint.textContent = "Escribí el nombre de la prenda nueva";
-      return;
-    }
-    const fd = new FormData();
-    fd.append("name", name);
-    fd.append("hint", "Prenda personalizada — subí fotos y videos variados");
-    try {
-      const data = await api("/api/teach/class", { method: "POST", body: fd });
-      els.teachNewClass.value = "";
-      await refreshTeach();
-      if (data.class?.id) els.teachClass.value = data.class.id;
-      els.teachHint.textContent = `Clase creada: ${data.class?.name || name}. Ahora cargá fotos/video.`;
-    } catch (err) {
-      els.teachHint.textContent = err.message;
-    }
-  }
 
 
   // Events
@@ -2445,7 +1732,7 @@ function bindAuthController(onOperatorLogin) {
       });
       const health = await api("/api/health");
       applyHealth(health);
-      await refreshWorkers();
+      await workers.refreshWorkers();
       await loadZones();
       els.repSideSummary.textContent = "Faena activa actualizada";
     } catch (err) {
@@ -2513,56 +1800,6 @@ function bindAuthController(onOperatorLogin) {
     if (!file) return;
     await detectBlob(file, { identify: true, returnImage: true });
   });
-  els.btnEnroll.addEventListener("click", enrollWorker);
-  els.btnCancelEnroll.addEventListener("click", () => {
-    enrollAbort = true;
-    cancelWaitingCapture();
-  });
-  for (const btn of [els.btnCapturePose, els.btnCapturePoseId]) {
-    if (btn) btn.addEventListener("click", triggerCapturePose);
-  }
-  if (els.faceTrainPhotos) {
-    els.faceTrainPhotos.addEventListener("change", async (e) => {
-      await uploadFacePhotos(e.target.files);
-      e.target.value = "";
-    });
-  }
-  els.btnIdentify.addEventListener("click", identifyWorker);
-  const onWorkerListClick = (e) => {
-    const del = e.target.closest("[data-del]");
-    const reset = e.target.closest("[data-reset]");
-    const edit = e.target.closest("[data-edit]");
-    const tog = e.target.closest("[data-toggle-active]");
-    if (del) deleteWorker(del.getAttribute("data-del"));
-    if (reset) resetWorkerFaces(reset.getAttribute("data-reset"));
-    if (edit) editWorker(edit.getAttribute("data-edit"));
-    if (tog) toggleWorkerActive(tog.getAttribute("data-toggle-active"));
-  };
-  if (els.workerList) els.workerList.addEventListener("click", onWorkerListClick);
-  if (els.workerSearch) {
-    els.workerSearch.addEventListener("input", () => renderWorkerList());
-  }
-  $$("[data-worker-filter]").forEach((b) => {
-    b.addEventListener("click", () => {
-      workerFilter = b.dataset.workerFilter || "active";
-      $$("[data-worker-filter]").forEach((x) => x.classList.toggle("active", x === b));
-      renderWorkerList();
-    });
-  });
-  els.btnTeachSample.addEventListener("click", saveTeachSample);
-  if (els.teachPhotos) {
-    els.teachPhotos.addEventListener("change", async (e) => {
-      await uploadTeachPhotos(e.target.files);
-      e.target.value = "";
-    });
-  }
-  if (els.teachVideo) {
-    els.teachVideo.addEventListener("change", async (e) => {
-      await uploadTeachVideo(e.target.files?.[0]);
-      e.target.value = "";
-    });
-  }
-  if (els.btnTeachAddClass) els.btnTeachAddClass.addEventListener("click", createTeachClass);
   if (els.silZoomRange) {
     els.silZoomRange.addEventListener("input", () => setSilhouetteZoom(Number(els.silZoomRange.value)));
   }
@@ -2580,20 +1817,6 @@ function bindAuthController(onOperatorLogin) {
       setSilhouetteZoom(cur - 5);
     });
   }
-  els.btnTeachTrain.addEventListener("click", async () => {
-    els.teachHint.textContent = "Entrenando modelo (puede tardar)…";
-    try {
-      const data = await api("/api/teach/train", { method: "POST" }, 60000);
-      els.teachHint.textContent = data.message;
-    } catch (err) {
-      els.teachHint.textContent = err.message;
-    }
-  });
-  els.btnTeachActivate.addEventListener("click", async () => {
-    const data = await api("/api/teach/activate", { method: "POST" });
-    els.modelStatusText.textContent = `IA lista · ${data.model}`;
-    els.teachHint.textContent = "Modelo personalizado activado";
-  });
   window.addEventListener("resize", () => {
     if (mediaStream) syncCanvasSize();
   });
@@ -2712,23 +1935,6 @@ function bindAuthController(onOperatorLogin) {
     drawZonesEditorCanvas();
   });
 
-  $("#btnKiosk")?.addEventListener("click", () => {
-    if (settings.kioskMode) {
-      exitKioskSafe();
-    } else {
-      setKioskMode(true);
-    }
-  });
-  $("#btnKioskExit")?.addEventListener("click", () => {
-    exitKioskSafe();
-  });
-  window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && settings.kioskMode) {
-      e.preventDefault();
-      exitKioskSafe();
-    }
-  });
-
   $("#btnLogout")?.addEventListener("click", async () => {
     try {
       await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
@@ -2793,7 +1999,7 @@ function bindAuthController(onOperatorLogin) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
-      await refreshWorkers();
+      await workers.refreshWorkers();
       if (els.workerListHint) {
         els.workerListHint.textContent =
           mode === "replace"
@@ -2803,235 +2009,6 @@ function bindAuthController(onOperatorLogin) {
     } catch (err) {
       if (els.workerListHint) els.workerListHint.textContent = err.message || "Restore falló";
     }
-  });
-
-  // ── Vigilancia masiva + NVR / DVR ─────────────────────────────────────────
-  let massLoopOn = false;
-  let massTimer = null;
-  let watchlistCache = [];
-  let nvrDevicesCache = [];
-
-  function fillMassProfiles() {
-    const massSel = $("#massProfileSelect");
-    const src = els.profileSelect;
-    if (!massSel || !src) return;
-    massSel.innerHTML = src.innerHTML;
-    if (src.value) massSel.value = src.value;
-  }
-
-  function renderMassGridPlaceholder() {
-    const grid = $("#massGrid");
-    if (!grid || watchlistCache.length) return;
-    grid.innerHTML = `<p class="muted mass-empty">Agregá canales en <b>Equipos</b> o importá un NVR Dahua/Hikvision.</p>`;
-  }
-
-  function renderMassGrid(cells) {
-    const grid = $("#massGrid");
-    if (!grid) return;
-    if (!cells?.length) {
-      renderMassGridPlaceholder();
-      return;
-    }
-    grid.innerHTML = cells
-      .map((c) => {
-        const cls = !c.connected ? "offline" : c.compliant ? "ok" : c.ok ? "bad" : "offline";
-        const status = !c.connected
-          ? "Sin señal"
-          : c.compliant
-            ? "Cumple"
-            : `Falta: ${(c.missing || []).join(", ") || "EPP"}`;
-        const thumb = c.thumb ? `data:image/jpeg;base64,${c.thumb}` : "";
-        return `<div class="mass-cell ${cls}" data-mass-id="${escapeHtml(c.id || "")}">
-          ${thumb ? `<img src="${thumb}" alt="Vista ${escapeHtml(c.name || "canal")} — ${escapeHtml(status)}" />` : `<div class="mass-cell-meta" style="top:40%">Sin imagen</div>`}
-          <div class="mass-cell-meta"><strong>${escapeHtml(c.name || "Canal")}</strong> · ${escapeHtml(status)}</div>
-        </div>`;
-      })
-      .join("");
-    const sum = $("#massSummaryText");
-    if (sum) {
-      const online = cells.filter((c) => c.connected).length;
-      const alerts = cells.filter((c) => c.connected && !c.compliant).length;
-      sum.textContent = `${cells.length} canales · ${online} en línea · ${alerts} alertas EPP`;
-    }
-  }
-
-  async function refreshWatchlistUi() {
-    try {
-      const data = await api("/api/watchlist");
-      watchlistCache = data.channels || [];
-      const list = $("#watchlistList");
-      if (list) {
-        list.innerHTML =
-          watchlistCache.length
-            ? watchlistCache
-                .map(
-                  (c) =>
-                    `<li><span>${escapeHtml(c.name)}</span><span class="conf">${c.enabled ? "ON" : "off"} · ${escapeHtml((c.url || "").slice(0, 42))}…</span></li>`
-                )
-                .join("")
-            : `<li class="muted">Sin canales</li>`;
-      }
-    } catch (err) {
-      const list = $("#watchlistList");
-      if (list) list.innerHTML = `<li class="muted">${escapeHtml(err.message)}</li>`;
-    }
-  }
-
-  async function refreshNvrDevices() {
-    try {
-      const data = await api("/api/nvr/devices");
-      nvrDevicesCache = data.devices || [];
-      const list = $("#nvrDeviceList");
-      if (!list) return;
-      list.innerHTML =
-        nvrDevicesCache.length
-          ? nvrDevicesCache
-              .map(
-                (d) =>
-                  `<li><span>${escapeHtml(d.name)} (${escapeHtml(d.vendor)})</span><span class="conf">${d.channel_count || 0} ch · ${escapeHtml(d.host || "")}</span></li>`
-              )
-              .join("")
-          : `<li class="muted">Sin NVR registrados</li>`;
-    } catch (err) {
-      const list = $("#nvrDeviceList");
-      if (list) list.innerHTML = `<li class="muted">${escapeHtml(err.message)}</li>`;
-    }
-  }
-
-  async function runMassScan() {
-    const profile = $("#massProfileSelect")?.value || els.profileSelect?.value || "general";
-    const q = new URLSearchParams({ profile, required: requiredQueryValue() });
-    const data = await api(`/api/surveillance/mass/scan?${q}`, { method: "POST" });
-    renderMassGrid(data.cells || []);
-    return data;
-  }
-
-  function startMassLoop() {
-    if (massLoopOn) return;
-    massLoopOn = true;
-    $("#btnMassStart")?.setAttribute("disabled", "true");
-    $("#btnMassStop")?.removeAttribute("disabled");
-    const tick = async () => {
-      if (!massLoopOn) return;
-      try {
-        await runMassScan();
-      } catch (err) {
-        const hint = $("#massStatusHint");
-        if (hint) hint.textContent = err.message || "Error en barrido";
-      }
-      if (massLoopOn) massTimer = setTimeout(tick, 4000);
-    };
-    tick();
-  }
-
-  function stopMassLoop() {
-    massLoopOn = false;
-    if (massTimer) {
-      clearTimeout(massTimer);
-      massTimer = null;
-    }
-    $("#btnMassStart")?.removeAttribute("disabled");
-    $("#btnMassStop")?.setAttribute("disabled", "true");
-  }
-
-  $("#btnMassStart")?.addEventListener("click", () => startMassLoop());
-  $("#btnMassStop")?.addEventListener("click", () => stopMassLoop());
-  $("#btnMassRefresh")?.addEventListener("click", () => runMassScan().catch((e) => alert(e.message)));
-
-  $("#btnNvrProbe")?.addEventListener("click", async () => {
-    const hint = $("#nvrProbeHint");
-    if (hint) hint.textContent = "Probando…";
-    try {
-      const body = {
-        vendor: $("#nvrVendor")?.value || "dahua",
-        host: $("#nvrHost")?.value?.trim(),
-        username: $("#nvrUser")?.value || "",
-        password: $("#nvrPass")?.value || "",
-        port: Number($("#nvrPort")?.value) || 554,
-        channel_count: Number($("#nvrChannelCount")?.value) || 8,
-        subtype: Number($("#nvrSubtype")?.value) || 0,
-      };
-      const data = await api("/api/nvr/probe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (hint) {
-        hint.textContent = `${data.device_name || data.host} · ${data.channel_count} canales RTSP generados${data.probe_note ? ` · ${data.probe_note}` : ""}`;
-      }
-    } catch (err) {
-      if (hint) hint.textContent = err.message;
-    }
-  });
-
-  $("#btnNvrSave")?.addEventListener("click", async () => {
-    const hint = $("#nvrProbeHint");
-    try {
-      const body = {
-        vendor: $("#nvrVendor")?.value || "dahua",
-        host: $("#nvrHost")?.value?.trim(),
-        name: $("#nvrName")?.value?.trim(),
-        username: $("#nvrUser")?.value || "",
-        password: $("#nvrPass")?.value || "",
-        port: Number($("#nvrPort")?.value) || 554,
-        channel_count: Number($("#nvrChannelCount")?.value) || 8,
-        subtype: Number($("#nvrSubtype")?.value) || 0,
-      };
-      await api("/api/nvr/devices", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      await refreshNvrDevices();
-      if (hint) hint.textContent = "NVR guardado";
-    } catch (err) {
-      if (hint) hint.textContent = err.message;
-    }
-  });
-
-  $("#btnNvrImportWatch")?.addEventListener("click", async () => {
-    const hint = $("#nvrProbeHint");
-    try {
-      let deviceId = nvrDevicesCache[0]?.id;
-      if (!deviceId) {
-        const saved = await api("/api/nvr/devices", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            vendor: $("#nvrVendor")?.value || "dahua",
-            host: $("#nvrHost")?.value?.trim(),
-            name: $("#nvrName")?.value?.trim(),
-            username: $("#nvrUser")?.value || "",
-            password: $("#nvrPass")?.value || "",
-            port: Number($("#nvrPort")?.value) || 554,
-            channel_count: Number($("#nvrChannelCount")?.value) || 8,
-            subtype: Number($("#nvrSubtype")?.value) || 0,
-          }),
-        });
-        deviceId = saved.device?.id;
-        await refreshNvrDevices();
-      }
-      if (!deviceId) throw new Error("Guardá el NVR primero");
-      const res = await api(`/api/nvr/devices/${deviceId}/import-watchlist?replace=false`, { method: "POST" });
-      await refreshWatchlistUi();
-      if (hint) hint.textContent = `Importados ${res.imported} canales a Masivo`;
-      if (appMode === "mass") renderMassGridPlaceholder();
-    } catch (err) {
-      if (hint) hint.textContent = err.message;
-    }
-  });
-
-  $("#btnDevicesSaveCam")?.addEventListener("click", async () => {
-    const url = $("#devicesRtspUrl")?.value?.trim();
-    const name = $("#devicesCameraName")?.value?.trim() || "Canal";
-    if (!url) return alert("URL RTSP requerida");
-    await api("/api/cameras", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, url }),
-    });
-    await refreshCameras();
-    alert("Canal guardado para Vivo (máx. 4)");
   });
 
   const zones = createZonesController({
@@ -3058,6 +2035,21 @@ function bindAuthController(onOperatorLogin) {
   });
   const { openReport, fillRepProfiles, downloadUrl } = reports;
 
+  const workers = createWorkersController({
+    api,
+    els,
+    displayPersonName,
+    normalizePersonNameForSave,
+    setIdentityCard,
+    getLastIdentity: () => lastIdentity,
+    setLastIdentity: (v) => {
+      lastIdentity = v;
+    },
+    setLastFaceBox: (v) => {
+      lastFaceBox = v;
+    },
+  });
+
   const detectLive = createDetectLiveController({
     api,
     els,
@@ -3081,7 +2073,7 @@ function bindAuthController(onOperatorLogin) {
     setLastScanRefreshAt: (v) => {
       lastScanRefreshAt = v;
     },
-    refreshScans,
+    refreshScans: () => workers.refreshScans(),
     setIdentityCard,
     drawDetections,
     getLastFrameSize: () => lastFrameSize,
@@ -3101,9 +2093,64 @@ function bindAuthController(onOperatorLogin) {
     stopDetectLoop,
   } = detectLive;
 
+  const kiosk = createKioskController({
+    settings,
+    saveSettings,
+    els,
+    setAppMode,
+    applyRoleUI,
+    displayPersonName,
+    getLastIdentity: () => lastIdentity,
+  });
+
+  const mass = createMassController({
+    api,
+    els,
+    requiredQueryValue,
+    getAppMode: () => appMode,
+    refreshCameras,
+  });
+
+  const teach = createTeachController({
+    api,
+    els,
+    captureBlob,
+    startCamera,
+    hasMediaStream: () => mediaStream,
+  });
+
+  const enroll = createEnrollController({
+    api,
+    els,
+    enrollState,
+    normalizePersonNameForSave,
+    captureBlob,
+    startCamera,
+    stopDetectLoop,
+    identifyLiveFrame,
+    showLive,
+    applyGuideMode,
+    drawDetections,
+    getLastFrameSize: () => lastFrameSize,
+    setLastFaceBox: (v) => {
+      lastFaceBox = v;
+    },
+    refreshWorkers: () => workers.refreshWorkers(),
+    enableIdentifyForPorteria,
+    sleep,
+    hasMediaStream: () => mediaStream,
+    setCaptureButtonsVisible,
+  });
+
+  workers.bindWorkerEvents();
+  kiosk.bindKioskEvents();
+  mass.bindMassEvents();
+  teach.bindTeachEvents();
+  enroll.bindEnrollEvents();
+
   bindAuthController(() => {
     setAppMode("live");
-    setKioskMode(true);
+    kiosk.setKioskMode(true);
   });
 
   boot();
