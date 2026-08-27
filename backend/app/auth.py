@@ -1,4 +1,4 @@
-"""Autenticación PIN + sesión con RBAC (admin / guardia / portería)."""
+"""Autenticación simple por PIN + sesión (cookie / header) con roles."""
 
 from __future__ import annotations
 
@@ -16,21 +16,20 @@ from fastapi import HTTPException, Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
-from . import rbac as rbac_mod
-
 COOKIE_NAME = "vigiepp_session"
 HEADER_NAME = "X-VigiEPP-Key"
 SESSION_HOURS = 12
-ROLE_ADMIN = rbac_mod.ROLE_ADMIN
-ROLE_OPERATOR = rbac_mod.ROLE_OPERATOR
-ROLE_GUARD = rbac_mod.ROLE_GUARD
+ROLE_ADMIN = "admin"
+ROLE_OPERATOR = "operator"
 LOGIN_WINDOW_S = 300
 LOGIN_MAX_ATTEMPTS = 8
 
 logger = logging.getLogger("vigiepp.auth")
 
 _lock = threading.Lock()
+# token -> {expires_at, role}
 _sessions: dict[str, dict[str, Any]] = {}
+# ip -> [timestamps]
 _login_attempts: dict[str, list[float]] = {}
 _sessions_loaded = False
 
@@ -59,10 +58,6 @@ def _load_sessions() -> None:
                         _sessions[str(tok)] = {
                             "expires_at": float(meta["expires_at"]),
                             "role": meta.get("role") or ROLE_ADMIN,
-                            "user_id": meta.get("user_id"),
-                            "display_name": meta.get("display_name"),
-                            "permissions": list(meta.get("permissions") or []),
-                            "site_ids": list(meta.get("site_ids") or ["*"]),
                         }
     except Exception:
         logger.warning("No se pudieron cargar sesiones persistidas", exc_info=True)
@@ -94,24 +89,6 @@ def admin_pin() -> str:
     return "vigiepp"
 
 
-def guard_pin() -> str:
-    pin = os.getenv("VIGIEPP_GUARD_PIN", "").strip()
-    if pin:
-        return pin
-    return operator_pin()
-
-
-def porteria_pin() -> str:
-    pin = os.getenv("VIGIEPP_PORTERIA_PIN", "").strip()
-    if pin:
-        return pin
-    op = operator_pin()
-    admin = admin_pin()
-    if op and not hmac.compare_digest(op, admin):
-        return op
-    return ""
-
-
 def operator_pin() -> str:
     pin = os.getenv("VIGIEPP_OPERATOR_PIN", "").strip()
     if pin:
@@ -121,8 +98,8 @@ def operator_pin() -> str:
 
 def using_default_pins() -> bool:
     admin_set = bool(os.getenv("VIGIEPP_ADMIN_PIN", "").strip())
-    guard_set = bool(os.getenv("VIGIEPP_GUARD_PIN", "").strip() or os.getenv("VIGIEPP_OPERATOR_PIN", "").strip())
-    return not admin_set or not guard_set
+    op_set = bool(os.getenv("VIGIEPP_OPERATOR_PIN", "").strip())
+    return not admin_set or not op_set
 
 
 def api_key() -> str | None:
@@ -137,19 +114,14 @@ def _purge_expired() -> None:
         _sessions.pop(t, None)
 
 
-def create_session(payload: dict[str, Any] | None = None, role: str = ROLE_ADMIN) -> str:
-    base = payload or rbac_mod.session_payload_env(role, "Administrador")
+def create_session(role: str = ROLE_ADMIN) -> str:
     token = secrets.token_urlsafe(32)
     with _lock:
         _load_sessions()
         _purge_expired()
         _sessions[token] = {
             "expires_at": time.time() + SESSION_HOURS * 3600,
-            "role": base.get("role") or role,
-            "user_id": base.get("user_id"),
-            "display_name": base.get("display_name") or "Usuario",
-            "permissions": list(base.get("permissions") or rbac_mod.DEFAULT_ROLE_PERMISSIONS.get(role, [])),
-            "site_ids": list(base.get("site_ids") or ["*"]),
+            "role": role if role in (ROLE_ADMIN, ROLE_OPERATOR) else ROLE_ADMIN,
         }
         _persist_sessions()
     return token
@@ -189,61 +161,20 @@ def session_role(token: str | None) -> str | None:
     return None
 
 
-def session_permissions(token: str | None) -> list[str]:
-    meta = session_meta(token)
-    if meta:
-        return list(meta.get("permissions") or [])
-    if token and api_key() and hmac.compare_digest(token, api_key() or ""):
-        return [rbac_mod.PERM_ALL]
-    return []
-
-
-def session_profile(token: str | None) -> dict[str, Any] | None:
-    meta = session_meta(token)
-    if not meta:
-        if token and api_key() and hmac.compare_digest(token, api_key() or ""):
-            return rbac_mod.session_payload_env(ROLE_ADMIN, "API Key")
-        return None
-    return {
-        "role": meta.get("role"),
-        "user_id": meta.get("user_id"),
-        "display_name": meta.get("display_name"),
-        "permissions": list(meta.get("permissions") or []),
-        "site_ids": list(meta.get("site_ids") or ["*"]),
-    }
-
-
-def resolve_login(pin_or_key: str) -> dict[str, Any] | None:
-    """Resuelve credenciales a payload de sesión (cuentas RBAC o PIN env)."""
+def resolve_pin_role(pin_or_key: str) -> str | None:
+    """Solo para POST /api/auth/login — no usar como bearer permanente."""
     candidate = (pin_or_key or "").strip()
     if not candidate:
         return None
-
-    user = rbac_mod.authenticate_pin(candidate)
-    if user:
-        return rbac_mod.session_payload_from_user(user)
-
     if hmac.compare_digest(candidate, admin_pin()):
-        return rbac_mod.session_payload_env(ROLE_ADMIN, "Administrador")
+        return ROLE_ADMIN
     key = api_key()
     if key and hmac.compare_digest(candidate, key):
-        return rbac_mod.session_payload_env(ROLE_ADMIN, "API Key")
-
-    gp = guard_pin()
-    admin = admin_pin()
-    if gp and not hmac.compare_digest(gp, admin) and hmac.compare_digest(candidate, gp):
-        return rbac_mod.session_payload_env(ROLE_GUARD, "Guardia (PIN env)")
-
-    pp = porteria_pin()
-    if pp and not hmac.compare_digest(pp, admin) and hmac.compare_digest(candidate, pp):
-        return rbac_mod.session_payload_env(ROLE_OPERATOR, "Portería (PIN env)")
-
+        return ROLE_ADMIN
+    op = operator_pin()
+    if op and not hmac.compare_digest(op, admin_pin()) and hmac.compare_digest(candidate, op):
+        return ROLE_OPERATOR
     return None
-
-
-def resolve_pin_role(pin_or_key: str) -> str | None:
-    payload = resolve_login(pin_or_key)
-    return str(payload["role"]) if payload else None
 
 
 def credentials_ok(pin_or_key: str) -> bool:
@@ -343,22 +274,43 @@ def is_public_path(path: str) -> bool:
 
 
 def is_admin_only(method: str, path: str) -> bool:
-    """Compat: True si operador portería no tiene permiso para la ruta."""
-    required = rbac_mod.route_required_permissions(method, path)
-    if not required:
+    """Rutas que el operador (portería) no puede usar."""
+    m = method.upper()
+    if m in ("GET", "HEAD", "OPTIONS"):
+        if path.startswith("/api/identity/backup"):
+            return True
+        if path.startswith("/api/identity/consent"):
+            return True
+        if path.startswith("/api/identity/workers") and path.endswith("/photo"):
+            return True
+        if path == "/api/identity/workers":
+            return True
+        if path.startswith(("/api/notifications/config", "/api/notifications/log")):
+            return True
+        if path.startswith("/api/teach/"):
+            return True
+        if path.startswith("/api/audit"):
+            return True
+        if path.startswith("/api/reports/"):
+            return True
+        return bool(path.startswith("/api/evidence/"))
+
+    if path in ("/api/detect", "/api/identity/identify"):
         return False
-    op_perms = rbac_mod.DEFAULT_ROLE_PERMISSIONS[ROLE_OPERATOR]
-    return not rbac_mod.has_any_permission(op_perms, required)
+    if path.startswith("/api/rtsp/"):
+        return False
+    if path.startswith("/api/auth/"):
+        return False
 
-
-def require_permission(request: Request, perm: str) -> str:
-    token = require_auth(request)
-    if not auth_enabled():
-        return token
-    grants = session_permissions(token)
-    if not rbac_mod.has_permission(grants, perm):
-        raise HTTPException(status_code=403, detail="Permiso insuficiente")
-    return token
+    if path.startswith("/api/identity/"):
+        return True
+    if path.startswith("/api/zones"):
+        return True
+    if path.startswith("/api/teach/"):
+        return True
+    if path.startswith("/api/notifications/"):
+        return True
+    return bool(path.startswith("/api/cameras"))
 
 
 def set_session_cookie(response: Response, token: str) -> None:
@@ -393,8 +345,8 @@ def require_admin(request: Request) -> str:
     token = require_auth(request)
     if not auth_enabled():
         return token
-    grants = session_permissions(token)
-    if not rbac_mod.has_permission(grants, rbac_mod.PERM_ALL):
+    role = session_role(token)
+    if role != ROLE_ADMIN:
         raise HTTPException(status_code=403, detail="Requiere rol administrador")
     return token
 
@@ -424,39 +376,18 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
                 return JSONResponse({"detail": "No autorizado. Iniciá sesión."}, status_code=401)
             clear_auth_fail_rate(client_ip(request))
-            profile = session_profile(token) or {}
-            role = profile.get("role") or session_role(token)
-            grants = list(profile.get("permissions") or session_permissions(token))
+            role = session_role(token)
             try:
                 from . import audit as audit_mod
 
-                audit_mod.set_actor(str(profile.get("display_name") or role or "user"))
+                audit_mod.set_actor(role or "operator")
             except Exception:  # noqa: BLE001
                 pass
-
-            if path.startswith("/api/auth/users") and request.method.upper() != "GET":
-                pass  # checked via route permissions
-            elif not rbac_mod.check_route_access(grants, request.method, path):
-                detail = "Permiso insuficiente para esta acción."
-                if role == ROLE_OPERATOR:
-                    detail = "Rol portería: solo monitoreo en vivo."
-                elif role == ROLE_GUARD:
-                    detail = "Guardia: permiso no otorgado. Contactá al administrador."
-                return JSONResponse({"detail": detail}, status_code=403)
-
-            if path.startswith("/api/") and role != ROLE_ADMIN:
-                try:
-                    from . import tenants as tenants_mod
-
-                    active_site = tenants_mod.get_active_site_id()
-                    site_ids = list(profile.get("site_ids") or ["*"])
-                    if not rbac_mod.check_site_access(site_ids, active_site):
-                        return JSONResponse(
-                            {"detail": "Sin acceso a la faena activa."},
-                            status_code=403,
-                        )
-                except Exception:  # noqa: BLE001
-                    pass
+            if role == ROLE_OPERATOR and is_admin_only(request.method, path):
+                return JSONResponse(
+                    {"detail": "Rol operador: solo monitoreo / portería."},
+                    status_code=403,
+                )
 
         return await call_next(request)
 
@@ -481,10 +412,9 @@ def auth_status() -> dict[str, Any]:
     return {
         "auth_enabled": auth_enabled(),
         "docs_enabled": docs_enabled(),
-        "roles": [ROLE_ADMIN, ROLE_GUARD, ROLE_OPERATOR],
-        "rbac": True,
+        "roles": [ROLE_ADMIN, ROLE_OPERATOR],
         "default_pins_active": defaults,
         "production_pin_warning": bool(defaults and cloud),
         "auth_blocked_default_pins": deny_defaults,
-        "hint": "Configura VIGIEPP_ADMIN_PIN y VIGIEPP_GUARD_PIN (o VIGIEPP_OPERATOR_PIN) en producción.",
+        "hint": "Configura VIGIEPP_ADMIN_PIN y VIGIEPP_OPERATOR_PIN en producción.",
     }

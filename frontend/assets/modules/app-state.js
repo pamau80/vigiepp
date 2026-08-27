@@ -136,22 +136,6 @@ export function createAppElements() {
     btnRepRefresh: $("#btnRepRefresh"),
     repSideSummary: $("#repSideSummary"),
     repSideList: $("#repSideList"),
-    usersList: $("#usersList"),
-    userNewName: $("#userNewName"),
-    userNewPin: $("#userNewPin"),
-    userNewRole: $("#userNewRole"),
-    userNewExtra: $("#userNewExtra"),
-    btnUserCreate: $("#btnUserCreate"),
-    userEditPanel: $("#userEditPanel"),
-    userEditName: $("#userEditName"),
-    userEditPin: $("#userEditPin"),
-    userEditRole: $("#userEditRole"),
-    userEditSites: $("#userEditSites"),
-    userEditExtra: $("#userEditExtra"),
-    userEditRevoked: $("#userEditRevoked"),
-    btnUserSave: $("#btnUserSave"),
-    btnUserCancel: $("#btnUserCancel"),
-    usersHint: $("#usersHint"),
   };
 }
 

@@ -8,7 +8,6 @@ from pydantic import BaseModel, Field
 
 from .. import auth as auth_mod
 from .. import oidc as oidc_mod
-from .. import rbac as rbac_mod
 
 logger = logging.getLogger("vigiepp.auth")
 
@@ -18,36 +17,9 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 class AuthLoginRequest(BaseModel):
     pin: str = Field(..., min_length=1, max_length=128)
 
-
-class UserCreateRequest(BaseModel):
-    name: str = Field(..., min_length=1, max_length=80)
-    pin: str = Field(..., min_length=4, max_length=64)
-    role: str = Field(default=rbac_mod.ROLE_GUARD)
-    extra_permissions: list[str] = Field(default_factory=list)
-    revoked_permissions: list[str] = Field(default_factory=list)
-    site_ids: list[str] = Field(default_factory=list)
-
-
-class UserUpdateRequest(BaseModel):
-    name: str | None = None
-    pin: str | None = Field(default=None, min_length=4, max_length=64)
-    role: str | None = None
-    active: bool | None = None
-    extra_permissions: list[str] | None = None
-    revoked_permissions: list[str] | None = None
-    site_ids: list[str] | None = None
-
-
 @router.get("/status")
 def auth_status() -> dict[str, Any]:
-    data = auth_mod.auth_status()
-    data["catalog"] = rbac_mod.catalog()
-    return data
-
-
-@router.get("/permissions")
-def permissions_catalog() -> dict[str, Any]:
-    return {"ok": True, **rbac_mod.catalog()}
+    return auth_mod.auth_status()
 
 
 @router.post("/login")
@@ -55,26 +27,23 @@ def auth_login(body: AuthLoginRequest, request: Request, response: Response) -> 
     if auth_mod.default_pins_blocked_on_cloud():
         raise HTTPException(
             503,
-            "PIN por defecto bloqueado en cloud. Configura VIGIEPP_ADMIN_PIN y VIGIEPP_GUARD_PIN.",
+            "PIN por defecto bloqueado en cloud. Configura VIGIEPP_ADMIN_PIN y VIGIEPP_OPERATOR_PIN.",
         )
     if not auth_mod.auth_enabled():
-        return {"ok": True, "auth_enabled": False, "role": auth_mod.ROLE_ADMIN, "message": "Auth desactivada"}
+        return {"ok": True, "auth_enabled": False, "role": "admin", "message": "Auth desactivada"}
     ip = auth_mod.client_ip(request)
     auth_mod.check_login_rate(ip)
-    payload = auth_mod.resolve_login(body.pin)
-    if not payload:
+    role = auth_mod.resolve_pin_role(body.pin)
+    if not role:
         raise HTTPException(401, "PIN incorrecto")
     auth_mod.clear_login_rate(ip)
-    token = auth_mod.create_session(payload)
+    token = auth_mod.create_session(role)
     auth_mod.set_session_cookie(response, token)
     return {
         "ok": True,
         "auth_enabled": True,
         "token": token,
-        "role": payload.get("role"),
-        "display_name": payload.get("display_name"),
-        "permissions": payload.get("permissions"),
-        "site_ids": payload.get("site_ids"),
+        "role": role,
         "expires_hours": auth_mod.SESSION_HOURS,
     }
 
@@ -90,62 +59,12 @@ def auth_logout(request: Request, response: Response) -> dict[str, Any]:
 @router.get("/me")
 def auth_me(request: Request) -> dict[str, Any]:
     if not auth_mod.auth_enabled():
-        return {
-            "ok": True,
-            "authenticated": True,
-            "auth_enabled": False,
-            "role": auth_mod.ROLE_ADMIN,
-            "permissions": [rbac_mod.PERM_ALL],
-        }
+        return {"ok": True, "authenticated": True, "auth_enabled": False, "role": "admin"}
     token = auth_mod.extract_token(request)
-    profile = auth_mod.session_profile(token)
-    if not profile:
+    role = auth_mod.session_role(token)
+    if not role:
         raise HTTPException(401, "No autorizado")
-    return {"ok": True, "authenticated": True, "auth_enabled": True, **profile}
-
-
-@router.get("/users")
-def list_users(request: Request) -> dict[str, Any]:
-    auth_mod.require_permission(request, "users.manage")
-    return {"ok": True, "users": rbac_mod.list_users(include_inactive=True)}
-
-
-@router.post("/users")
-def create_user(body: UserCreateRequest, request: Request) -> dict[str, Any]:
-    auth_mod.require_permission(request, "users.manage")
-    try:
-        user = rbac_mod.create_user(
-            name=body.name,
-            pin=body.pin,
-            role=body.role,
-            extra_permissions=body.extra_permissions,
-            revoked_permissions=body.revoked_permissions,
-            site_ids=body.site_ids,
-        )
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    return {"ok": True, "user": user}
-
-
-@router.patch("/users/{user_id}")
-def update_user(user_id: str, body: UserUpdateRequest, request: Request) -> dict[str, Any]:
-    auth_mod.require_permission(request, "users.manage")
-    patch = body.model_dump(exclude_unset=True)
-    try:
-        user = rbac_mod.update_user(user_id, patch)
-    except ValueError as exc:
-        raise HTTPException(404, str(exc)) from exc
-    return {"ok": True, "user": user}
-
-
-@router.delete("/users/{user_id}")
-def deactivate_user(user_id: str, request: Request) -> dict[str, Any]:
-    auth_mod.require_permission(request, "users.manage")
-    try:
-        rbac_mod.delete_user(user_id)
-    except ValueError as exc:
-        raise HTTPException(404, str(exc)) from exc
-    return {"ok": True}
+    return {"ok": True, "authenticated": True, "auth_enabled": True, "role": role}
 
 
 @router.get("/oidc/config")
@@ -172,20 +91,19 @@ def oidc_callback(response: Response, code: str = "", state: str = "") -> dict[s
         access = str(tokens.get("access_token") or "")
         user = oidc_mod.userinfo(access) if access else {}
         role = oidc_mod.resolve_role(user)
-        name = user.get("name") or user.get("preferred_username") or "OIDC"
-        payload = rbac_mod.session_payload_env(role, str(name))
-        token = auth_mod.create_session(payload)
+        token = auth_mod.create_session(role)
         auth_mod.set_session_cookie(response, token)
         return {
             "ok": True,
             "role": role,
             "token": token,
-            "permissions": payload.get("permissions"),
             "user": {
                 "email": user.get("email"),
-                "name": name,
+                "name": user.get("name") or user.get("preferred_username"),
             },
         }
     except Exception as exc:
         logger.exception("OIDC callback falló")
         raise HTTPException(401, "OIDC falló") from exc
+
+

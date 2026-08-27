@@ -1,17 +1,8 @@
 import { $, $$ } from "./dom.js";
-import {
-  applyNavVisibility,
-  clearStoredAccess,
-  readStoredPermissions,
-  roleLabel,
-  storeAccessProfile,
-} from "./access-control.js";
 
-/** Control de login PIN / sesión y UI por rol + permisos RBAC. */
-export function createAuthController({ onPorteriaLogin } = {}) {
+/** Control de login PIN / sesión y UI por rol. */
+export function createAuthController({ onOperatorLogin } = {}) {
   let userRole = "admin";
-  let permissions = ["*"];
-  let displayName = "Administrador";
 
   function showAuthGate(show, hint = "") {
     const gate = $("#authGate");
@@ -27,33 +18,20 @@ export function createAuthController({ onPorteriaLogin } = {}) {
     return userRole;
   }
 
-  function getPermissions() {
-    return permissions;
-  }
-
-  function applyRoleUI(profileOrRole) {
-    const profile =
-      typeof profileOrRole === "object" && profileOrRole
-        ? profileOrRole
-        : { role: profileOrRole, permissions: readStoredPermissions() };
-
-    userRole = profile.role || "admin";
-    permissions = profile.permissions || readStoredPermissions();
-    displayName = profile.display_name || roleLabel(userRole);
-
-    storeAccessProfile({ role: userRole, permissions, display_name: displayName });
+  function applyRoleUI(role) {
+    userRole = role || "admin";
+    sessionStorage.setItem("vigiepp.role", userRole);
     document.body.dataset.role = userRole;
-    applyNavVisibility(permissions);
-
+    const isOp = userRole === "operator";
+    $$(".mode-btn").forEach((b) => {
+      const mode = b.dataset.mode;
+      const allow = !isOp || mode === "live" || mode === "monitor";
+      b.classList.toggle("hidden", !allow);
+      b.disabled = !allow;
+    });
+    if (isOp && onOperatorLogin) onOperatorLogin();
     const tag = $(".brand-tag");
-    if (tag) {
-      tag.textContent =
-        userRole === "admin"
-          ? "EPP + identidad · Chile"
-          : `${displayName} · ${roleLabel(userRole)}`;
-    }
-
-    if (userRole === "operator" && onPorteriaLogin) onPorteriaLogin();
+    if (tag) tag.textContent = isOp ? "Portería · operador" : "EPP + identidad · Chile";
   }
 
   async function ensureAuth(force = false) {
@@ -62,7 +40,7 @@ export function createAuthController({ onPorteriaLogin } = {}) {
       if (!st.auth_enabled) {
         showAuthGate(false);
         $("#btnLogout")?.classList.add("hidden");
-        applyRoleUI({ role: "admin", permissions: ["*"], display_name: "Administrador" });
+        applyRoleUI("admin");
         return true;
       }
       if (!force) {
@@ -76,7 +54,7 @@ export function createAuthController({ onPorteriaLogin } = {}) {
           const data = await me.json().catch(() => ({}));
           showAuthGate(false);
           $("#btnLogout")?.classList.remove("hidden");
-          applyRoleUI(data);
+          applyRoleUI(data.role || sessionStorage.getItem("vigiepp.role") || "admin");
           return true;
         }
       }
@@ -85,7 +63,7 @@ export function createAuthController({ onPorteriaLogin } = {}) {
     }
 
     return new Promise((resolve) => {
-      showAuthGate(true, "PIN administrador o guardia autorizado");
+      showAuthGate(true, "PIN admin o portería (operador)");
       const form = $("#authForm");
       const onSubmit = async (e) => {
         e.preventDefault();
@@ -104,7 +82,7 @@ export function createAuthController({ onPorteriaLogin } = {}) {
             return;
           }
           if (data.token) sessionStorage.setItem("vigiepp.token", data.token);
-          applyRoleUI(data);
+          applyRoleUI(data.role || "admin");
           showAuthGate(false);
           $("#btnLogout")?.classList.remove("hidden");
           form?.removeEventListener("submit", onSubmit);
@@ -117,10 +95,5 @@ export function createAuthController({ onPorteriaLogin } = {}) {
     });
   }
 
-  function logoutLocal() {
-    clearStoredAccess();
-    sessionStorage.removeItem("vigiepp.token");
-  }
-
-  return { ensureAuth, showAuthGate, applyRoleUI, getRole, getPermissions, logoutLocal };
+  return { ensureAuth, showAuthGate, applyRoleUI, getRole };
 }
