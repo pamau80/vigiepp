@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Revisión E2E completa — todos los módulos API VigiEPP v48
+# Revisión E2E completa — todos los módulos API VigiEPP v49
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -18,17 +18,19 @@ export PYTHONPATH="${PYTHONPATH:-}:$ROOT/backend"
 ok() { echo "✓ $1"; PASS=$((PASS+1)); }
 bad() { echo "✗ $1"; FAIL=$((FAIL+1)); }
 
-echo "=== VigiEPP FULL API Review v48 ==="
+echo "=== VigiEPP FULL API Review v49 ==="
+
+# Auth first (profiles/ppe require session)
+curl -s -c "$COOKIE" -X POST "$BASE/api/auth/login" -H 'Content-Type: application/json' -d '{"pin":"vigiepp"}' | $PY -c "import sys,json; assert json.load(sys.stdin).get('ok')" && ok "auth login" || bad "auth login"
 
 # Health + core
 H=$(curl -s "$BASE/api/health")
-echo "$H" | $PY -c "import sys,json; d=json.load(sys.stdin); assert d['build']=='v48'" && ok "health v48" || bad "health"
+echo "$H" | $PY -c "import sys,json; d=json.load(sys.stdin); assert d['build']=='v49'" && ok "health v49" || bad "health"
 
 curl -s -b "$COOKIE" "$BASE/api/profiles" | $PY -c "import sys,json; assert isinstance(json.load(sys.stdin),list)" && ok "profiles" || bad "profiles"
 curl -s -b "$COOKIE" "$BASE/api/ppe/catalog" | $PY -c "import sys,json; assert 'items' in json.load(sys.stdin)" && ok "ppe catalog" || bad "ppe"
 
-# Auth
-curl -s -c "$COOKIE" -X POST "$BASE/api/auth/login" -H 'Content-Type: application/json' -d '{"pin":"vigiepp"}' | $PY -c "import sys,json; assert json.load(sys.stdin).get('ok')" && ok "auth login" || bad "auth login"
+# Auth (me + oidc)
 curl -s -b "$COOKIE" "$BASE/api/auth/me" | $PY -c "import sys,json; assert json.load(sys.stdin).get('authenticated')" && ok "auth me" || bad "auth me"
 curl -s -b "$COOKIE" "$BASE/api/auth/oidc/config" | $PY -c "import sys,json; assert 'enabled' in json.load(sys.stdin)" && ok "oidc config" || bad "oidc"
 

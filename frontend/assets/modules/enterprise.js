@@ -117,5 +117,93 @@ export function createEnterpriseController(api) {
     }
   }
 
-  return { refreshSitesUi, refreshEhsUi, saveEhsConfig, updateEnterpriseHints };
+  function bindEnterpriseEvents({ els, applyHealth, refreshWorkers, loadZones }) {
+    $("#cfgSiteSelect")?.addEventListener("change", async (ev) => {
+      const siteId = ev.target.value;
+      try {
+        await api("/api/sites/active", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ site_id: siteId }),
+        });
+        const health = await api("/api/health");
+        applyHealth(health);
+        await refreshWorkers();
+        await loadZones();
+        els.repSideSummary.textContent = "Faena activa actualizada";
+      } catch (err) {
+        els.repSideSummary.textContent = err.message || "Error al cambiar faena";
+      }
+    });
+
+    $("#btnSiteCreate")?.addEventListener("click", async () => {
+      const name = ($("#cfgSiteNewName")?.value || "").trim();
+      if (!name) return;
+      try {
+        await api("/api/sites", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        $("#cfgSiteNewName").value = "";
+        await refreshSitesUi();
+        els.repSideSummary.textContent = `Faena «${name}» creada`;
+      } catch (err) {
+        els.repSideSummary.textContent = err.message || "Error al crear faena";
+      }
+    });
+
+    $("#btnOidcLogin")?.addEventListener("click", async () => {
+      try {
+        const data = await api("/api/auth/oidc/login");
+        if (data.url) window.location.href = data.url;
+      } catch (err) {
+        els.repSideSummary.textContent = err.message || "SSO no disponible";
+      }
+    });
+
+    $("#btnEhsSave")?.addEventListener("click", async () => {
+      try {
+        await saveEhsConfig();
+        els.repSideSummary.textContent = "Conectores EHS guardados";
+      } catch (err) {
+        els.repSideSummary.textContent = err.message || "Error EHS";
+      }
+    });
+
+    $("#btnEhsTest")?.addEventListener("click", async () => {
+      try {
+        const r = await api("/api/ehs/test/webhook", { method: "POST" });
+        els.repSideSummary.textContent = r.ok ? `EHS webhook OK: ${r.detail || ""}` : "EHS webhook falló";
+      } catch (err) {
+        els.repSideSummary.textContent = err.message || "EHS webhook falló";
+      }
+    });
+
+    $("#btnEhsTestSafety")?.addEventListener("click", async () => {
+      try {
+        const r = await api("/api/ehs/test/safetycloud", { method: "POST" });
+        els.repSideSummary.textContent = r.ok ? `SafetyCloud OK: ${r.detail || ""}` : "SafetyCloud falló";
+      } catch (err) {
+        els.repSideSummary.textContent = err.message || "SafetyCloud falló";
+      }
+    });
+
+    $("#btnEhsTestSap")?.addEventListener("click", async () => {
+      try {
+        const r = await api("/api/ehs/test/sap_ewm", { method: "POST" });
+        els.repSideSummary.textContent = r.ok ? `SAP EWM OK: ${r.detail || ""}` : "SAP EWM falló";
+      } catch (err) {
+        els.repSideSummary.textContent = err.message || "SAP EWM falló";
+      }
+    });
+  }
+
+  return {
+    refreshSitesUi,
+    refreshEhsUi,
+    saveEhsConfig,
+    updateEnterpriseHints,
+    bindEnterpriseEvents,
+  };
 }

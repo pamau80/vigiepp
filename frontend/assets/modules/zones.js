@@ -1,4 +1,4 @@
-import { $ } from "./dom.js";
+import { $, $$ } from "./dom.js";
 import { videoCoverSize } from "./geometry.js";
 
 const ZONES_CANVAS_HANDLE = 10;
@@ -361,6 +361,86 @@ function readZonesFromEditor() {
   });
 }
 
+function bindZonesEditorEvents() {
+  els.btnZoneAdd?.addEventListener("click", () => {
+    zonesCache = readZonesFromEditor();
+    zonesCache.push({
+      id: `zona-${Date.now()}`,
+      name: `Zona ${zonesCache.length + 1}`,
+      type: "restricted",
+      enabled: true,
+      x: 0.05,
+      y: 0.1,
+      w: 0.25,
+      h: 0.35,
+      color: "#e85d04",
+    });
+    selectedZoneIndex = zonesCache.length - 1;
+    renderZonesEditor();
+  });
+
+  els.btnZoneSave?.addEventListener("click", async () => {
+    zonesCache = readZonesFromEditor();
+    try {
+      const res = await api("/api/zones", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ zones: zonesCache }),
+      });
+      zonesCache = res.zones || zonesCache;
+      renderZonesEditor();
+      if (els.zonesHint) els.zonesHint.textContent = "Zonas guardadas";
+    } catch (err) {
+      if (els.zonesHint) els.zonesHint.textContent = err.message;
+    }
+  });
+
+  $$("[data-zone-preset]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.getAttribute("data-zone-preset");
+      if (!id) return;
+      if (!confirm(`¿Reemplazar zonas actuales por el preset «${id}»?`)) return;
+      try {
+        const res = await api(`/api/zones/presets/${id}`, { method: "POST" });
+        zonesCache = res.zones || [];
+        renderZonesEditor();
+        if (els.zonesHint) {
+          els.zonesHint.textContent = `Preset «${id}» aplicado · ${zonesCache.length} zonas`;
+        }
+      } catch (err) {
+        if (els.zonesHint) els.zonesHint.textContent = err.message;
+      }
+    });
+  });
+
+  els.zonesList?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-z-del]");
+    if (!btn) return;
+    const i = Number(btn.getAttribute("data-z-del"));
+    zonesCache = readZonesFromEditor().filter((_, idx) => idx !== i);
+    if (selectedZoneIndex === i) selectedZoneIndex = -1;
+    else if (selectedZoneIndex > i) selectedZoneIndex -= 1;
+    renderZonesEditor();
+  });
+
+  els.zonesList?.addEventListener("input", (e) => {
+    if (!e.target.matches("[data-z]")) return;
+    zonesCache = readZonesFromEditor();
+    const row = e.target.closest(".zone-row");
+    if (row) {
+      const i = Number(row.getAttribute("data-zi"));
+      if (!Number.isNaN(i)) selectedZoneIndex = i;
+    }
+    drawZonesEditorCanvas();
+  });
+
+  els.zonesList?.addEventListener("change", (e) => {
+    if (!e.target.matches("[data-z='en'], [data-z='type'], [data-z='name']")) return;
+    zonesCache = readZonesFromEditor();
+    drawZonesEditorCanvas();
+  });
+}
+
   return {
     get zonesCache() { return zonesCache; },
     set zonesCache(v) { zonesCache = v; },
@@ -368,6 +448,6 @@ function readZonesFromEditor() {
     set selectedZoneIndex(v) { selectedZoneIndex = v; },
     loadZones, renderZonesEditor, readZonesFromEditor, drawZonesOverlay,
     drawZonesEditorCanvas, bindZonesCanvasEvents, startZonesCanvasLoop, stopZonesCanvasLoop,
-    syncZonesCanvasSize,
+    syncZonesCanvasSize, bindZonesEditorEvents,
   };
 }
