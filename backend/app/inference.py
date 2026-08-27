@@ -56,15 +56,19 @@ def analyze_frame(
             thr = max(0.25, min(0.7, float(threshold or 0.33)))
             try:
                 result = IdentityService().identify(frame, threshold=thr)
+                match0 = (result.get("matches") or [{}])[0]
+                identified = result.get("identified") or {}
                 identity = {
-                    "known": bool(result.get("identified")),
-                    "id": (result.get("identified") or {}).get("id"),
-                    "name": (result.get("identified") or {}).get("name"),
-                    "rut": (result.get("identified") or {}).get("rut"),
-                    "score": (result.get("matches") or [{}])[0].get("score"),
+                    "known": bool(identified),
+                    "id": identified.get("id"),
+                    "name": identified.get("name"),
+                    "rut": identified.get("rut"),
+                    "score": match0.get("score"),
+                    "confidence": match0.get("confidence"),
+                    "reject_reason": match0.get("reject_reason"),
                     "method": "face",
                     "faces_detected": result.get("faces_detected") or 0,
-                    "face_box": (result.get("matches") or [{}])[0].get("box"),
+                    "face_box": match0.get("box"),
                 }
             except Exception:  # noqa: BLE001
                 identity = {"known": False, "faces_detected": 0, "reject_reason": "identity_error"}

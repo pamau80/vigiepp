@@ -15,3 +15,8 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["B017", "S101"]
+
+[tool.pytest.ini_options]
+markers = [
+    "acuity: pruebas de agudeza de detección (requieren modelos ONNX/YOLO)",
+]

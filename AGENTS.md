@@ -27,6 +27,7 @@ ruff check backend/app tests
 bandit -q -r backend/app
 npm ci && npm run lint
 pytest tests/ --ignore=tests/e2e -q
+bash scripts/run_detection_acuity.sh      # agudeza detección (13 tests + reporte)
 bash scripts/review_browser_e2e.sh   # Playwright 6 tests
 ```
 
