@@ -18,11 +18,12 @@ fi
 
 export PYTHONPATH="${PYTHONPATH:-}:$ROOT/backend"
 
-echo "--- Bloque A: login, navegación, identificar ---"
+echo "--- Bloque A: login, navegación, identificar, operador ---"
 "$PY" -m pytest \
   tests/e2e/test_browser_core.py::test_browser_login_and_build \
   tests/e2e/test_browser_core.py::test_browser_navigate_personas_tab \
   tests/e2e/test_browser_identity.py \
+  tests/e2e/test_browser_operator.py \
   -v --tb=short "$@"
 
 echo "--- Bloque B: enrolar fotos por UI (servidor fresco) ---"

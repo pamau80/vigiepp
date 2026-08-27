@@ -63,5 +63,7 @@ tests/e2e/_debug_data*/
 tests/fixtures/lena.y4m
 tests/fixtures/lena.mjpeg
 tests/fixtures/lena.jpg
+node_modules/
+package-lock.json
 
 tests/e2e/_runtime_api_test/

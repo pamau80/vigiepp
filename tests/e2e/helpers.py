@@ -12,6 +12,7 @@ import numpy as np
 from playwright.sync_api import Page
 
 E2E_PIN = "e2e-browser-pin"
+E2E_OPERATOR_PIN = "e2e-operator-pin"
 
 
 def ui_login(page: Page, pin: str = E2E_PIN) -> None:

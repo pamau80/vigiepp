@@ -1,5 +1,10 @@
 import { $, $$ } from "./dom.js";
 
+const ROLE_LABELS = {
+  admin: "Administrador",
+  operator: "Portería",
+};
+
 /** Control de login PIN / sesión y UI por rol. */
 export function createAuthController({ onOperatorLogin } = {}) {
   let userRole = "admin";
@@ -18,6 +23,21 @@ export function createAuthController({ onOperatorLogin } = {}) {
     return userRole;
   }
 
+  function updateRoleBadge(role) {
+    const badge = $("#roleBadge");
+    if (!badge) return;
+    const label = ROLE_LABELS[role] || role;
+    if (role === "admin") {
+      badge.textContent = "";
+      badge.classList.add("hidden");
+      badge.dataset.role = "";
+    } else {
+      badge.textContent = label;
+      badge.dataset.role = role;
+      badge.classList.remove("hidden");
+    }
+  }
+
   function applyRoleUI(role) {
     userRole = role || "admin";
     sessionStorage.setItem("vigiepp.role", userRole);
@@ -25,13 +45,16 @@ export function createAuthController({ onOperatorLogin } = {}) {
     const isOp = userRole === "operator";
     $$(".mode-btn").forEach((b) => {
       const mode = b.dataset.mode;
-      const allow = !isOp || mode === "live" || mode === "monitor";
+      const allow = !isOp || mode === "live";
       b.classList.toggle("hidden", !allow);
       b.disabled = !allow;
     });
     if (isOp && onOperatorLogin) onOperatorLogin();
-    const tag = $(".brand-tag");
-    if (tag) tag.textContent = isOp ? "Portería · operador" : "EPP + identidad · Chile";
+    const tag = $("#brandTag") || $(".brand-tag");
+    if (tag) {
+      tag.textContent = isOp ? "Monitoreo en vivo · portería" : "EPP + identidad · Chile";
+    }
+    updateRoleBadge(userRole);
   }
 
   async function ensureAuth(force = false) {
@@ -63,7 +86,7 @@ export function createAuthController({ onOperatorLogin } = {}) {
     }
 
     return new Promise((resolve) => {
-      showAuthGate(true, "PIN admin o portería (operador)");
+      showAuthGate(true, "Administrador o portería — ingresá tu PIN");
       const form = $("#authForm");
       const onSubmit = async (e) => {
         e.preventDefault();

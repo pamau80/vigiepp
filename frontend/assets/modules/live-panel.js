@@ -139,7 +139,7 @@ export function createLivePanelController({
       setLastIdentity(payload.identity);
       setIdentityCard(payload.identity);
       if (payload.identity.faces_detected > 0 && settings.faceGuide && getAppMode() === "live") {
-        const enrollCtrl = getEnroll?.() ?? enroll;
+        const enrollCtrl = getEnroll?.();
         if (enrollCtrl) enrollCtrl.flashIdentifyingGuide();
       }
     } else if (getAppMode() === "live" && !els.chkIdentify?.checked) {

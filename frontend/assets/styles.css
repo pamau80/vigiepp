@@ -162,6 +162,25 @@ input, select, textarea, button {
   line-height: 1;
 }
 .brand-tag { margin: 0.15rem 0 0; color: var(--muted); font-size: 0.82rem; }
+.role-badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.28rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid rgba(232, 93, 4, 0.45);
+  color: #ffb380;
+  background: rgba(232, 93, 4, 0.12);
+  align-self: center;
+  white-space: nowrap;
+}
+.role-badge.hidden { display: none; }
+.role-badge[data-role="operator"] {
+  border-color: rgba(100, 180, 255, 0.45);
+  color: #9ecaff;
+  background: rgba(60, 120, 200, 0.15);
+}
 
 .mode-nav {
   display: flex;
