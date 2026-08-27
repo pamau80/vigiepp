@@ -2,6 +2,7 @@ import { $$ } from "./dom.js";
 import { createBootController } from "./app-boot.js";
 import { createIdentityBackupController } from "./identity-backup.js";
 import { createAppShellEventsController } from "./app-shell-events.js";
+import { clearStoredAccess } from "./access-control.js";
 
 /** Enlaza eventos de UI y arranca boot tras wiring de controladores. */
 export function bindAppEvents({
@@ -24,6 +25,7 @@ export function bindAppEvents({
   zones,
   reports,
   auditLog,
+  usersAdmin,
   bindEnterpriseEvents,
   detectBlob,
   openReport,
@@ -79,6 +81,8 @@ export function bindAppEvents({
   identityBackup.bindBackupEvents(downloadUrl);
   auditLog.bindAuditEvents();
   settingsForm.bindSettingsEvents();
+  usersAdmin.bindUsersAdminEvents();
+  usersAdmin.loadCatalog().then(() => usersAdmin.refreshUsers());
 
   bindEnterpriseEvents({
     els,

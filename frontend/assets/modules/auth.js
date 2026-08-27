@@ -1,8 +1,17 @@
 import { $, $$ } from "./dom.js";
+import {
+  applyNavVisibility,
+  clearStoredAccess,
+  readStoredPermissions,
+  roleLabel,
+  storeAccessProfile,
+} from "./access-control.js";
 
-/** Control de login PIN / sesión y UI por rol. */
-export function createAuthController({ onOperatorLogin } = {}) {
+/** Control de login PIN / sesión y UI por rol + permisos RBAC. */
+export function createAuthController({ onPorteriaLogin } = {}) {
   let userRole = "admin";
+  let permissions = ["*"];
+  let displayName = "Administrador";
 
   function showAuthGate(show, hint = "") {
     const gate = $("#authGate");
@@ -18,20 +27,33 @@ export function createAuthController({ onOperatorLogin } = {}) {
     return userRole;
   }
 
-  function applyRoleUI(role) {
-    userRole = role || "admin";
-    sessionStorage.setItem("vigiepp.role", userRole);
+  function getPermissions() {
+    return permissions;
+  }
+
+  function applyRoleUI(profileOrRole) {
+    const profile =
+      typeof profileOrRole === "object" && profileOrRole
+        ? profileOrRole
+        : { role: profileOrRole, permissions: readStoredPermissions() };
+
+    userRole = profile.role || "admin";
+    permissions = profile.permissions || readStoredPermissions();
+    displayName = profile.display_name || roleLabel(userRole);
+
+    storeAccessProfile({ role: userRole, permissions, display_name: displayName });
     document.body.dataset.role = userRole;
-    const isOp = userRole === "operator";
-    $$(".mode-btn").forEach((b) => {
-      const mode = b.dataset.mode;
-      const allow = !isOp || mode === "live" || mode === "monitor";
-      b.classList.toggle("hidden", !allow);
-      b.disabled = !allow;
-    });
-    if (isOp && onOperatorLogin) onOperatorLogin();
+    applyNavVisibility(permissions);
+
     const tag = $(".brand-tag");
-    if (tag) tag.textContent = isOp ? "Portería · operador" : "EPP + identidad · Chile";
+    if (tag) {
+      tag.textContent =
+        userRole === "admin"
+          ? "EPP + identidad · Chile"
+          : `${displayName} · ${roleLabel(userRole)}`;
+    }
+
+    if (userRole === "operator" && onPorteriaLogin) onPorteriaLogin();
   }
 
   async function ensureAuth(force = false) {
@@ -40,7 +62,7 @@ export function createAuthController({ onOperatorLogin } = {}) {
       if (!st.auth_enabled) {
         showAuthGate(false);
         $("#btnLogout")?.classList.add("hidden");
-        applyRoleUI("admin");
+        applyRoleUI({ role: "admin", permissions: ["*"], display_name: "Administrador" });
         return true;
       }
       if (!force) {
@@ -54,7 +76,7 @@ export function createAuthController({ onOperatorLogin } = {}) {
           const data = await me.json().catch(() => ({}));
           showAuthGate(false);
           $("#btnLogout")?.classList.remove("hidden");
-          applyRoleUI(data.role || sessionStorage.getItem("vigiepp.role") || "admin");
+          applyRoleUI(data);
           return true;
         }
       }
@@ -63,7 +85,7 @@ export function createAuthController({ onOperatorLogin } = {}) {
     }
 
     return new Promise((resolve) => {
-      showAuthGate(true, "PIN admin o portería (operador)");
+      showAuthGate(true, "PIN administrador o guardia autorizado");
       const form = $("#authForm");
       const onSubmit = async (e) => {
         e.preventDefault();
@@ -82,7 +104,7 @@ export function createAuthController({ onOperatorLogin } = {}) {
             return;
           }
           if (data.token) sessionStorage.setItem("vigiepp.token", data.token);
-          applyRoleUI(data.role || "admin");
+          applyRoleUI(data);
           showAuthGate(false);
           $("#btnLogout")?.classList.remove("hidden");
           form?.removeEventListener("submit", onSubmit);
@@ -95,5 +117,10 @@ export function createAuthController({ onOperatorLogin } = {}) {
     });
   }
 
-  return { ensureAuth, showAuthGate, applyRoleUI, getRole };
+  function logoutLocal() {
+    clearStoredAccess();
+    sessionStorage.removeItem("vigiepp.token");
+  }
+
+  return { ensureAuth, showAuthGate, applyRoleUI, getRole, getPermissions, logoutLocal };
 }

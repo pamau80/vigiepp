@@ -28,6 +28,8 @@ import {
 } from "./modules/app-state.js";
 import { bindAppEvents } from "./modules/app-bind.js";
 import { isMobile, isIOS } from "./modules/mobile.js";
+import { createUsersAdminController } from "./modules/users-admin.js";
+import { clearStoredAccess } from "./modules/access-control.js";
 
 let ensureAuth;
 let applyRoleUiImpl;
@@ -39,7 +41,7 @@ const applyRoleUI = (role) => applyRoleUiImpl?.(role);
 const api = createApi({
   onUnauthorized: async () => {
     sessionStorage.removeItem("vigiepp.token");
-    sessionStorage.removeItem("vigiepp.role");
+    clearStoredAccess();
     await ensureAuth(true);
     throw new Error("Sesión expirada. Ingresá el PIN de nuevo.");
   },
@@ -48,16 +50,17 @@ const api = createApi({
 const enterprise = createEnterpriseController(api);
 const { refreshSitesUi, refreshEhsUi, bindEnterpriseEvents } = enterprise;
 
-function bindAuthController(onOperatorLogin) {
-  const ctrl = createAuthController({ onOperatorLogin });
+function bindAuthController(onPorteriaLogin) {
+  const ctrl = createAuthController({ onPorteriaLogin });
   ensureAuth = ctrl.ensureAuth;
-  applyRoleUiImpl = (role) => {
-    userRole = role || "admin";
-    ctrl.applyRoleUI(role);
+  applyRoleUiImpl = (profile) => {
+    const p = typeof profile === "string" ? { role: profile } : profile;
+    userRole = p?.role || "admin";
+    ctrl.applyRoleUI(p);
   };
 }
 
-const APP_BUILD = globalThis.VIGIEPP_BUILD || "v53";
+const APP_BUILD = globalThis.VIGIEPP_BUILD || "v54";
 const els = createAppElements();
 const state = createAppRuntimeState();
 const { settings, loadSettings, saveSettings, applyMobileChrome } = createSettingsStore(els);
@@ -87,6 +90,7 @@ const {
 const audio = createAudioAlertsController({ settings });
 const ppeProfiles = createPpeProfilesController({ api, els, settings, saveSettings });
 const auditLog = createAuditLogController({ api });
+const usersAdmin = createUsersAdminController({ api, els });
 
 const guide = createSilhouetteGuideController({
   els,
@@ -222,6 +226,7 @@ modes = createAppModesController({
   setConfigSectionCallbacks: {
     onSectionChange: (id) => {
       if (id === "audit") auditLog.refreshAudit();
+      if (id === "users") usersAdmin.refreshUsers();
       if (id === "enterprise") {
         refreshSitesUi();
         refreshEhsUi();
@@ -317,6 +322,7 @@ bindAppEvents({
   zones,
   reports,
   auditLog,
+  usersAdmin,
   bindEnterpriseEvents,
   detectBlob,
   openReport,

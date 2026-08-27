@@ -20,6 +20,7 @@ backend/data/evidence/
 # Runtime secrets / sessions (edge local)
 backend/data/.secrets_key
 backend/data/sessions.json
+backend/data/users.json
 backend/data/audit.jsonl
 backend/data/privacy.json
 backend/data/sites.json

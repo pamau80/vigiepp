@@ -8,7 +8,7 @@ export function createAppShellEventsController({ els, ensureAuth, detectBlob, ca
         await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
       } catch (_) {}
       sessionStorage.removeItem("vigiepp.token");
-      sessionStorage.removeItem("vigiepp.role");
+      clearStoredAccess();
       await ensureAuth(true);
     });
 
