@@ -28,7 +28,10 @@ export function createAppHealthController({
         els.modelStatusText.textContent = health.warning || "Cargando ID+EPP…";
       }
     } else if (ready) {
-      els.modelStatusText.textContent = `IA lista · ${health.model || "EPP"}`;
+      const custom = !!health.epp_custom;
+      els.modelStatusText.textContent = custom
+        ? `Modelo faena · ${health.workers_ready || 0} pers.`
+        : `IA lista · ${health.model || "EPP"}`;
     } else {
       els.modelStatusText.textContent = health.warning || "Cargando IA…";
     }

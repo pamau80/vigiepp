@@ -21,7 +21,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/styles.css?v=36" />
+  <link rel="stylesheet" href="/assets/styles.css?v=37" />
 </head>
 <body>
   <div id="authGate" class="auth-gate hidden" aria-modal="true" role="dialog">
@@ -336,45 +336,40 @@
         <p class="hint" id="enrollCoach">4 poses de calidad · consentimiento + liveness · una persona</p>
       </div>
 
-      <div class="controls control-bar hidden" id="teachControls">
-        <label class="field grow">
-          <span>Clase / prenda a enseñar</span>
-          <select id="teachClass"></select>
-        </label>
-        <button id="btnTeachSample" class="btn primary" type="button">Foto cámara</button>
-        <label class="btn secondary file-btn">
-          Adjuntar fotos
-          <input id="teachPhotos" type="file" accept="image/*" multiple hidden />
-        </label>
-        <label class="btn secondary file-btn">
-          Adjuntar video
-          <input id="teachVideo" type="file" accept="video/*,.mp4,.mov,.webm" hidden />
-        </label>
-        <button id="btnTeachTrain" class="btn secondary" type="button">Entrenar modelo</button>
-        <button id="btnTeachActivate" class="btn ghost" type="button">Activar modelo</button>
-        <p class="hint" id="teachHint">El modelo base es genérico. Entrená acá el color y tipo de casco, ropa, lentes y guantes de TU faena (30–80 fotos por ítem).</p>
-      </div>
-
-      <div class="controls control-bar hidden" id="teachExtraControls">
-        <label class="field grow">
-          <span>Nueva prenda (no listada)</span>
-          <input id="teachNewClass" type="text" placeholder="Ej. casaca naranja ACME / pantalón denim faena" />
-        </label>
-        <button id="btnTeachAddClass" class="btn primary" type="button">Crear clase</button>
-        <p class="hint">Para ropa que el modelo base aún no conoce.</p>
-      </div>
-
-      <div class="controls control-bar hidden" id="configControls">
-        <nav class="cfg-nav" id="cfgNav" role="tablist" aria-label="Secciones de configuración">
-          <button type="button" class="cfg-nav-btn active" data-cfg-sec="guides" role="tab" aria-selected="true">Guías</button>
-          <button type="button" class="cfg-nav-btn" data-cfg-sec="audio" role="tab" aria-selected="false">Audio</button>
-          <button type="button" class="cfg-nav-btn" data-cfg-sec="zones" role="tab" aria-selected="false">Zonas</button>
-          <button type="button" class="cfg-nav-btn" data-cfg-sec="monitor" role="tab" aria-selected="false">Monitoreo</button>
-          <button type="button" class="cfg-nav-btn" data-cfg-sec="privacy" role="tab" aria-selected="false">Privacidad</button>
-          <button type="button" class="cfg-nav-btn" data-cfg-sec="enterprise" role="tab" aria-selected="false">Enterprise</button>
-          <button type="button" class="cfg-nav-btn" data-cfg-sec="audit" role="tab" aria-selected="false">Bitácora</button>
-        </nav>
-        <p class="hint">Elegí una sección arriba o en el panel. Los cambios se aplican al instante.</p>
+      <div class="controls control-bar teach-bar hidden" id="teachControls">
+        <div class="teach-steps" id="teachSteps" aria-label="Pasos de entrenamiento">
+          <span class="teach-step" data-teach-step="pick">1 · Ítem</span>
+          <span class="teach-step" data-teach-step="photos">2 · Fotos</span>
+          <span class="teach-step" data-teach-step="train">3 · Entrenar</span>
+          <span class="teach-step" data-teach-step="activate">4 · Activar</span>
+        </div>
+        <div class="teach-row">
+          <label class="field grow">
+            <span>Ítem a enseñar</span>
+            <select id="teachClass"></select>
+          </label>
+          <button id="btnTeachSample" class="btn secondary" type="button">Foto cámara</button>
+          <label class="btn primary file-btn">
+            Adjuntar fotos
+            <input id="teachPhotos" type="file" accept="image/*" multiple hidden />
+          </label>
+          <label class="btn secondary file-btn">
+            Video
+            <input id="teachVideo" type="file" accept="video/*,.mp4,.mov,.webm" hidden />
+          </label>
+        </div>
+        <div class="teach-row teach-row-end">
+          <button id="btnTeachTrain" class="btn secondary" type="button">Entrenar</button>
+          <button id="btnTeachActivate" class="btn primary" type="button">Activar en vivo</button>
+          <details class="teach-custom-inline">
+            <summary>Otra prenda</summary>
+            <div class="teach-custom-fields">
+              <input id="teachNewClass" type="text" placeholder="Ej. casaca naranja ACME" aria-label="Nombre prenda nueva" />
+              <button id="btnTeachAddClass" class="btn secondary" type="button">Crear</button>
+            </div>
+          </details>
+        </div>
+        <p class="hint teach-status" id="teachHint" role="status"></p>
       </div>
 
       <div class="reports-desk hidden" id="reportsDesk">
@@ -443,7 +438,7 @@
         <p class="panel-sub" id="panelContext">Resultado del escaneo en vivo</p>
       </div>
 
-      <section class="card status-card" id="complianceBox" data-state="idle" data-live-only>
+      <section class="card status-card" id="complianceBox" data-state="idle" data-live-only data-hide-teach>
         <div class="status-top">
           <p class="card-kicker">Resultado</p>
           <span class="status-pill" id="statusPill">Standby</span>
@@ -457,7 +452,7 @@
       <section class="card card-person" data-hide-teach>
         <p class="card-kicker">Persona</p>
         <p class="person-name" id="identityName">Sin identificar</p>
-        <p class="card-text" id="identityRut">Registra personas en la sección 2 · Personas</p>
+        <p class="card-text" id="identityRut">Enrolá trabajadores en la pestaña Personas</p>
         <p class="card-meta" id="identityMethod"></p>
       </section>
 
@@ -486,7 +481,7 @@
 
       <section class="card panel-section hidden" data-show="mass" id="massSidePanel">
         <p class="card-kicker">Vigilancia masiva</p>
-        <p class="card-meta">Barrido EPP sobre todos los canales importados del NVR/DVR.</p>
+        <p class="card-meta">Alertas por canal durante el barrido.</p>
         <ul class="item-list" id="massAlertList">
           <li class="muted">Iniciá el barrido para ver alertas por canal</li>
         </ul>
@@ -494,8 +489,7 @@
 
       <section class="card panel-section hidden" data-show="devices" id="devicesSidePanel">
         <p class="card-kicker">Equipos de video</p>
-        <p class="card-meta">Dahua · Hikvision · Uniview · RTSP ONVIF-compatible.</p>
-        <p class="hint">El servidor VigiEPP debe estar en la misma red LAN que el NVR.</p>
+        <p class="card-meta">Misma red LAN que el NVR.</p>
       </section>
 
       <section class="card panel-section" data-show="live" id="registryCard">
@@ -541,12 +535,19 @@
       </section>
 
       <section class="card panel-section" data-show="teach" id="teachBlock">
-        <p class="card-kicker">Clases de ropa / EPP</p>
+        <div class="card-row">
+          <p class="card-kicker">EPP de tu faena</p>
+          <span class="teach-model-badge" id="teachModelBadge" data-state="base">Modelo base</span>
+        </div>
         <p class="card-text" id="teachStats">0 ejemplos</p>
-        <p class="card-meta">El modelo base detecta EPP genérico. Para color/tipo de tu faena: cargá fotos en EPP → Entrenar → Activar modelo.</p>
-        <ul class="item-list" id="teachClassList">
-          <li class="muted">Sin clases cargadas</li>
-        </ul>
+        <p class="card-meta teach-lead">Enseñá color y tipo reales (30–80 fotos por ítem). El operador en portería no ve esta pantalla.</p>
+        <ul class="teach-checklist" id="teachChecklist" aria-label="Progreso por ítem"></ul>
+        <details class="teach-more">
+          <summary>Todas las clases</summary>
+          <ul class="item-list" id="teachClassList">
+            <li class="muted">Sin clases cargadas</li>
+          </ul>
+        </details>
       </section>
 
       <section class="card panel-section config-card" data-show="config" id="configBlock">

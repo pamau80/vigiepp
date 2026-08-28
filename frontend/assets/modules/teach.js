@@ -1,16 +1,105 @@
-export function createTeachController({ api, els, captureBlob, startCamera, hasMediaStream }) {
+const CORE_PPE = [
+  { id: "casco", label: "Casco", min: 30 },
+  { id: "chaleco", label: "Ropa completa", min: 30, aliases: ["chaleco_fluor", "polera", "casaca", "uniforme_completo", "ropa_reflectante"] },
+  { id: "lentes", label: "Lentes", min: 30 },
+  { id: "guantes", label: "Guantes", min: 30 },
+];
+
+function countForFamily(classes, family) {
+  const ids = new Set([family.id, ...(family.aliases || [])]);
+  for (const c of classes) {
+    const cid = String(c.id || "").toLowerCase();
+    if (cid.includes(family.id) || [...ids].some((x) => cid.includes(x))) ids.add(c.id);
+  }
+  let total = 0;
+  for (const c of classes) {
+    if (ids.has(c.id) || String(c.id || "").toLowerCase().includes(family.id)) {
+      total += Number(c.count) || 0;
+    }
+  }
+  return total;
+}
+
+function stepState(guide, classes, selected) {
+  const stats = guide.stats || {};
+  const selCount = selected?.count || 0;
+  const readyTrain = !!stats.ready_to_train;
+  const customReady = !!stats.training?.custom_model_ready;
+  return {
+    pick: !!selected,
+    photos: selCount >= 10,
+    train: readyTrain || customReady,
+    activate: customReady,
+  };
+}
+
+export function createTeachController({ api, els, captureBlob, startCamera, hasMediaStream, onModelActivated }) {
+  let lastGuide = null;
+
+  function renderChecklist(classes, guide) {
+    if (!els.teachChecklist) return;
+    const minRec = guide?.stats?.min_recommended || 30;
+    els.teachChecklist.innerHTML = CORE_PPE.map((item) => {
+      const n = countForFamily(classes, item);
+      const min = item.min || minRec;
+      const pct = Math.min(100, Math.round((n / min) * 100));
+      const done = n >= min;
+      return `<li class="teach-check${done ? " is-done" : ""}">
+        <span class="teach-check-label">${item.label}</span>
+        <span class="teach-check-bar" aria-hidden="true"><span style="width:${pct}%"></span></span>
+        <span class="teach-check-count">${n}/${min}</span>
+      </li>`;
+    }).join("");
+  }
+
+  function renderSteps(classes, guide) {
+    if (!els.teachSteps) return;
+    const selected = classes.find((c) => c.id === els.teachClass?.value);
+    const st = stepState(guide, classes, selected);
+    els.teachSteps.querySelectorAll("[data-teach-step]").forEach((el) => {
+      const key = el.getAttribute("data-teach-step");
+      el.classList.toggle("is-active", !!st[key]);
+      el.classList.toggle("is-done", key === "pick" && st.photos);
+    });
+  }
+
+  function updateModelBadge(guide) {
+    const badge = els.teachModelBadge;
+    if (!badge) return;
+    const training = guide?.stats?.training || {};
+    const customActive = String(els.modelStatusText?.textContent || "").toLowerCase().includes("personalizado");
+    if (customActive) {
+      badge.textContent = "Modelo faena activo";
+      badge.dataset.state = "custom";
+    } else if (training.custom_model_ready) {
+      badge.textContent = "Listo para activar";
+      badge.dataset.state = "ready";
+    } else {
+      badge.textContent = "Modelo base";
+      badge.dataset.state = "base";
+    }
+  }
+
   async function refreshTeach() {
     try {
       const guide = await api("/api/teach/guide");
+      lastGuide = guide;
       const classes = guide.classes || [];
+      const prev = els.teachClass.value;
       els.teachClass.innerHTML = classes
         .map((c) => `<option value="${c.id}">${c.name} (${c.count})</option>`)
         .join("");
-      els.teachStats.textContent = `${guide.stats?.total_samples || 0} ejemplos · ${guide.stats?.class_count || classes.length} clases`;
-      const sel = classes.find((c) => c.id === els.teachClass.value);
-      if (sel) els.teachHint.textContent = sel.hint;
+      if (prev && classes.some((c) => c.id === prev)) els.teachClass.value = prev;
+      els.teachStats.textContent = `${guide.stats?.total_samples || 0} fotos · ${guide.stats?.class_count || classes.length} clases`;
+      renderChecklist(classes, guide);
+      renderSteps(classes, guide);
+      updateModelBadge(guide);
+      if (!els.teachHint.textContent.trim()) {
+        const sel = classes.find((c) => c.id === els.teachClass.value);
+        if (sel?.hint) els.teachHint.textContent = sel.hint;
+      }
       if (els.teachClassList) {
-        const top = [...classes].sort((a, b) => (b.count || 0) - (a.count || 0)).slice(0, 12);
+        const top = [...classes].sort((a, b) => (b.count || 0) - (a.count || 0));
         els.teachClassList.innerHTML = top.length
           ? top
               .map(
@@ -39,7 +128,7 @@ export function createTeachController({ api, els, captureBlob, startCamera, hasM
     if (!files.length) return;
     const classId = els.teachClass.value;
     if (!classId) {
-      els.teachHint.textContent = "Elegí o creá una clase primero";
+      els.teachHint.textContent = "Elegí o creá un ítem primero";
       return;
     }
     els.teachHint.textContent = `Subiendo ${files.length} fotos…`;
@@ -59,10 +148,10 @@ export function createTeachController({ api, els, captureBlob, startCamera, hasM
     if (!file) return;
     const classId = els.teachClass.value;
     if (!classId) {
-      els.teachHint.textContent = "Elegí o creá una clase primero";
+      els.teachHint.textContent = "Elegí o creá un ítem primero";
       return;
     }
-    els.teachHint.textContent = "Procesando video (extrayendo frames)…";
+    els.teachHint.textContent = "Extrayendo frames del video…";
     const fd = new FormData();
     fd.append("file", file, file.name);
     fd.append("class_id", classId);
@@ -80,18 +169,18 @@ export function createTeachController({ api, els, captureBlob, startCamera, hasM
   async function createTeachClass() {
     const name = els.teachNewClass?.value?.trim();
     if (!name) {
-      els.teachHint.textContent = "Escribí el nombre de la prenda nueva";
+      els.teachHint.textContent = "Escribí el nombre de la prenda";
       return;
     }
     const fd = new FormData();
     fd.append("name", name);
-    fd.append("hint", "Prenda personalizada — subí fotos y videos variados");
+    fd.append("hint", "Subí fotos variadas de esta prenda en faena real");
     try {
       const data = await api("/api/teach/class", { method: "POST", body: fd });
       els.teachNewClass.value = "";
       await refreshTeach();
       if (data.class?.id) els.teachClass.value = data.class.id;
-      els.teachHint.textContent = `Clase creada: ${data.class?.name || name}. Ahora cargá fotos/video.`;
+      els.teachHint.textContent = `Creado: ${data.class?.name || name}. Adjuntá fotos o video.`;
     } catch (err) {
       els.teachHint.textContent = err.message;
     }
@@ -99,6 +188,13 @@ export function createTeachController({ api, els, captureBlob, startCamera, hasM
 
   function bindTeachEvents() {
     els.btnTeachSample.addEventListener("click", saveTeachSample);
+    els.teachClass?.addEventListener("change", () => {
+      const guide = lastGuide;
+      const classes = guide?.classes || [];
+      const sel = classes.find((c) => c.id === els.teachClass.value);
+      if (sel) els.teachHint.textContent = sel.hint;
+      renderSteps(classes, guide || { stats: {} });
+    });
     if (els.teachPhotos) {
       els.teachPhotos.addEventListener("change", async (e) => {
         await uploadTeachPhotos(e.target.files);
@@ -113,18 +209,25 @@ export function createTeachController({ api, els, captureBlob, startCamera, hasM
     }
     if (els.btnTeachAddClass) els.btnTeachAddClass.addEventListener("click", createTeachClass);
     els.btnTeachTrain.addEventListener("click", async () => {
-      els.teachHint.textContent = "Entrenando modelo (puede tardar)…";
+      els.teachHint.textContent = "Entrenando… puede tardar unos minutos";
       try {
         const data = await api("/api/teach/train", { method: "POST" }, 60000);
         els.teachHint.textContent = data.message;
+        await refreshTeach();
       } catch (err) {
         els.teachHint.textContent = err.message;
       }
     });
     els.btnTeachActivate.addEventListener("click", async () => {
-      const data = await api("/api/teach/activate", { method: "POST" });
-      els.modelStatusText.textContent = `IA lista · ${data.model}`;
-      els.teachHint.textContent = "Modelo personalizado activado";
+      try {
+        const data = await api("/api/teach/activate", { method: "POST" });
+        els.modelStatusText.textContent = `Modelo faena · ${data.model}`;
+        els.teachHint.textContent = "Modelo activo en monitoreo y portería";
+        onModelActivated?.();
+        await refreshTeach();
+      } catch (err) {
+        els.teachHint.textContent = err.message;
+      }
     });
   }
 
@@ -135,5 +238,6 @@ export function createTeachController({ api, els, captureBlob, startCamera, hasM
     uploadTeachVideo,
     createTeachClass,
     bindTeachEvents,
+    updateModelBadgeFromGuide: () => lastGuide && updateModelBadge(lastGuide),
   };
 }

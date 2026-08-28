@@ -76,8 +76,6 @@ export function createAppModesController({
     els.uploadControls.classList.toggle("hidden", mode !== "upload");
     els.identityControls.classList.toggle("hidden", mode !== "identity");
     if (els.teachControls) els.teachControls.classList.toggle("hidden", mode !== "teach");
-    if (els.teachExtraControls) els.teachExtraControls.classList.toggle("hidden", mode !== "teach");
-    if (els.configControls) els.configControls.classList.toggle("hidden", mode !== "config");
     $("#massToolbar")?.classList.toggle("hidden", mode !== "mass");
 
     if (mode === "mass" || mode === "devices") {
@@ -104,17 +102,14 @@ export function createAppModesController({
       stopDetectLoop();
       if (!camera.hasMediaStream()) camera.startCamera({ silentDetect: true });
       else camera.showLive();
-      if (els.complianceBox) els.complianceBox.dataset.state = "idle";
-      if (els.complianceValue) {
-        els.complianceValue.textContent = mode === "identity" ? "Enrolamiento" : "Entrenamiento";
+      if (mode === "identity") {
+        if (els.complianceBox) els.complianceBox.dataset.state = "idle";
+        if (els.complianceValue) els.complianceValue.textContent = "Enrolamiento";
+        if (els.complianceSummary) {
+          els.complianceSummary.textContent = "Registrá el rostro acá. El EPP se evalúa en Vivo.";
+        }
+        if (els.statusPill) els.statusPill.textContent = "Enrolamiento";
       }
-      if (els.complianceSummary) {
-        els.complianceSummary.textContent =
-          mode === "identity"
-            ? "Registrá el rostro acá. El EPP se evalúa en Monitoreo."
-            : "Enseñá prendas acá. El cumplimiento se ve en Monitoreo.";
-      }
-      if (els.statusPill) els.statusPill.textContent = "Modo entrenamiento";
       if (els.detList) els.detList.innerHTML = `<li class="muted">Sin escaneo EPP en este modo</li>`;
       if (els.alertList) els.alertList.innerHTML = `<li class="muted">Sin alertas de faena</li>`;
     } else if (mode === "config") {
@@ -194,13 +189,13 @@ export function createAppModesController({
     const ctx = $("#panelContext");
     if (ctx) {
       const labels = {
-        live: "Vigilancia en vivo · un canal o webcam",
-        mass: "Vigilancia masiva · NVR / multi-cámara",
-        devices: "Equipos de video · NVR Dahua / Hikvision",
-        identity: "Enrolar e identificar personas",
-        teach: "Entrenar ropa y EPP del modelo",
-        reports: "Estadísticas, informes y notificaciones",
-        config: "Ajustes de silueta, audio, zonas y privacidad",
+        live: "Monitoreo en vivo",
+        mass: "Barrido multi-cámara",
+        devices: "NVR y cámaras",
+        identity: "Enrolamiento",
+        teach: "Entrenar EPP de la faena",
+        reports: "Informes",
+        config: "Ajustes",
       };
       ctx.textContent = labels[mode] || labels.config;
     }

@@ -57,7 +57,7 @@ function bindAuthController(onOperatorLogin) {
   };
 }
 
-const APP_BUILD = globalThis.VIGIEPP_BUILD || "v58";
+const APP_BUILD = globalThis.VIGIEPP_BUILD || "v59";
 const els = createAppElements();
 const state = createAppRuntimeState();
 const { settings, loadSettings, saveSettings, applyMobileChrome } = createSettingsStore(els);
@@ -202,6 +202,13 @@ const teach = createTeachController({
   captureBlob,
   startCamera: camera.startCamera,
   hasMediaStream: camera.hasMediaStream,
+  onModelActivated: async () => {
+    try {
+      const health = await api("/api/health");
+      applyHealth(health);
+      teach.updateModelBadgeFromGuide?.();
+    } catch (_) {}
+  },
 });
 
 modes = createAppModesController({

@@ -20,7 +20,7 @@ from ..profiles import PPE_CATALOG, list_profiles
 
 router = APIRouter(prefix="/api", tags=["core"])
 
-BUILD_VERSION = "v58"
+BUILD_VERSION = "v59"
 
 
 @router.get("/health")
@@ -70,6 +70,7 @@ def health() -> dict[str, Any]:
         "gallery_size": gallery_size,
         "workers_ready": workers_ready,
         "model": (det.model_name if det else "") or ("EPP bajo demanda" if not epp_ready else ""),
+        "epp_custom": bool(det and det.using_custom),
         "warning": (det.error if det else None) or (None if identity_ready else "Cargando identidad…"),
         "booting": not identity_ready and not epp_ready,
         "auth_enabled": auth_mod.auth_enabled(),
