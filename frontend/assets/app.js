@@ -354,6 +354,7 @@ bindAppEvents({
   downloadUrl,
   enroll,
   mass,
+  actions,
   dayZero,
   applySkin,
   buildVersion: APP_BUILD.replace(/^v/, ""),
