@@ -47,7 +47,26 @@ export function createMassController({ api, els, requiredQueryValue, getAppMode,
     if (sum) {
       const online = cells.filter((c) => c.connected).length;
       const alerts = cells.filter((c) => c.connected && !c.compliant).length;
-      sum.textContent = `${cells.length} canales · ${online} en línea · ${alerts} alertas EPP`;
+      sum.textContent = `${cells.length} canales · ${online} en línea · ${alerts} alertas`;
+    }
+    const massAlerts = $("#massAlertList");
+    if (massAlerts) {
+      const items = [];
+      for (const c of cells) {
+        if (!c.connected) continue;
+        for (const a of c.alerts || []) {
+          items.push({ ch: c.name, text: a });
+        }
+        for (const tr of c.actions || []) {
+          items.push({ ch: c.name, text: tr.message || tr.name });
+        }
+      }
+      massAlerts.innerHTML = items.length
+        ? items
+            .slice(0, 12)
+            .map((it) => `<li class="warn"><span>${escapeHtml(it.ch || "Canal")}</span><span>${escapeHtml(it.text)}</span></li>`)
+            .join("")
+        : `<li class="muted">Sin alertas de acciones en este barrido</li>`;
     }
   }
 

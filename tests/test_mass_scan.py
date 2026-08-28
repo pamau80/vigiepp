@@ -9,13 +9,14 @@ import numpy as np
 from app.mass_scan import run_mass_scan
 
 
-def _fake_build_response(detections, _identity, profile, frame_wh=None, required=None):
+def _fake_build_response(detections, annotated_jpeg, profile, frame_wh=None, required=None, source_id="live"):
     return {
         "compliance": {
             "overall_compliant": True,
             "alerts": [],
             "persons": [{"missing": []}],
         },
+        "actions": {"triggered": [], "alerts": []},
         "safety_score": 100,
     }
 
@@ -29,6 +30,7 @@ def _fake_compliance(payload):
         "compliant": comp.get("overall_compliant"),
         "missing": missing,
         "alerts": comp.get("alerts") or [],
+        "actions": (payload.get("actions") or {}).get("triggered") or [],
     }
 
 

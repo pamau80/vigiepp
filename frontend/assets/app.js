@@ -9,6 +9,7 @@ import { createEnrollController } from "./modules/identity-enroll.js";
 import { createKioskController } from "./modules/kiosk.js";
 import { createTeachController } from "./modules/teach.js";
 import { createDayZeroWizardController } from "./modules/day-zero-wizard.js";
+import { createActionsController } from "./modules/actions.js";
 import { applySkin } from "./modules/theme.js";
 import { createMassController } from "./modules/mass.js";
 import { createCameraController } from "./modules/camera.js";
@@ -59,7 +60,7 @@ function bindAuthController(onOperatorLogin) {
   };
 }
 
-const APP_BUILD = globalThis.VIGIEPP_BUILD || "v60";
+const APP_BUILD = globalThis.VIGIEPP_BUILD || "v61";
 const els = createAppElements();
 const state = createAppRuntimeState();
 const { settings, loadSettings, saveSettings, applyMobileChrome } = createSettingsStore(els);
@@ -226,6 +227,8 @@ const dayZero = createDayZeroWizardController({
   applyHealth,
 });
 
+const actions = createActionsController({ api, els });
+
 modes = createAppModesController({
   els,
   settings,
@@ -234,6 +237,7 @@ modes = createAppModesController({
   guide,
   workers,
   teach,
+  actions,
   mass,
   zones,
   reports,

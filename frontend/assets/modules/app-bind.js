@@ -15,6 +15,7 @@ export function bindAppEvents({
   ppeProfiles,
   workers,
   teach,
+  actions,
   camera,
   loadZones,
   settingsForm,
@@ -54,6 +55,7 @@ export function bindAppEvents({
   kiosk.bindKioskEvents();
   mass.bindMassEvents();
   teach.bindTeachEvents();
+  actions?.bindEvents?.();
   dayZero?.bindEvents?.();
   enroll.bindEnrollEvents();
 

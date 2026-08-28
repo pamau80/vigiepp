@@ -22,6 +22,7 @@ from . import (
     teach,
     watchlist,
     zones,
+    actions,
 )
 from .ehs import router as ehs_router
 
@@ -32,6 +33,7 @@ def register_routers(app: FastAPI) -> None:
     app.include_router(auth.router)
     app.include_router(detect.router)
     app.include_router(zones.router)
+    app.include_router(actions.router)
     app.include_router(scans.router)
     app.include_router(reports.router)
     app.include_router(notifications.router)

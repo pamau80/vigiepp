@@ -1,0 +1,389 @@
+"""Reglas de acciones inseguras configurables (P0)."""
+
+from __future__ import annotations
+
+import json
+import threading
+import time
+import uuid
+from datetime import UTC, datetime
+from typing import Any
+
+from .paths import data_dir
+from .zones import _is_person, _overlap_ratio, get_zones
+
+ACTIONS_FILE = data_dir() / "action_rules.json"
+_lock = threading.Lock()
+_last_trigger: dict[str, float] = {}
+
+# Palabras clave por familia de objeto/comportamiento (YOLO base + teach custom)
+KEYWORDS: dict[str, list[str]] = {
+    "persona": ["person", "human", "persona"],
+    "montacargas": ["forklift", "montacargas", "lift", "pallet"],
+    "celular": ["cell", "phone", "celular", "telefono", "móvil", "movil"],
+    "carga_suspendida": ["load", "carga", "suspend", "hook", "gancho", "suspended"],
+    "grua": ["crane", "grua", "grúa"],
+    "casco": ["hardhat", "helmet", "casco"],
+}
+
+PRESET_RULES: list[dict[str, Any]] = [
+    {
+        "id": "preset-epp-faena",
+        "name": "Sin EPP completo en faena",
+        "enabled": True,
+        "severity": "high",
+        "sources": ["*"],
+        "condition": {"type": "epp_non_compliant"},
+        "message": "Persona sin EPP obligatorio en faena",
+        "cooldown_seconds": 20,
+    },
+    {
+        "id": "preset-caida",
+        "name": "Caída detectada",
+        "enabled": True,
+        "severity": "critical",
+        "sources": ["*"],
+        "condition": {"type": "fall_detected"},
+        "message": "Caída o postura de caída detectada",
+        "cooldown_seconds": 15,
+    },
+    {
+        "id": "preset-celular-zona",
+        "name": "Celular en zona restringida",
+        "enabled": True,
+        "severity": "medium",
+        "sources": ["*"],
+        "condition": {
+            "type": "detect_in_zone",
+            "detect_keywords": KEYWORDS["celular"],
+            "zone_types": ["restricted", "machinery"],
+            "min_overlap": 0.15,
+            "min_conf": 0.3,
+        },
+        "message": "Uso de celular en zona no habilitada",
+        "cooldown_seconds": 30,
+    },
+    {
+        "id": "preset-montacargas-prox",
+        "name": "Persona cerca de montacargas / grúa horquilla",
+        "enabled": True,
+        "severity": "high",
+        "sources": ["*"],
+        "condition": {
+            "type": "proximity",
+            "subject_keywords": KEYWORDS["persona"],
+            "object_keywords": KEYWORDS["montacargas"] + KEYWORDS["grua"],
+            "max_distance_ratio": 0.14,
+            "min_conf": 0.25,
+        },
+        "message": "Persona demasiado cerca de montacargas o grúa",
+        "cooldown_seconds": 25,
+    },
+    {
+        "id": "preset-carga-suspendida",
+        "name": "Persona bajo área de carga suspendida",
+        "enabled": True,
+        "severity": "critical",
+        "sources": ["*"],
+        "condition": {
+            "type": "proximity",
+            "subject_keywords": KEYWORDS["persona"],
+            "object_keywords": KEYWORDS["carga_suspendida"],
+            "max_distance_ratio": 0.12,
+            "min_conf": 0.25,
+        },
+        "message": "Persona bajo o junto a carga suspendida",
+        "cooldown_seconds": 20,
+    },
+    {
+        "id": "preset-near-miss-via",
+        "name": "Near-miss: peatón en vía de vehículos",
+        "enabled": True,
+        "severity": "high",
+        "sources": ["*"],
+        "condition": {
+            "type": "person_in_zone",
+            "zone_types": ["vehicle_lane"],
+            "min_overlap": 0.28,
+        },
+        "message": "Peatón en vía de vehículos / montacargas",
+        "cooldown_seconds": 20,
+    },
+    {
+        "id": "preset-zona-maquinaria",
+        "name": "Proximidad a maquinaria (zona)",
+        "enabled": False,
+        "severity": "medium",
+        "sources": ["*"],
+        "condition": {
+            "type": "person_in_zone",
+            "zone_types": ["machinery"],
+            "min_overlap": 0.28,
+        },
+        "message": "Persona en zona de maquinaria",
+        "cooldown_seconds": 30,
+    },
+]
+
+
+def _default_payload() -> dict[str, Any]:
+    return {
+        "rules": [dict(r) for r in PRESET_RULES],
+        "updated_at": None,
+    }
+
+
+def get_rules() -> dict[str, Any]:
+    with _lock:
+        if not ACTIONS_FILE.exists():
+            return _default_payload()
+        try:
+            data = json.loads(ACTIONS_FILE.read_text(encoding="utf-8"))
+            if not isinstance(data.get("rules"), list):
+                return _default_payload()
+            return data
+        except (json.JSONDecodeError, OSError):
+            return _default_payload()
+
+
+def save_rules(rules: list[dict[str, Any]]) -> dict[str, Any]:
+    cleaned = []
+    for r in rules:
+        if not isinstance(r, dict) or not r.get("id"):
+            continue
+        cleaned.append(r)
+    payload = {"rules": cleaned, "updated_at": datetime.now(UTC).isoformat()}
+    with _lock:
+        ACTIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        ACTIONS_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        from . import cloud_persist as cloud_mod
+
+        cloud_mod.schedule_push()
+    except Exception:  # noqa: BLE001
+        pass
+    return payload
+
+
+def list_presets() -> list[dict[str, Any]]:
+    return [{"id": p["id"], "name": p["name"], "severity": p["severity"]} for p in PRESET_RULES]
+
+
+def _label_text(det: dict[str, Any]) -> str:
+    return f"{det.get('label') or ''} {det.get('label_es') or ''}".lower()
+
+
+def _matches_keywords(det: dict[str, Any], keywords: list[str], min_conf: float = 0.0) -> bool:
+    if float(det.get("confidence") or 0) < min_conf:
+        return False
+    lab = _label_text(det)
+    return any(k.lower() in lab for k in keywords)
+
+
+def _persons(detections: list[dict[str, Any]], frame_w: int, frame_h: int) -> list[dict[str, Any]]:
+    persons = [d for d in detections if _is_person(d) and d.get("box")]
+    if not persons:
+        persons = [
+            d
+            for d in detections
+            if d.get("box")
+            and (d["box"][2] - d["box"][0]) * (d["box"][3] - d["box"][1]) > (frame_w * frame_h * 0.04)
+        ]
+    return persons
+
+
+def _source_matches(rule: dict[str, Any], source_id: str) -> bool:
+    sources = rule.get("sources") or ["*"]
+    if "*" in sources:
+        return True
+    sid = source_id or "live"
+    for s in sources:
+        if s == sid:
+            return True
+        if s.endswith("*") and sid.startswith(s[:-1]):
+            return True
+    return False
+
+
+def _cooldown_ok(rule_id: str, source_id: str, cooldown: int) -> bool:
+    if cooldown <= 0:
+        return True
+    key = f"{rule_id}|{source_id or 'live'}"
+    now = time.time()
+    prev = _last_trigger.get(key, 0)
+    if now - prev < cooldown:
+        return False
+    _last_trigger[key] = now
+    return True
+
+
+def _trigger(rule: dict[str, Any], source_id: str, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {
+        "rule_id": rule["id"],
+        "name": rule.get("name") or rule["id"],
+        "severity": rule.get("severity") or "medium",
+        "message": rule.get("message") or rule.get("name") or "Acción insegura",
+        "source": source_id or "live",
+        **(extra or {}),
+    }
+
+
+def evaluate_actions(
+    detections: list[dict[str, Any]],
+    frame_w: int,
+    frame_h: int,
+    *,
+    source_id: str = "live",
+    compliance: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Evalúa reglas habilitadas para la fuente dada."""
+    data = get_rules()
+    rules = [r for r in data.get("rules") or [] if r.get("enabled")]
+    zones = [z for z in (get_zones().get("zones") or []) if z.get("enabled")]
+    triggered: list[dict[str, Any]] = []
+    alerts: list[str] = []
+
+    if frame_w <= 0 or frame_h <= 0:
+        return {"triggered": [], "alerts": [], "rules_count": len(rules)}
+
+    persons = _persons(detections, frame_w, frame_h)
+    compliance = compliance or {}
+
+    for rule in rules:
+        if not _source_matches(rule, source_id):
+            continue
+        cond = rule.get("condition") or {}
+        ctype = cond.get("type") or ""
+        cooldown = int(rule.get("cooldown_seconds") or 20)
+        hit = False
+        extra: dict[str, Any] = {}
+
+        if ctype == "epp_non_compliant":
+            persons_c = compliance.get("persons") or []
+            if persons_c and not compliance.get("overall_compliant"):
+                hit = True
+                miss = []
+                for p in persons_c:
+                    miss.extend(p.get("missing") or [])
+                extra["missing"] = miss[:6]
+
+        elif ctype == "fall_detected":
+            for p in compliance.get("persons") or []:
+                if "caida" in [str(v).lower() for v in (p.get("violations") or [])]:
+                    hit = True
+                    break
+            if not hit:
+                for d in detections:
+                    if "fall" in _label_text(d) or "caída" in _label_text(d) or "caida" in _label_text(d):
+                        hit = True
+                        break
+
+        elif ctype == "person_in_zone":
+            ztypes = set(cond.get("zone_types") or [])
+            min_ov = float(cond.get("min_overlap") or 0.28)
+            for z in zones:
+                if ztypes and z.get("type") not in ztypes:
+                    continue
+                for d in persons:
+                    if _overlap_ratio(d["box"], z, frame_w, frame_h) >= min_ov:
+                        hit = True
+                        extra["zone_id"] = z["id"]
+                        extra["zone_name"] = z["name"]
+                        break
+                if hit:
+                    break
+
+        elif ctype == "detect_in_zone":
+            kws = cond.get("detect_keywords") or []
+            ztypes = set(cond.get("zone_types") or [])
+            min_ov = float(cond.get("min_overlap") or 0.15)
+            min_conf = float(cond.get("min_conf") or 0.3)
+            targets = [d for d in detections if _matches_keywords(d, kws, min_conf) and d.get("box")]
+            for z in zones:
+                if ztypes and z.get("type") not in ztypes:
+                    continue
+                for d in targets:
+                    if _overlap_ratio(d["box"], z, frame_w, frame_h) >= min_ov:
+                        hit = True
+                        extra["zone_name"] = z["name"]
+                        extra["detect_label"] = d.get("label_es") or d.get("label")
+                        break
+                if hit:
+                    break
+
+        elif ctype == "proximity":
+            subj_kw = cond.get("subject_keywords") or KEYWORDS["persona"]
+            obj_kw = cond.get("object_keywords") or []
+            max_ratio = float(cond.get("max_distance_ratio") or 0.14)
+            min_conf = float(cond.get("min_conf") or 0.25)
+            diag = (frame_w**2 + frame_h**2) ** 0.5
+            subs = persons if persons else [d for d in detections if _matches_keywords(d, subj_kw, 0) and d.get("box")]
+            objs = [d for d in detections if _matches_keywords(d, obj_kw, min_conf) and d.get("box")]
+            for s in subs:
+                sx = (s["box"][0] + s["box"][2]) / 2
+                sy = (s["box"][1] + s["box"][3]) / 2
+                for o in objs:
+                    if s is o:
+                        continue
+                    ox = (o["box"][0] + o["box"][2]) / 2
+                    oy = (o["box"][1] + o["box"][3]) / 2
+                    dist = ((sx - ox) ** 2 + (sy - oy) ** 2) ** 0.5
+                    if dist / max(1.0, diag) <= max_ratio:
+                        hit = True
+                        extra["object_label"] = o.get("label_es") or o.get("label")
+                        extra["distance_ratio"] = round(dist / diag, 3)
+                        break
+                if hit:
+                    break
+
+        if hit and _cooldown_ok(str(rule["id"]), source_id, cooldown):
+            tr = _trigger(rule, source_id, extra)
+            triggered.append(tr)
+            msg = tr["message"]
+            if msg not in alerts:
+                alerts.append(msg)
+
+    return {"triggered": triggered, "alerts": alerts, "rules_count": len(rules)}
+
+
+def log_action_event(triggered: dict[str, Any]) -> None:
+    """Append a JSONL event (best-effort)."""
+    path = data_dir() / "action_events.jsonl"
+    line = {**triggered, "ts": datetime.now(UTC).isoformat()}
+    try:
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(line, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def add_rule_from_preset(preset_id: str) -> dict[str, Any]:
+    preset = next((p for p in PRESET_RULES if p["id"] == preset_id), None)
+    if not preset:
+        raise ValueError(f"Preset desconocido: {preset_id}")
+    data = get_rules()
+    rules = list(data.get("rules") or [])
+    if any(r.get("id") == preset_id for r in rules):
+        return {"ok": True, "message": "La regla ya existe", "rules": rules}
+    rules.append(dict(preset))
+    save_rules(rules)
+    return {"ok": True, "message": f"Regla añadida: {preset['name']}", "rules": rules}
+
+
+def create_custom_rule(name: str, condition_type: str, **kwargs: Any) -> dict[str, Any]:
+    rid = f"rule-{uuid.uuid4().hex[:10]}"
+    rule = {
+        "id": rid,
+        "name": name.strip() or "Regla personalizada",
+        "enabled": True,
+        "severity": kwargs.get("severity") or "medium",
+        "sources": kwargs.get("sources") or ["*"],
+        "condition": kwargs.get("condition") or {"type": condition_type},
+        "message": kwargs.get("message") or name,
+        "cooldown_seconds": int(kwargs.get("cooldown_seconds") or 25),
+    }
+    data = get_rules()
+    rules = list(data.get("rules") or [])
+    rules.append(rule)
+    save_rules(rules)
+    return {"ok": True, "rule": rule, "rules": rules}

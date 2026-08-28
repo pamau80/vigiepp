@@ -97,9 +97,12 @@ export function createLivePanelController({
     }
 
     if (getAppMode() === "live" && hasPeople && !ok) {
+      const actionAlert = (payload.actions?.alerts || [])[0];
       const zoneAlert = (payload.zones?.alerts || [])[0];
       const miss = (c.persons?.[0]?.missing || []).slice(0, 2).join(" y ");
-      if (zoneAlert) {
+      if (actionAlert) {
+        audio.speakAlert(actionAlert.replace("Near-miss:", "Cuidado."));
+      } else if (zoneAlert) {
         audio.speakAlert(
           zoneAlert.replace("Near-miss:", "Cuidado.").replace("Zona restringida:", "Zona restringida.")
         );

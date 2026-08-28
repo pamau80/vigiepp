@@ -21,7 +21,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/styles.css?v=38" />
+  <link rel="stylesheet" href="/assets/styles.css?v=39" />
 </head>
 <body>
   <div id="authGate" class="auth-gate hidden" aria-modal="true" role="dialog">
@@ -76,6 +76,9 @@
       </button>
       <button class="mode-btn" data-mode="teach" type="button" role="tab" aria-selected="false" title="Ropa / EPP">
         <span class="mode-full">EPP</span><span class="mode-short" aria-hidden="true">⛨</span>
+      </button>
+      <button class="mode-btn" data-mode="actions" type="button" role="tab" aria-selected="false" aria-controls="actionsDesk" title="Acciones inseguras">
+        <span class="mode-full">Acciones</span><span class="mode-short" aria-hidden="true">⚠</span>
       </button>
       <button class="mode-btn" data-mode="config" type="button" role="tab" aria-selected="false" aria-controls="configBlock" title="Configuración">
         <span class="mode-full">Config</span><span class="mode-short" aria-hidden="true">⚙</span>
@@ -387,6 +390,25 @@
         <p class="hint teach-status" id="teachHint" role="status"></p>
       </div>
 
+      <div class="actions-desk hidden" id="actionsDesk">
+        <div class="actions-main">
+          <div class="actions-toolbar">
+            <p class="toolbar-label">Vigilante de acciones inseguras</p>
+            <label class="field inline">
+              <span>Preset</span>
+              <select id="actionsPresetSelect"></select>
+            </label>
+            <button type="button" class="btn primary" id="btnActionsAddPreset">Agregar regla</button>
+            <button type="button" class="btn secondary" id="btnActionsOpenZones">Zonas en mapa</button>
+            <button type="button" class="btn ghost" id="btnActionsReset">Restaurar defaults</button>
+          </div>
+          <p class="hint" id="actionsHint">Configurá reglas para cámaras en altura y monitoreo en vivo.</p>
+          <ul class="item-list actions-rule-list" id="actionsRuleList">
+            <li class="muted">Cargando reglas…</li>
+          </ul>
+        </div>
+      </div>
+
       <div class="reports-desk hidden" id="reportsDesk">
         <aside class="reports-menu" aria-label="Menú de informes">
           <details class="rep-group" open>
@@ -491,6 +513,17 @@
         <p class="card-kicker">Alertas</p>
         <ul class="item-list alert-list" id="alertList">
           <li class="muted">Sin alertas</li>
+        </ul>
+      </section>
+
+      <section class="card panel-section hidden" data-show="actions" id="actionsSidePanel">
+        <p class="card-kicker">Acciones inseguras</p>
+        <p class="card-text" id="actionsStats">0 activas</p>
+        <p class="card-meta">Montacargas, celular, carga suspendida, near-miss, EPP y caídas. Las alertas se ven en <strong>Vivo</strong> y <strong>Masivo</strong>.</p>
+        <ul class="item-list actions-help">
+          <li><span>Celular / montacargas</span><span class="muted">Entrená en EPP</span></li>
+          <li><span>Zonas</span><span class="muted">Config → Zonas</span></li>
+          <li><span>NVR altura</span><span class="muted">Masivo</span></li>
         </ul>
       </section>
 

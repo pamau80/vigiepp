@@ -367,6 +367,7 @@ input, select, textarea, button {
 .panel[data-mode="monitor"] .panel-section[data-show="monitor"],
 .panel[data-mode="identity"] .panel-section[data-show="identity"],
 .panel[data-mode="teach"] .panel-section[data-show="teach"],
+.panel[data-mode="actions"] .panel-section[data-show="actions"],
 .panel[data-mode="config"] .panel-section[data-show="config"],
 .panel[data-mode="reports"] .panel-section[data-show="reports"] {
   display: block;
@@ -752,6 +753,68 @@ body.mode-reports .layout {
   max-width: 1600px;
 }
 body.mode-reports .panel { display: none; }
+
+body.mode-actions .layout {
+  grid-template-columns: minmax(0, 1.15fr) minmax(340px, 0.9fr);
+  max-width: 1600px;
+}
+body.mode-actions .stage { min-height: auto; }
+.actions-desk {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 420px;
+}
+.actions-desk.hidden { display: none !important; }
+.actions-main {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1rem 1.1rem;
+}
+.actions-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: flex-end;
+  margin-bottom: 0.65rem;
+}
+.actions-rule-list { margin-top: 0.5rem; }
+.actions-rule {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.actions-rule.is-off { opacity: 0.55; }
+.actions-rule-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  cursor: pointer;
+  margin: 0;
+}
+.actions-rule-name { font-weight: 600; }
+.actions-sev {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 0.15rem 0.45rem;
+  border: 1px solid var(--line);
+}
+.actions-sev.sev-critical { color: #ff8a7a; border-color: rgba(255, 100, 80, 0.4); }
+.actions-sev.sev-high { color: #ffb89a; border-color: rgba(255, 150, 100, 0.35); }
+.actions-sev.sev-medium { color: #ffd89a; }
+.actions-type { font-size: 0.78rem; }
+.actions-help li { font-size: 0.85rem; }
+.panel[data-mode="actions"] [data-live-only],
+.panel[data-mode="actions"] [data-hide-teach] {
+  display: none;
+}
 
 .reports-menu-title {
   cursor: pointer;

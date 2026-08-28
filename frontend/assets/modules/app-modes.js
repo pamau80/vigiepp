@@ -9,6 +9,7 @@ export function createAppModesController({
   guide,
   workers,
   teach,
+  actions,
   mass,
   zones,
   reports,
@@ -162,6 +163,7 @@ export function createAppModesController({
       "mode-devices",
       "mode-identity",
       "mode-teach",
+      "mode-actions",
       "mode-config",
       "mode-reports"
     );
@@ -181,8 +183,12 @@ export function createAppModesController({
     $("#devicesWorkspace")?.classList.toggle("hidden", mode !== "devices");
 
     const stage = $(".stage");
-    if (stage) stage.classList.toggle("is-reports", mode === "reports");
+    if (stage) {
+      stage.classList.toggle("is-reports", mode === "reports");
+      stage.classList.toggle("is-actions", mode === "actions");
+    }
     if (els.reportsDesk) els.reportsDesk.classList.toggle("hidden", mode !== "reports");
+    if (els.actionsDesk) els.actionsDesk.classList.toggle("hidden", mode !== "actions");
 
     const panel = $("#sidePanel");
     if (panel) panel.dataset.mode = mode;
@@ -194,6 +200,7 @@ export function createAppModesController({
         devices: "NVR y cámaras",
         identity: "Enrolamiento",
         teach: "Entrenar EPP de la faena",
+        actions: "Reglas de acciones inseguras",
         reports: "Informes",
         config: "Ajustes",
       };
@@ -213,13 +220,16 @@ export function createAppModesController({
     if (mode === "live") {
       const src = camera.getSourceMode();
       setSource(
-        src === "identity" || src === "teach" || src === "config" || src === "reports" ? "camera" : src
+        src === "identity" || src === "teach" || src === "config" || src === "reports" || src === "actions"
+          ? "camera"
+          : src
       );
       if (prevMode === "identity" && workers.hasReadyWorkers()) {
         enableIdentifyForPorteria("Identificación ON · volviste de Personas");
       }
     } else if (mode === "identity") setSource("identity");
     else if (mode === "teach") setSource("teach");
+    else if (mode === "actions") setSource("actions");
     else if (mode === "reports") setSource("reports");
     else if (mode === "config") setSource("config");
     else if (mode === "mass") setSource("mass");
@@ -228,6 +238,10 @@ export function createAppModesController({
     guide.applyGuideMode();
     if (mode === "identity") workers.refreshWorkers();
     if (mode === "teach") teach.refreshTeach();
+    if (mode === "actions") {
+      actions?.loadRules?.();
+      actions?.refreshPresets?.();
+    }
     if (mode === "config") {
       loadZones();
       setConfigSection(localStorage.getItem("vigiepp-cfg-sec") || "guides");

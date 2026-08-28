@@ -21,6 +21,7 @@ from . import inference as inference_mod
 from . import metrics as metrics_mod
 from . import notifications as notif_mod
 from . import zones as zones_mod
+from . import actions as actions_mod
 from .compliance import evaluate
 from .detector import PPEDetector, decode_image_bytes, encode_jpeg
 from .identity import IdentityRegistry, IdentityService
@@ -55,23 +56,59 @@ def build_response(
     identity: dict[str, Any] | None = None,
     frame_wh: tuple[int, int] | None = None,
     required: list[str] | None = None,
+    source_id: str = "live",
 ) -> dict[str, Any]:
     compliance = evaluate(detections, profile, required_override=required)
     fw = frame_wh[0] if frame_wh else 0
     fh = frame_wh[1] if frame_wh else 0
     zone_eval = zones_mod.evaluate_zones(detections, fw, fh) if fw and fh else {"alerts": [], "hits": [], "zones": []}
-    alerts = list(compliance.alerts or [])
+    comp_block = {
+        "profile_id": compliance.profile_id,
+        "profile_name": compliance.profile_name,
+        "overall_compliant": compliance.overall_compliant,
+        "summary": compliance.summary,
+        "alerts": list(compliance.alerts or []),
+        "persons": [asdict(p) for p in compliance.persons],
+        "required": required if required is not None else list(get_profile(profile)["required"]),
+    }
+    action_eval = (
+        actions_mod.evaluate_actions(
+            detections,
+            fw,
+            fh,
+            source_id=source_id,
+            compliance=comp_block,
+        )
+        if fw and fh
+        else {"triggered": [], "alerts": [], "rules_count": 0}
+    )
+    alerts = list(comp_block.get("alerts") or [])
     for a in zone_eval.get("alerts") or []:
         if a not in alerts:
             alerts.append(a)
+    for a in action_eval.get("alerts") or []:
+        if a not in alerts:
+            alerts.append(a)
 
-    # Si hay zona restringida / near-miss, no marcar como cumple global
     zone_bad = bool(zone_eval.get("alerts"))
-    overall = bool(compliance.overall_compliant) and not zone_bad
+    action_bad = bool(action_eval.get("triggered"))
+    overall = bool(compliance.overall_compliant) and not zone_bad and not action_bad
+    comp_block["overall_compliant"] = overall
+    if action_bad and overall is False:
+        comp_block["summary"] = f"{compliance.summary} · acción insegura"
+    elif zone_bad:
+        comp_block["summary"] = f"{compliance.summary} · alerta de zona"
+    comp_block["alerts"] = alerts
+
+    for tr in action_eval.get("triggered") or []:
+        try:
+            actions_mod.log_action_event(tr)
+        except Exception:  # noqa: BLE001
+            pass
 
     exposure = exposure_mod.update_exposure(overall, identity)
 
-    persons = [asdict(p) for p in compliance.persons]
+    persons = comp_block["persons"]
     # Safety score en vivo 0–100 (promedio scores de personas; penaliza zonas)
     if persons:
         avg = sum(float(p.get("score") or 0) for p in persons) / max(1, len(persons))
@@ -82,6 +119,8 @@ def build_response(
         live_score = None
     if zone_bad and live_score is not None:
         live_score = max(0, live_score - 25)
+    if action_bad and live_score is not None:
+        live_score = max(0, live_score - 20)
     if exposure.get("active") and live_score is not None and int(exposure.get("seconds") or 0) > 30:
         live_score = max(0, live_score - 10)
     if identity and not identity.get("known") and int(identity.get("faces_detected") or 0) > 0:
@@ -98,22 +137,17 @@ def build_response(
     payload: dict[str, Any] = {
         "ok": True,
         "detections": detections,
-        "compliance": {
-            "profile_id": compliance.profile_id,
-            "profile_name": compliance.profile_name,
-            "overall_compliant": overall,
-            "summary": compliance.summary
-            if not zone_bad
-            else f"{compliance.summary} · alerta de zona",
-            "alerts": alerts,
-            "persons": persons,
-            "required": required if required is not None else list(get_profile(profile)["required"]),
-        },
+        "compliance": comp_block,
         "identity": identity,
         "zones": {
             "alerts": zone_eval.get("alerts") or [],
             "hits": zone_eval.get("hits") or [],
             "defs": zone_eval.get("zones") or [],
+        },
+        "actions": {
+            "triggered": action_eval.get("triggered") or [],
+            "alerts": action_eval.get("alerts") or [],
+            "rules_count": action_eval.get("rules_count") or 0,
         },
         "exposure": exposure,
         "safety_score": live_score,
@@ -449,6 +483,7 @@ def compliance_cell_fields(payload: dict[str, Any]) -> dict[str, Any]:
         "compliant": comp.get("overall_compliant"),
         "missing": missing,
         "alerts": comp.get("alerts") or [],
+        "actions": (payload.get("actions") or {}).get("triggered") or [],
     }
 
 

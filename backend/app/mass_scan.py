@@ -120,6 +120,7 @@ def run_mass_scan(
             profile,
             frame_wh=(frame.shape[1], frame.shape[0]),
             required=req,
+            source_id=f"watchlist:{cell.get('id') or 'unknown'}",
         )
         fields = compliance_cell_fields(payload)
         cell.update(
@@ -129,6 +130,7 @@ def run_mass_scan(
                 "compliant": fields.get("compliant"),
                 "missing": fields.get("missing") or [],
                 "alerts": fields.get("alerts") or [],
+                "actions": fields.get("actions") or [],
                 "thumb": thumb_b64(frame),
                 "safety_score": payload.get("safety_score"),
             }
