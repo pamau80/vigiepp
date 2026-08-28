@@ -60,7 +60,7 @@ function bindAuthController(onOperatorLogin) {
   };
 }
 
-const APP_BUILD = globalThis.VIGIEPP_BUILD || "v61";
+const APP_BUILD = globalThis.VIGIEPP_BUILD || "v62";
 const els = createAppElements();
 const state = createAppRuntimeState();
 const { settings, loadSettings, saveSettings, applyMobileChrome } = createSettingsStore(els);
@@ -227,7 +227,12 @@ const dayZero = createDayZeroWizardController({
   applyHealth,
 });
 
-const actions = createActionsController({ api, els });
+const actions = createActionsController({
+  api,
+  els,
+  setAppMode: (...args) => modes?.setAppMode?.(...args),
+  teach,
+});
 
 modes = createAppModesController({
   els,

@@ -10,9 +10,13 @@ from datetime import UTC, datetime
 from typing import Any
 
 from .paths import data_dir
-from .zones import _is_person, _overlap_ratio, get_zones
+from .zones import _is_person, _overlap_ratio, zones_for_source
 
 ACTIONS_FILE = data_dir() / "action_rules.json"
+DEFAULT_SETTINGS: dict[str, Any] = {
+    "meters_per_pixel": 0.045,
+    "reference": "Ajustá según altura de cámara NVR (4–6 cm/px típico en patio)",
+}
 _lock = threading.Lock()
 _last_trigger: dict[str, float] = {}
 
@@ -73,6 +77,7 @@ PRESET_RULES: list[dict[str, Any]] = [
             "type": "proximity",
             "subject_keywords": KEYWORDS["persona"],
             "object_keywords": KEYWORDS["montacargas"] + KEYWORDS["grua"],
+            "max_distance_meters": 3.0,
             "max_distance_ratio": 0.14,
             "min_conf": 0.25,
         },
@@ -89,6 +94,7 @@ PRESET_RULES: list[dict[str, Any]] = [
             "type": "proximity",
             "subject_keywords": KEYWORDS["persona"],
             "object_keywords": KEYWORDS["carga_suspendida"],
+            "max_distance_meters": 2.0,
             "max_distance_ratio": 0.12,
             "min_conf": 0.25,
         },
@@ -129,8 +135,39 @@ PRESET_RULES: list[dict[str, Any]] = [
 def _default_payload() -> dict[str, Any]:
     return {
         "rules": [dict(r) for r in PRESET_RULES],
+        "settings": dict(DEFAULT_SETTINGS),
         "updated_at": None,
     }
+
+
+def get_settings() -> dict[str, Any]:
+    data = get_rules()
+    settings = dict(DEFAULT_SETTINGS)
+    settings.update(data.get("settings") or {})
+    settings["meters_per_pixel"] = max(0.01, min(0.5, float(settings.get("meters_per_pixel") or 0.045)))
+    return settings
+
+
+def save_settings(settings: dict[str, Any]) -> dict[str, Any]:
+    data = get_rules()
+    merged = dict(DEFAULT_SETTINGS)
+    merged.update(data.get("settings") or {})
+    merged.update(settings or {})
+    merged["meters_per_pixel"] = max(0.01, min(0.5, float(merged.get("meters_per_pixel") or 0.045)))
+    payload = {"rules": data.get("rules") or [], "settings": merged, "updated_at": datetime.now(UTC).isoformat()}
+    with _lock:
+        ACTIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        ACTIONS_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return payload
+
+
+def _proximity_max_ratio(cond: dict[str, Any], frame_w: int, frame_h: int, settings: dict[str, Any]) -> float:
+    if cond.get("max_distance_meters") is not None:
+        mpp = float(settings.get("meters_per_pixel") or 0.045)
+        diag = (frame_w**2 + frame_h**2) ** 0.5
+        max_px = float(cond["max_distance_meters"]) / max(mpp, 1e-6)
+        return max_px / max(1.0, diag)
+    return float(cond.get("max_distance_ratio") or 0.14)
 
 
 def get_rules() -> dict[str, Any]:
@@ -152,7 +189,12 @@ def save_rules(rules: list[dict[str, Any]]) -> dict[str, Any]:
         if not isinstance(r, dict) or not r.get("id"):
             continue
         cleaned.append(r)
-    payload = {"rules": cleaned, "updated_at": datetime.now(UTC).isoformat()}
+    existing = get_rules()
+    payload = {
+        "rules": cleaned,
+        "settings": existing.get("settings") or dict(DEFAULT_SETTINGS),
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
     with _lock:
         ACTIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
         ACTIONS_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -239,7 +281,8 @@ def evaluate_actions(
     """Evalúa reglas habilitadas para la fuente dada."""
     data = get_rules()
     rules = [r for r in data.get("rules") or [] if r.get("enabled")]
-    zones = [z for z in (get_zones().get("zones") or []) if z.get("enabled")]
+    settings = get_settings()
+    zones = zones_for_source(source_id)
     triggered: list[dict[str, Any]] = []
     alerts: list[str] = []
 
@@ -314,7 +357,7 @@ def evaluate_actions(
         elif ctype == "proximity":
             subj_kw = cond.get("subject_keywords") or KEYWORDS["persona"]
             obj_kw = cond.get("object_keywords") or []
-            max_ratio = float(cond.get("max_distance_ratio") or 0.14)
+            max_ratio = _proximity_max_ratio(cond, frame_w, frame_h, settings)
             min_conf = float(cond.get("min_conf") or 0.25)
             diag = (frame_w**2 + frame_h**2) ** 0.5
             subs = persons if persons else [d for d in detections if _matches_keywords(d, subj_kw, 0) and d.get("box")]

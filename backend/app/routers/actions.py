@@ -5,13 +5,51 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 
 from .. import actions as actions_mod
+from .. import watchlist as watchlist_mod
+from .. import zones as zones_mod
 
 router = APIRouter(prefix="/api/actions", tags=["actions"])
 
 
 @router.get("/rules")
 def actions_get_rules() -> dict[str, Any]:
-    return actions_mod.get_rules()
+    data = actions_mod.get_rules()
+    data["settings"] = actions_mod.get_settings()
+    return data
+
+
+@router.get("/settings")
+def actions_get_settings() -> dict[str, Any]:
+    return {"settings": actions_mod.get_settings()}
+
+
+@router.post("/settings")
+async def actions_save_settings(request: Request) -> dict[str, Any]:
+    body = await request.json()
+    settings = body.get("settings") if isinstance(body, dict) else body
+    if not isinstance(settings, dict):
+        raise HTTPException(400, "Se esperaba { settings: {...} }")
+    return actions_mod.save_settings(settings)
+
+
+@router.get("/sources")
+def actions_list_sources() -> dict[str, Any]:
+    sources = [{"id": "live", "label": "Vivo / portería"}]
+    try:
+        for ch in watchlist_mod.list_channels():
+            if not ch.get("enabled", True):
+                continue
+            cid = ch.get("id") or ""
+            sources.append(
+                {
+                    "id": f"watchlist:{cid}",
+                    "label": ch.get("name") or f"Canal {cid}",
+                }
+            )
+    except Exception:  # noqa: BLE001
+        pass
+    zone_src = zones_mod.list_zone_sources()
+    return {"sources": sources, "zone_sources": zone_src}
 
 
 @router.get("/presets")
@@ -25,7 +63,9 @@ async def actions_save_rules(request: Request) -> dict[str, Any]:
     rules = body.get("rules") if isinstance(body, dict) else body
     if not isinstance(rules, list):
         raise HTTPException(400, "Se esperaba { rules: [...] }")
-    return actions_mod.save_rules(rules)
+    payload = actions_mod.save_rules(rules)
+    payload["settings"] = actions_mod.get_settings()
+    return payload
 
 
 @router.post("/presets/{preset_id}")
@@ -42,4 +82,5 @@ def actions_reset_defaults() -> dict[str, Any]:
 
     payload = _default_payload()
     save_rules(payload["rules"])
-    return payload
+    actions_mod.save_settings(payload["settings"])
+    return actions_mod.get_rules() | {"settings": actions_mod.get_settings()}

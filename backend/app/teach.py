@@ -51,6 +51,21 @@ TEACHABLE_CLASSES: list[dict[str, str]] = [
         "name": "Guantes de seguridad",
         "hint": "Entrená TU guante: nitrilo azul, cabritilla, anticorte — manos visibles en portería",
     },
+    {
+        "id": "montacargas",
+        "name": "Montacargas / grúa horquilla",
+        "hint": "Fotos desde cámara en altura: distintos ángulos, cargas, operación en patio/bodega",
+    },
+    {
+        "id": "celular",
+        "name": "Celular / teléfono en mano",
+        "hint": "Manos con teléfono en faena — varios ángulos para regla «celular en zona»",
+    },
+    {
+        "id": "carga_suspendida",
+        "name": "Carga suspendida / gancho",
+        "hint": "Grúa con carga en el aire, palet suspendido — vista desde NVR en altura",
+    },
     {"id": "arnes", "name": "Arnés anticaídas", "hint": "Torso con correas visibles"},
     {"id": "mascarilla", "name": "Mascarilla / respirador", "hint": "Rostro con EPP respiratorio"},
     {"id": "orejeras", "name": "Orejeras / protección auditiva", "hint": "Cabeza lateral"},

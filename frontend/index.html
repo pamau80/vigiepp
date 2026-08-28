@@ -403,9 +403,14 @@
             <button type="button" class="btn ghost" id="btnActionsReset">Restaurar defaults</button>
           </div>
           <p class="hint" id="actionsHint">Configurá reglas para cámaras en altura y monitoreo en vivo.</p>
-          <ul class="item-list actions-rule-list" id="actionsRuleList">
-            <li class="muted">Cargando reglas…</li>
-          </ul>
+          <div class="actions-layout">
+            <ul class="item-list actions-rule-list" id="actionsRuleList">
+              <li class="muted">Cargando reglas…</li>
+            </ul>
+            <div class="actions-detail card" id="actionsDetail">
+              <p class="muted">Seleccioná una regla de la lista para configurar cámaras y distancia.</p>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -520,6 +525,16 @@
         <p class="card-kicker">Acciones inseguras</p>
         <p class="card-text" id="actionsStats">0 activas</p>
         <p class="card-meta">Montacargas, celular, carga suspendida, near-miss, EPP y caídas. Las alertas se ven en <strong>Vivo</strong> y <strong>Masivo</strong>.</p>
+        <label class="field">
+          <span>Calibración distancia (m/px)</span>
+          <input type="number" id="actionsMetersPerPixel" min="0.01" max="0.5" step="0.005" value="0.045" />
+        </label>
+        <p class="card-meta muted" id="actionsCalibHint">Típico NVR en altura: 0.04–0.06 m/px según zoom.</p>
+        <p class="card-kicker list-label">Entrenamiento detecciones</p>
+        <ul class="item-list actions-teach-list" id="actionsTeachList">
+          <li class="muted">Cargando progreso…</li>
+        </ul>
+        <button type="button" class="btn secondary btn-sm" id="btnActionsOpenTeach">Entrenar en EPP</button>
         <ul class="item-list actions-help">
           <li><span>Celular / montacargas</span><span class="muted">Entrená en EPP</span></li>
           <li><span>Zonas</span><span class="muted">Config → Zonas</span></li>

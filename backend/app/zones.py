@@ -39,6 +39,7 @@ DEFAULT = {
             "color": "#d62828",
         },
     ],
+    "by_source": {},
     "updated_at": None,
 }
 
@@ -143,7 +144,7 @@ def _normalize_zone_type(raw: Any) -> str:
     return t if t in _ZONE_TYPES else "restricted"
 
 
-def save_zones(zones: list[dict[str, Any]]) -> dict[str, Any]:
+def _normalize_zone_list(zones: list[dict[str, Any]]) -> list[dict[str, Any]]:
     cleaned: list[dict[str, Any]] = []
     for z in zones:
         cleaned.append(
@@ -159,7 +160,48 @@ def save_zones(zones: list[dict[str, Any]]) -> dict[str, Any]:
                 "color": str(z.get("color") or "#e85d04")[:20],
             }
         )
-    payload = {"zones": cleaned, "updated_at": datetime.now(UTC).isoformat()}
+    return cleaned
+
+
+def zones_for_source(source_id: str | None = None) -> list[dict[str, Any]]:
+    """Zonas para una fuente (live / watchlist:id). Fallback a zonas globales."""
+    data = get_zones()
+    sid = (source_id or "live").strip()
+    by_src = data.get("by_source") or {}
+    if sid in by_src and by_src[sid]:
+        return [z for z in by_src[sid] if z.get("enabled", True)]
+    return [z for z in data.get("zones") or [] if z.get("enabled")]
+
+
+def list_zone_sources() -> list[dict[str, str]]:
+    data = get_zones()
+    out = [{"id": "live", "label": "Vivo / portería (webcam)"}]
+    for sid in sorted((data.get("by_source") or {}).keys()):
+        if sid != "live":
+            out.append({"id": sid, "label": sid.replace("watchlist:", "NVR · ")})
+    return out
+
+
+def save_zones(zones: list[dict[str, Any]], source_id: str | None = None) -> dict[str, Any]:
+    cleaned = _normalize_zone_list(zones)
+    existing = get_zones()
+    by_source = dict(existing.get("by_source") or {})
+    if source_id and source_id.strip() not in ("", "global"):
+        by_source[source_id.strip()] = cleaned
+        global_zones = existing.get("zones")
+        if global_zones is None:
+            global_zones = DEFAULT["zones"]
+        payload = {
+            "zones": global_zones,
+            "by_source": by_source,
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+    else:
+        payload = {
+            "zones": cleaned,
+            "by_source": by_source,
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
     with _lock:
         ZONES_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     try:
@@ -195,14 +237,16 @@ def evaluate_zones(
     detections: list[dict[str, Any]],
     frame_w: int,
     frame_h: int,
+    source_id: str = "live",
 ) -> dict[str, Any]:
-    """Evalúa personas dentro de zonas habilitadas."""
+    """Evalúa personas dentro de zonas habilitadas (por cámara o globales)."""
     data = get_zones()
-    zones = [z for z in data.get("zones") or [] if z.get("enabled")]
+    zones = zones_for_source(source_id)
+    all_defs = (data.get("by_source") or {}).get(source_id) or data.get("zones") or []
     alerts: list[str] = []
     hits: list[dict[str, Any]] = []
     if not zones or frame_w <= 0 or frame_h <= 0:
-        return {"alerts": alerts, "hits": hits, "zones": data.get("zones") or []}
+        return {"alerts": alerts, "hits": hits, "zones": all_defs, "source_id": source_id}
 
     persons = [d for d in detections if _is_person(d) and d.get("box")]
     # Si no hay clase persona, usar cajas grandes como proxy de cuerpo
@@ -250,4 +294,4 @@ def evaluate_zones(
         if a not in seen:
             seen.add(a)
             uniq.append(a)
-    return {"alerts": uniq, "hits": hits, "zones": data.get("zones") or []}
+    return {"alerts": uniq, "hits": hits, "zones": all_defs, "source_id": source_id}

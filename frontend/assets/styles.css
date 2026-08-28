@@ -810,6 +810,50 @@ body.mode-actions .stage { min-height: auto; }
 .actions-sev.sev-high { color: #ffb89a; border-color: rgba(255, 150, 100, 0.35); }
 .actions-sev.sev-medium { color: #ffd89a; }
 .actions-type { font-size: 0.78rem; }
+.actions-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.95fr);
+  gap: 0.85rem;
+  align-items: start;
+}
+@media (max-width: 960px) {
+  .actions-layout { grid-template-columns: 1fr; }
+}
+.actions-rule.is-selected {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: var(--radius-sm, 8px);
+  padding-left: 0.35rem;
+  padding-right: 0.35rem;
+}
+.actions-detail {
+  padding: 0.85rem 1rem;
+  min-height: 200px;
+}
+.actions-detail-name {
+  font-weight: 700;
+  margin: 0 0 0.65rem;
+}
+.actions-src-grid {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.5rem 0 0.75rem;
+  max-height: 160px;
+  overflow: auto;
+}
+.actions-src-check { font-size: 0.85rem; }
+.actions-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.75rem;
+}
+.actions-teach-list li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+}
+.actions-teach-list .is-done { color: var(--ok, #7ddf9a); }
 .actions-help li { font-size: 0.85rem; }
 .panel[data-mode="actions"] [data-live-only],
 .panel[data-mode="actions"] [data-hide-teach] {

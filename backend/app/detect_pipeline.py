@@ -61,7 +61,7 @@ def build_response(
     compliance = evaluate(detections, profile, required_override=required)
     fw = frame_wh[0] if frame_wh else 0
     fh = frame_wh[1] if frame_wh else 0
-    zone_eval = zones_mod.evaluate_zones(detections, fw, fh) if fw and fh else {"alerts": [], "hits": [], "zones": []}
+    zone_eval = zones_mod.evaluate_zones(detections, fw, fh, source_id=source_id) if fw and fh else {"alerts": [], "hits": [], "zones": []}
     comp_block = {
         "profile_id": compliance.profile_id,
         "profile_name": compliance.profile_name,

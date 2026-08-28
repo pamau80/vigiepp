@@ -1,4 +1,4 @@
-/** Progreso de entrenamiento EPP — compartido entre teach y wizard día cero. */
+/** Progreso de entrenamiento EPP — compartido entre teach, wizard y acciones. */
 export const CORE_PPE = [
   { id: "casco", label: "Casco", min: 30, teachClass: "casco" },
   {
@@ -10,6 +10,13 @@ export const CORE_PPE = [
   },
   { id: "lentes", label: "Lentes", min: 30, teachClass: "lentes" },
   { id: "guantes", label: "Guantes", min: 30, teachClass: "guantes" },
+];
+
+/** Clases para reglas de Acciones (cámara en altura). */
+export const CORE_ACTIONS = [
+  { id: "montacargas", label: "Montacargas / grúa", min: 40, teachClass: "montacargas" },
+  { id: "celular", label: "Celular en faena", min: 30, teachClass: "celular" },
+  { id: "carga_suspendida", label: "Carga suspendida", min: 35, teachClass: "carga_suspendida" },
 ];
 
 export function countForFamily(classes, family) {
@@ -30,6 +37,15 @@ export function countForFamily(classes, family) {
 export function ppeProgress(classes, guide) {
   const minRec = guide?.stats?.min_recommended || 30;
   return CORE_PPE.map((item) => {
+    const n = countForFamily(classes, item);
+    const min = item.min || minRec;
+    return { ...item, count: n, min, done: n >= min, pct: Math.min(100, Math.round((n / min) * 100)) };
+  });
+}
+
+export function actionTeachProgress(classes, guide) {
+  const minRec = guide?.stats?.min_recommended || 30;
+  return CORE_ACTIONS.map((item) => {
     const n = countForFamily(classes, item);
     const min = item.min || minRec;
     return { ...item, count: n, min, done: n >= min, pct: Math.min(100, Math.round((n / min) * 100)) };
