@@ -30,6 +30,8 @@ export function bindAppEvents({
   downloadUrl,
   enroll,
   mass,
+  dayZero,
+  applySkin,
   buildVersion,
 }) {
   workers.bindWorkerEvents();
@@ -52,6 +54,7 @@ export function bindAppEvents({
   kiosk.bindKioskEvents();
   mass.bindMassEvents();
   teach.bindTeachEvents();
+  dayZero?.bindEvents?.();
   enroll.bindEnrollEvents();
 
   const bootCtrl = createBootController({
@@ -71,6 +74,8 @@ export function bindAppEvents({
     guide,
     modes,
     kiosk,
+    dayZero,
+    applySkin,
     buildVersion,
   });
   const { boot } = bootCtrl;

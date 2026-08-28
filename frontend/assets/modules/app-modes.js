@@ -41,7 +41,7 @@ export function createAppModesController({
   }
 
   function setConfigSection(sec) {
-    const id = ["guides", "audio", "zones", "monitor", "privacy", "enterprise", "audit"].includes(sec)
+    const id = ["appearance", "guides", "audio", "zones", "monitor", "privacy", "enterprise", "audit"].includes(sec)
       ? sec
       : "guides";
     try {

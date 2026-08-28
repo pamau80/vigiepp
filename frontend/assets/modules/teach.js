@@ -1,24 +1,4 @@
-const CORE_PPE = [
-  { id: "casco", label: "Casco", min: 30 },
-  { id: "chaleco", label: "Ropa completa", min: 30, aliases: ["chaleco_fluor", "polera", "casaca", "uniforme_completo", "ropa_reflectante"] },
-  { id: "lentes", label: "Lentes", min: 30 },
-  { id: "guantes", label: "Guantes", min: 30 },
-];
-
-function countForFamily(classes, family) {
-  const ids = new Set([family.id, ...(family.aliases || [])]);
-  for (const c of classes) {
-    const cid = String(c.id || "").toLowerCase();
-    if (cid.includes(family.id) || [...ids].some((x) => cid.includes(x))) ids.add(c.id);
-  }
-  let total = 0;
-  for (const c of classes) {
-    if (ids.has(c.id) || String(c.id || "").toLowerCase().includes(family.id)) {
-      total += Number(c.count) || 0;
-    }
-  }
-  return total;
-}
+import { ppeProgress } from "../lib/teach-progress.js";
 
 function stepState(guide, classes, selected) {
   const stats = guide.stats || {};
@@ -38,18 +18,16 @@ export function createTeachController({ api, els, captureBlob, startCamera, hasM
 
   function renderChecklist(classes, guide) {
     if (!els.teachChecklist) return;
-    const minRec = guide?.stats?.min_recommended || 30;
-    els.teachChecklist.innerHTML = CORE_PPE.map((item) => {
-      const n = countForFamily(classes, item);
-      const min = item.min || minRec;
-      const pct = Math.min(100, Math.round((n / min) * 100));
-      const done = n >= min;
-      return `<li class="teach-check${done ? " is-done" : ""}">
+    const items = ppeProgress(classes, guide);
+    els.teachChecklist.innerHTML = items
+      .map(
+        (item) => `<li class="teach-check${item.done ? " is-done" : ""}">
         <span class="teach-check-label">${item.label}</span>
-        <span class="teach-check-bar" aria-hidden="true"><span style="width:${pct}%"></span></span>
-        <span class="teach-check-count">${n}/${min}</span>
-      </li>`;
-    }).join("");
+        <span class="teach-check-bar" aria-hidden="true"><span style="width:${item.pct}%"></span></span>
+        <span class="teach-check-count">${item.count}/${item.min}</span>
+      </li>`
+      )
+      .join("");
   }
 
   function renderSteps(classes, guide) {

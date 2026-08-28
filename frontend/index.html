@@ -21,7 +21,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/styles.css?v=37" />
+  <link rel="stylesheet" href="/assets/styles.css?v=38" />
 </head>
 <body>
   <div id="authGate" class="auth-gate hidden" aria-modal="true" role="dialog">
@@ -37,6 +37,20 @@
     </form>
   </div>
   <div id="persistBanner" class="persist-banner hidden" role="status"></div>
+  <div id="dayZeroWizard" class="day-zero-wizard hidden" aria-modal="true" role="dialog" aria-labelledby="dayZeroTitle">
+    <div class="day-zero-card">
+      <header class="day-zero-head">
+        <p class="day-zero-progress" id="dayZeroProgress">Paso 1 de 8</p>
+        <h2 class="day-zero-title" id="dayZeroTitle">Bienvenido · Día cero</h2>
+      </header>
+      <div class="day-zero-body" id="dayZeroBody"></div>
+      <footer class="day-zero-foot">
+        <button type="button" class="btn ghost hidden" id="btnDayZeroBack">Anterior</button>
+        <button type="button" class="btn ghost" id="btnDayZeroSkip">Configurar después</button>
+        <button type="button" class="btn primary" id="btnDayZeroNext">Siguiente</button>
+      </footer>
+    </div>
+  </div>
   <header class="topbar">
     <div class="brand">
       <div class="brand-mark" aria-hidden="true"></div>
@@ -46,6 +60,7 @@
       </div>
     </div>
     <span class="role-badge hidden" id="roleBadge" aria-live="polite"></span>
+    <button type="button" class="day-zero-banner hidden" id="dayZeroBanner">Configuración faena</button>
     <nav class="mode-nav" role="tablist" aria-label="Módulos VigiEPP">
       <button class="mode-btn active" data-mode="live" type="button" role="tab" aria-selected="true" aria-controls="liveWorkspace" title="Vigilancia en vivo">
         <span class="mode-full">Vivo</span><span class="mode-short" aria-hidden="true">▶</span>
@@ -552,14 +567,26 @@
 
       <section class="card panel-section config-card" data-show="config" id="configBlock">
         <nav class="cfg-nav cfg-nav-panel" id="cfgNavPanel" aria-label="Menú Config">
-          <button type="button" class="cfg-nav-btn active" data-cfg-sec="guides">1 · Guías</button>
-          <button type="button" class="cfg-nav-btn" data-cfg-sec="audio">2 · Audio</button>
-          <button type="button" class="cfg-nav-btn" data-cfg-sec="zones">3 · Zonas</button>
-          <button type="button" class="cfg-nav-btn" data-cfg-sec="monitor">4 · Monitoreo</button>
-          <button type="button" class="cfg-nav-btn" data-cfg-sec="privacy">5 · Privacidad</button>
-          <button type="button" class="cfg-nav-btn" data-cfg-sec="enterprise">6 · Enterprise</button>
-          <button type="button" class="cfg-nav-btn" data-cfg-sec="audit">7 · Bitácora</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="appearance">Apariencia</button>
+          <button type="button" class="cfg-nav-btn active" data-cfg-sec="guides">Guías</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="audio">Audio</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="zones">Zonas</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="monitor">Monitoreo</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="privacy">Privacidad</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="enterprise">Enterprise</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="audit">Bitácora</button>
         </nav>
+
+        <div class="cfg-section hidden" data-cfg-section="appearance">
+          <p class="card-kicker">Skin del software</p>
+          <p class="card-meta">Tema visual en este navegador · no afecta detección EPP.</p>
+          <div class="skin-picker" id="cfgSkinPicker" role="group" aria-label="Temas visuales"></div>
+          <p class="card-meta" style="margin-top:1rem">Asistente inicial de faena</p>
+          <div class="day-zero-config-actions">
+            <button type="button" class="btn secondary" id="btnDayZeroReopen">Abrir asistente día cero</button>
+            <button type="button" class="btn ghost" id="btnDayZeroReset">Reiniciar progreso</button>
+          </div>
+        </div>
 
         <div class="cfg-section" data-cfg-section="guides">
           <p class="card-kicker">Guías visuales</p>

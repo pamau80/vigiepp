@@ -8,6 +8,8 @@ import { createWorkersController } from "./modules/identity-workers.js";
 import { createEnrollController } from "./modules/identity-enroll.js";
 import { createKioskController } from "./modules/kiosk.js";
 import { createTeachController } from "./modules/teach.js";
+import { createDayZeroWizardController } from "./modules/day-zero-wizard.js";
+import { applySkin } from "./modules/theme.js";
 import { createMassController } from "./modules/mass.js";
 import { createCameraController } from "./modules/camera.js";
 import { createSilhouetteGuideController } from "./modules/silhouette-guide.js";
@@ -57,7 +59,7 @@ function bindAuthController(onOperatorLogin) {
   };
 }
 
-const APP_BUILD = globalThis.VIGIEPP_BUILD || "v59";
+const APP_BUILD = globalThis.VIGIEPP_BUILD || "v60";
 const els = createAppElements();
 const state = createAppRuntimeState();
 const { settings, loadSettings, saveSettings, applyMobileChrome } = createSettingsStore(els);
@@ -207,8 +209,21 @@ const teach = createTeachController({
       const health = await api("/api/health");
       applyHealth(health);
       teach.updateModelBadgeFromGuide?.();
+      dayZero?.refreshGuide?.();
     } catch (_) {}
   },
+});
+
+const dayZero = createDayZeroWizardController({
+  api,
+  els,
+  settings,
+  saveSettings,
+  getRole: () => userRole,
+  setAppMode: (...args) => modes.setAppMode(...args),
+  teach,
+  ppeProfiles,
+  applyHealth,
 });
 
 modes = createAppModesController({
@@ -330,5 +345,7 @@ bindAppEvents({
   downloadUrl,
   enroll,
   mass,
+  dayZero,
+  applySkin,
   buildVersion: APP_BUILD.replace(/^v/, ""),
 });

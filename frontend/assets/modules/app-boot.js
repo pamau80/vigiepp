@@ -19,6 +19,8 @@ export function createBootController({
   guide,
   modes,
   kiosk,
+  dayZero,
+  applySkin,
   buildVersion,
 }) {
   async function boot() {
@@ -43,6 +45,7 @@ export function createBootController({
     await camera.refreshCameras();
     await loadZones();
     loadSettings();
+    applySkin?.(settings.skinId || "faena");
     await settingsForm.loadPrivacyServer();
     settings.fullscreenDefault = false;
     if (els.chkFullscreen) els.chkFullscreen.checked = false;
@@ -53,6 +56,7 @@ export function createBootController({
     if (settings.kioskMode) kiosk.setKioskMode(true);
     camera.hideLiveVideo();
     await camera.refreshCameraPermissionHint();
+    await dayZero?.afterBoot?.();
 
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.getRegistrations().then((regs) => {

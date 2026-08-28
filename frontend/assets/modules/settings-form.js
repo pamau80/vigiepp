@@ -1,4 +1,5 @@
 import { $ } from "./dom.js";
+import { renderSkinPicker, applySkin } from "./theme.js";
 
 /** Sincronización del formulario de configuración y privacidad. */
 export function createSettingsFormController({
@@ -49,6 +50,13 @@ export function createSettingsFormController({
     if (retEl) {
       retEl.value = String(settings.retentionDays ?? 90);
       if (retVal) retVal.textContent = String(settings.retentionDays ?? 90);
+    }
+    if (els.cfgSkinPicker?.dataset.skinBound === "1") {
+      els.cfgSkinPicker.querySelectorAll(".skin-chip").forEach((btn) => {
+        const on = btn.getAttribute("data-skin-id") === (settings.skinId || "faena");
+        btn.classList.toggle("active", on);
+        btn.setAttribute("aria-pressed", on ? "true" : "false");
+      });
     }
   }
 
@@ -117,6 +125,16 @@ export function createSettingsFormController({
   }
 
   function bindSettingsEvents() {
+    if (els.cfgSkinPicker && els.cfgSkinPicker.dataset.skinBound !== "1") {
+      els.cfgSkinPicker.dataset.skinBound = "1";
+      const onSkinPick = (skinId) => {
+        settings.skinId = applySkin(skinId);
+        saveSettings(true);
+        renderSkinPicker(els.cfgSkinPicker, settings.skinId, onSkinPick);
+      };
+      renderSkinPicker(els.cfgSkinPicker, settings.skinId || "faena", onSkinPick);
+    }
+
     $("#cfgQrOnlyMode")?.addEventListener("change", () => readSettingsFromForm());
     $("#cfgRetentionDays")?.addEventListener("input", () => readSettingsFromForm());
 

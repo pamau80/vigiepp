@@ -1,5 +1,5 @@
 /** Configuración local persistente. */
-export const SETTINGS_KEY = "vigiepp.settings.v5";
+export const SETTINGS_KEY = "vigiepp.settings.v6";
 
 export function defaultSettings() {
   return {
@@ -23,6 +23,11 @@ export function defaultSettings() {
     qrOnlyMode: false,
     retentionDays: 90,
     ppeByProfile: {},
+    skinId: "faena",
+    dayZeroComplete: false,
+    dayZeroDismissed: false,
+    dayZeroStep: 0,
+    dayZeroForceOpen: false,
   };
 }
 
@@ -39,7 +44,10 @@ export function setSettings(patch) {
 
 export function loadSettings() {
   try {
-    const raw = localStorage.getItem(SETTINGS_KEY);
+    let raw = localStorage.getItem(SETTINGS_KEY);
+    if (!raw) {
+      raw = localStorage.getItem("vigiepp.settings.v5");
+    }
     if (!raw) return;
     settings = { ...defaultSettings(), ...JSON.parse(raw) };
     settings.bodyScale = Math.max(55, Math.min(130, Number(settings.bodyScale) || 100));
