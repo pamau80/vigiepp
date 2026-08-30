@@ -58,3 +58,9 @@ CI usa `VIGIEPP_COMBINED_INFERENCE=0` (sin inferencia pesada).
 ## Cursor Cloud
 
 Puerto dev: 8000 (`.cursor/environment.json`). Instalar deps vía `.cursor/install.sh`.
+
+Arranque para probar:
+
+```bash
+bash scripts/probar.sh   # :8000 VigiEPP + :8001 Forense — ver docs/PROBAR.md
+```
