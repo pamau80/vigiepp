@@ -7,6 +7,7 @@ PRIMARY_HOST="${PRIMARY_HOST:-192.168.10.11}"
 STANDBY_HOST="${STANDBY_HOST:-192.168.10.12}"
 PORT="${PORT:-8000}"
 LOG_FILE="${LOG_FILE:-/var/log/vigiepp-ha.log}"
+ALERT_WEBHOOK_URL="${ALERT_WEBHOOK_URL:-}"
 FAILOVER_CMD="${FAILOVER_CMD:-}"
 AUTO_FAILOVER="${AUTO_FAILOVER:-0}"
 HEALTH_PATH="/api/health"
@@ -22,6 +23,7 @@ Variables de entorno:
   PORT           Puerto VigiEPP (default: 8000)
   AUTO_FAILOVER  1 para ejecutar FAILOVER_CMD si primary cae
   FAILOVER_CMD   Comando a ejecutar en failover (ej. ssh standby 'docker compose up -d')
+  ALERT_WEBHOOK_URL  URL POST JSON opcional al detectar primary caído
   LOG_FILE       Ruta del log (default: /var/log/vigiepp-ha.log)
 
 Ejemplo cron (cada 60 s):
@@ -46,8 +48,19 @@ standby_reachable() {
   ping -c 1 -W 2 "$STANDBY_HOST" >/dev/null 2>&1
 }
 
+send_alert() {
+  local event="$1"
+  local detail="$2"
+  [ -z "$ALERT_WEBHOOK_URL" ] && return 0
+  curl -sf --max-time 8 -X POST "$ALERT_WEBHOOK_URL" \
+    -H "Content-Type: application/json" \
+    -d "{\"event\":\"$event\",\"primary\":\"${PRIMARY_HOST}\",\"standby\":\"${STANDBY_HOST}\",\"detail\":\"$detail\",\"ts\":\"$(date -Is)\"}" \
+    >/dev/null 2>&1 || log "WARN: alert webhook falló"
+}
+
 do_failover() {
   log "PRIMARY DOWN (${PRIMARY_HOST}:${PORT}) — iniciando procedimiento failover"
+  send_alert "primary_down" "identity_ready check failed"
   if [ "$AUTO_FAILOVER" = "1" ] && [ -n "$FAILOVER_CMD" ]; then
     log "Ejecutando FAILOVER_CMD: $FAILOVER_CMD"
     if eval "$FAILOVER_CMD"; then

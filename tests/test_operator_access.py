@@ -66,6 +66,15 @@ def test_operator_cannot_write_ehs_config(edge_client):
     assert r.status_code == 403
 
 
+def test_operator_me_includes_rbac(edge_client):
+    r = edge_client.get("/api/auth/me", headers=_hdrs(edge_client, "edge-operator"))
+    assert r.status_code == 200
+    body = r.json()
+    assert body["role"] == "operator"
+    assert body["rbac"]["admin"] is False
+    assert body["rbac"]["granular"] is True
+
+
 def test_admin_full_access(edge_client):
     admin = _hdrs(edge_client, "edge-admin")
     assert edge_client.get("/api/identity/workers", headers=admin).status_code == 200
