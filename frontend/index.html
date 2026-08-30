@@ -886,6 +886,14 @@
             <button type="button" class="btn ghost" id="btnEhsTestSap">Probar SAP</button>
           </div>
           <p class="card-meta" id="cfgEhsHint">—</p>
+          <p class="card-kicker" style="margin-top:1rem">Workflow incidentes</p>
+          <p class="card-meta">Estados: abierto → cerrado → verificado. Registro local al hacer push EHS.</p>
+          <div class="rep-actions" style="margin:0.35rem 0">
+            <button type="button" class="btn ghost btn-sm" id="btnEhsRefreshIncidents">Actualizar lista</button>
+          </div>
+          <ul class="item-list" id="cfgEhsIncidentList">
+            <li class="muted">Sin incidentes</li>
+          </ul>
         </div>
 
         <div class="cfg-section hidden" data-cfg-section="audit">

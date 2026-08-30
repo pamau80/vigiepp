@@ -39,6 +39,8 @@ curl -s -b "$COOKIE" "$BASE/api/actions/rules" | $PY -c "import sys,json; d=json
 curl -s -b "$COOKIE" "$BASE/api/actions/events?limit=5" | $PY -c "import sys,json; d=json.load(sys.stdin); assert d.get('ok') and 'events' in d" && ok "actions events" || bad "actions events"
 curl -s -b "$COOKIE" "$BASE/api/actions/presets" | $PY -c "import sys,json; assert 'presets' in json.load(sys.stdin)" && ok "actions presets" || bad "actions presets"
 
+curl -s -b "$COOKIE" "$BASE/api/ehs/incidents?limit=5" | $PY -c "import sys,json; d=json.load(sys.stdin); assert d.get('ok') and 'incidents' in d" && ok "ehs incidents" || bad "ehs incidents"
+
 # Zones
 curl -s -b "$COOKIE" "$BASE/api/zones" | $PY -c "import sys,json; assert 'zones' in json.load(sys.stdin)" && ok "zones get" || bad "zones"
 curl -s -b "$COOKIE" "$BASE/api/zones/presets" | $PY -c "import sys,json; assert 'presets' in json.load(sys.stdin)" && ok "zones presets" || bad "zones presets"
