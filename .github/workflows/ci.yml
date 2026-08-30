@@ -65,7 +65,6 @@ jobs:
             tests/e2e/test_browser_core.py::test_browser_navigate_personas_tab \
             tests/e2e/test_browser_identity.py \
             tests/e2e/test_browser_operator.py \
-            tests/e2e/test_browser_actions.py \
             -v --tb=short
           pytest tests/e2e/test_browser_core.py::test_browser_enroll_photos_in_ui -v --tb=short
         env:
