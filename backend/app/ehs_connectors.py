@@ -241,7 +241,7 @@ def push_incident(incident: dict[str, Any]) -> list[dict[str, Any]]:
             {**incident, "push_results": results},
             source="ehs_push",
         )
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.exception("No se pudo registrar incidente EHS local")
     return results
 
