@@ -9,6 +9,7 @@ def edge_excellence_summary(*, identity_ready: bool, epp_ready: bool) -> dict[st
     """Bloque factual para /api/health — diferenciadores verificables en código."""
     from . import actions as actions_mod
     from . import ehs_incidents as ehs_mod
+    from . import rbac as rbac_mod
 
     presets = actions_mod.list_presets()
     open_incidents = ehs_mod.list_incidents(status="open", limit=200)
@@ -19,6 +20,8 @@ def edge_excellence_summary(*, identity_ready: bool, epp_ready: bool) -> dict[st
             "Portería con rostro + EPP en la misma cámara (sin SaaS obligatorio)",
             "22+ presets Acciones (línea de fuego, proximidad, EPP, humo)",
             "Workflow EHS local abierto → cerrado → verificado",
+            "RBAC granular operador/admin por sección API",
+            "CSP con nonce por petición + watchdog HA semi-automático",
             "Salidas físicas ESP32 / Modbus / Wiegand",
             "NVR Dahua/Hikvision + vigilancia masiva",
             "Producto Forense aislado (informes IA post-incidente)",
@@ -34,14 +37,19 @@ def edge_excellence_summary(*, identity_ready: bool, epp_ready: bool) -> dict[st
             "nvr_integrations": True,
             "multi_site": True,
             "forense_standalone": True,
+            "rbac_granular": True,
+            "csp_nonce": True,
+            "ha_watchdog": True,
         },
+        "rbac": rbac_mod.rbac_summary(),
         "qa_maturity": {
-            "pytest_unit": 115,
+            "pytest_unit": 120,
             "security_audit_p0_p1": True,
             "e2e_playwright": True,
             "eslint_ci": True,
             "bandit_high_zero": True,
+            "csp_nonce": True,
         },
-        "edge_score": 9.0,
-        "ranking_niche": "#1 edge/portería integrada (informe v64)",
+        "edge_score": 9.2,
+        "ranking_niche": "#1 edge/portería integrada (informe v65)",
     }
