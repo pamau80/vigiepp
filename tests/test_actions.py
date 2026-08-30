@@ -140,7 +140,6 @@ def test_action_audio_settings():
 
 
 def test_list_action_events(tmp_path, monkeypatch):
-    events_path = tmp_path / "action_events.jsonl"
     monkeypatch.setattr(actions_mod, "data_dir", lambda: tmp_path)
     actions_mod.log_action_event(
         {"rule_id": "r1", "severity": "high", "message": "Test A", "source": "live"}
