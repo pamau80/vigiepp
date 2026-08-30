@@ -120,6 +120,18 @@ def wait_camera_ready(page: Page, timeout_ms: int = 45000) -> None:
     )
 
 
+def wait_identify_ready(page: Page, timeout_ms: int = 90000) -> None:
+    page.wait_for_function(
+        """
+        () => {
+          const b = document.getElementById('btnIdentify');
+          return b && !b.disabled && b.offsetParent !== null;
+        }
+        """,
+        timeout=timeout_ms,
+    )
+
+
 def start_fake_camera_ui(page: Page) -> None:
     """Modo Personas intenta abrir cámara al entrar; reintento con Iniciar si hace falta."""
     page.wait_for_timeout(800)
