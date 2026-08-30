@@ -65,15 +65,32 @@ def build_report_markdown(job: dict[str, Any]) -> str:
     analysis = job.get("analysis") or {}
     timeline = analysis.get("timeline") or []
     kin = analysis.get("kinematics") or {}
+    comp = job.get("comparison") or {}
+    tpl_name = job.get("template_name") or "General"
     title = job.get("title") or "Incidente sin título"
     site = job.get("site") or "Faena"
     now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+
+    duration = meta.get("duration_sec")
+    if duration is not None:
+        duration_txt = f"{duration:.1f} s"
+    elif int(analysis.get("sources_count") or 1) > 1:
+        duration_txt = "multi-cámara"
+    else:
+        duration_txt = "—"
+    frames_txt = meta.get("sampled_frames", "—")
+    cameras_txt = (
+        f" · {analysis.get('sources_count', 1)} cámaras"
+        if int(analysis.get("sources_count") or 1) > 1
+        else ""
+    )
 
     body = f"""# Informe forense IA — {title}
 
 **Sitio:** {site}  
 **Generado:** {now}  
-**Producto:** VigiEPP Forense · {job.get('build', 'p0')}
+**Producto:** VigiEPP Forense · {job.get('build', 'p4')}  
+**Plantilla:** {tpl_name}
 
 ---
 
@@ -81,33 +98,41 @@ def build_report_markdown(job: dict[str, Any]) -> str:
 
 ## 1. Resumen ejecutivo
 
-Se analizó un video de **{meta.get('duration_sec', '—')} s** ({meta.get('sampled_frames', '—')} frames muestreados de {meta.get('total_frames', '—')} totales).  
-Se detectaron **{analysis.get('event_count', 0)} eventos** relevantes (EPP, zonas, acciones, cinemática).
+Se analizó un video de **{duration_txt}** ({frames_txt} frames muestreados{cameras_txt}).  
+Se detectaron **{analysis.get('event_count', 0)} eventos** relevantes.
 
-## 2. Cinemática y velocidades
+## 2. Comparación vs escenario de referencia
+
+{_section_comparison(comp)}
+
+## 3. Cinemática y velocidades
 
 {_section_kinematics(kin, job)}
 
-## 3. Secuencia cronológica
+## 4. Gráficos de velocidad
+
+{_section_speed_charts(analysis.get('speed_series') or [])}
+
+## 5. Secuencia cronológica
 
 {_section_timeline(timeline)}
 
-## 4. Hechos observables (automáticos)
+## 6. Hechos observables (automáticos)
 
-Los eventos listados provienen del motor de visión VigiEPP (detección EPP, zonas, reglas de Acciones y tracking) aplicado al video con muestreo adaptivo.
+Los eventos provienen del motor VigiEPP (EPP, zonas, Acciones, tracking) con muestreo adaptivo.
 
-## 5. Hipótesis contribuyentes (asistido IA)
+## 7. Hipótesis contribuyentes (asistido IA)
 
 {_narrative_block(job)}
 
-## 6. Recomendaciones preventivas
+## 8. Recomendaciones preventivas
 
 - Revisar señalética y delimitación de zonas restringidas en el sector del incidente.
 - Reforzar distanciamiento persona–maquinaria y límites de velocidad en vías internas.
 - Verificar cumplimiento EPP en el tramo horario del evento.
 - Capacitar supervisores en uso del monitoreo en vivo para evitar recurrencia.
 
-## 7. Limitaciones del análisis
+## 9. Limitaciones del análisis
 
 - Muestreo adaptivo (~2–10 fps efectivos): pueden existir eventos entre frames no analizados.
 - Velocidades y distancias requieren calibración `m/px` ({job.get('meters_per_pixel', '—')} m/px en este análisis).
@@ -129,6 +154,7 @@ def _narrative_block(job: dict[str, Any]) -> str:
     if not timeline:
         return "_Sin eventos suficientes para inferir factores contribuyentes._"
     types = {e.get("type") for e in timeline}
+    comp = job.get("comparison") or {}
     parts = []
     if "epp_non_compliant" in types:
         parts.append("- Posible factor: incumplimiento de EPP detectado antes o durante el evento.")
@@ -138,7 +164,35 @@ def _narrative_block(job: dict[str, Any]) -> str:
         parts.append("- Posible factor: exceso de velocidad o proximidad crítica persona–maquinaria.")
     if "zone" in types:
         parts.append("- Posible factor: tránsito por zona no autorizada o de riesgo.")
+    if comp.get("available"):
+        parts.append("- Posible factor: desviación respecto al escenario de referencia analizado.")
     return "\n".join(parts) if parts else "_Revisar secuencia cronológica manualmente._"
+
+
+def _section_comparison(comp: dict[str, Any]) -> str:
+    if not comp.get("available"):
+        return "_Sin escenario de referencia para comparar._\n"
+    return (
+        f"**Referencia:** {comp.get('reference_title')} (`{comp.get('reference_job_id')}`)\n\n"
+        f"- Eventos incidente: {comp.get('incident_events')} vs referencia: {comp.get('reference_events')} "
+        f"(Δ {comp.get('delta_events')})\n"
+        f"- Velocidad máx. incidente: {comp.get('incident_max_kmh')} km/h vs referencia: "
+        f"{comp.get('reference_max_kmh')} km/h (Δ {comp.get('delta_max_kmh')})\n"
+        f"- Violaciones cinemáticas: {comp.get('incident_violations')} vs {comp.get('reference_violations')}\n"
+        f"- **Interpretación:** {comp.get('interpretation')}\n"
+    )
+
+
+def _section_speed_charts(series: list[dict[str, Any]]) -> str:
+    if not series:
+        return "_Sin series de velocidad (tracks insuficientes)._\n"
+    lines = ["| Track | Tipo | Puntos | Máx km/h |", "|-------|------|--------|----------|"]
+    for s in series[:20]:
+        lines.append(
+            f"| #{s.get('track_id')} | {s.get('kind')} | {len(s.get('points') or [])} | {s.get('max_kmh')} |"
+        )
+    lines.append("\n_Gráficos interactivos disponibles en la UI Forense._")
+    return "\n".join(lines) + "\n"
 
 
 def maybe_enrich_with_llm(job: dict[str, Any]) -> str | None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
+from .charts import build_speed_series, tracks_to_json
 from .config import DEFAULT_PROFILE
 from .heatmap import render_heatmap
 from .kinematics import compute_track_speeds, find_proximity_events, find_speed_violations
@@ -111,9 +112,14 @@ def run_analysis(
     max_person_kmh: float = 8.0,
     min_distance_m: float = 2.0,
     heatmap_path=None,
+    source_suffix: str = "",
+    camera_label: str = "Cam 1",
     progress_cb: Callable[[int, str], None] | None = None,
+    progress_base: int = 10,
+    progress_span: int = 75,
 ) -> dict[str, Any]:
-    source_id = f"forense:{job_id}"
+    suffix = f":{source_suffix}" if source_suffix else ""
+    source_id = f"forense:{job_id}{suffix}"
     timeline: list[dict[str, Any]] = []
     keyframes: list[dict[str, Any]] = []
     tracker = IoUTracker()
@@ -122,8 +128,8 @@ def run_analysis(
 
     for i, sample in enumerate(samples):
         if progress_cb:
-            pct = int(10 + (75 * (i + 1) / max(total, 1)))
-            progress_cb(pct, f"Analizando frame {i + 1}/{total}")
+            pct = int(progress_base + (progress_span * (i + 1) / max(total, 1)))
+            progress_cb(pct, f"{camera_label}: frame {i + 1}/{total}")
         try:
             result = analyze_frame(
                 sample.frame_bgr,
@@ -136,6 +142,7 @@ def run_analysis(
             frame_h = max(frame_h, int(result.get("frame_h") or 0))
             tracker.update(sample.time_sec, result.get("detections") or [])
             for ev in result.get("events") or []:
+                ev["camera"] = camera_label
                 timeline.append(ev)
             if result.get("keyframe_jpeg"):
                 keyframes.append(
@@ -154,6 +161,7 @@ def run_analysis(
 
     tracks = tracker.all_tracks()
     track_speeds = compute_track_speeds(tracks, meters_per_pixel=meters_per_pixel)
+    speed_series = build_speed_series(tracks, meters_per_pixel=meters_per_pixel)
     speed_violations = find_speed_violations(
         track_speeds,
         max_machinery_kmh=max_machinery_kmh,
@@ -202,6 +210,8 @@ def run_analysis(
             "proximity_events": proximity_events,
             "tracks_count": len(tracks),
         },
+        "speed_series": speed_series,
+        "tracks": tracks_to_json(tracks),
         "heatmap": heatmap_ok,
         "frame_size": {"w": frame_w, "h": frame_h},
     }

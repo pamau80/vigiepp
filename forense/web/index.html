@@ -32,11 +32,22 @@
       <form id="uploadForm" class="card">
         <label>Título del caso<input type="text" id="caseTitle" placeholder="Near-miss patio bodega" /></label>
         <label>Faena / sitio<input type="text" id="caseSite" placeholder="Faena principal" /></label>
+        <label>Plantilla industria
+          <select id="caseTemplate"></select>
+        </label>
+        <p class="muted template-hint" id="templateHint"></p>
         <label>Calibración m/px<input type="number" id="caseMpp" step="0.005" min="0.01" max="0.5" value="0.045" /></label>
         <label>Límite maquinaria (km/h)<input type="number" id="caseMachKmh" step="1" min="1" max="80" value="15" /></label>
         <label>Límite persona (km/h)<input type="number" id="casePersonKmh" step="1" min="1" max="30" value="8" /></label>
         <label>Distancia mín. persona–máq. (m)<input type="number" id="caseMinDist" step="0.1" min="0.5" max="20" value="2" /></label>
-        <label>Video (MP4/MOV)<input type="file" id="caseVideo" accept="video/*" required /></label>
+        <label>Video principal (MP4/MOV)<input type="file" id="caseVideo" accept="video/*" required /></label>
+        <label>Video cámara 2 (opcional)<input type="file" id="caseVideo2" accept="video/*" /></label>
+        <label>Offset cámara 2 (s)<input type="number" id="caseOffset2" step="0.1" value="0" /></label>
+        <label>Video cámara 3 (opcional)<input type="file" id="caseVideo3" accept="video/*" /></label>
+        <label>Offset cámara 3 (s)<input type="number" id="caseOffset3" step="0.1" value="0" /></label>
+        <label>Trabajo referencia (escenario seguro)
+          <select id="caseReference"><option value="">— Sin referencia —</option></select>
+        </label>
         <button type="submit" class="btn primary">Iniciar análisis</button>
       </form>
       <h2>Trabajos</h2>
@@ -57,6 +68,10 @@
             <p id="progressText" class="muted"></p>
           </div>
         </header>
+        <section class="card hidden" id="comparisonSection">
+          <h3>Comparación vs escenario de referencia</h3>
+          <p id="comparisonText" class="comparison-text"></p>
+        </section>
         <section class="card">
           <h3>Cinemática y velocidades</h3>
           <table class="data-table" id="kinematicsTable">
@@ -64,6 +79,11 @@
             <tbody></tbody>
           </table>
           <ul id="kinViolations" class="violations"></ul>
+        </section>
+        <section class="card hidden" id="chartsSection">
+          <h3>Gráficos de velocidad</h3>
+          <canvas id="speedChart" width="720" height="260"></canvas>
+          <p class="muted chart-legend" id="chartLegend"></p>
         </section>
         <section class="card hidden" id="heatmapSection">
           <h3>Mapa de calor — tránsito personas</h3>
@@ -83,7 +103,11 @@
           <div class="btn-row">
             <a id="downloadMd" class="btn secondary" href="#" download>Descargar .md</a>
             <a id="downloadPdf" class="btn primary hidden" href="#" download>Descargar PDF</a>
+            <a id="downloadCommittee" class="btn secondary hidden" href="#" download>Comité paritario</a>
+            <a id="downloadBundle" class="btn secondary hidden" href="#" download>Bundle caso (.zip)</a>
+            <button type="button" id="exportEhs" class="btn ghost hidden">Exportar a EHS</button>
           </div>
+          <p class="muted" id="ehsStatus"></p>
         </section>
       </div>
     </main>

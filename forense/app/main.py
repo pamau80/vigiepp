@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
 from .auth_bridge import login_pin, require_forense_admin
@@ -21,8 +20,11 @@ from .config import (
     ensure_dirs,
 )
 from .jobs import (
+    case_bundle_path,
+    committee_md_path,
     create_job,
     delete_job,
+    export_job_ehs,
     get_job,
     heatmap_path,
     keyframe_path,
@@ -30,6 +32,7 @@ from .jobs import (
     report_pdf_path,
 )
 from .license import license_status, verify_license
+from .templates import list_templates
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("vigiepp.forense")
@@ -37,7 +40,7 @@ logger = logging.getLogger("vigiepp.forense")
 app = FastAPI(
     title="VigiEPP Forense",
     description="Análisis forense de video e informes IA de incidentes (producto aislado)",
-    version="0.1.0",
+    version="0.2.0",
 )
 
 app.add_middleware(
@@ -57,6 +60,18 @@ def _require_license() -> None:
 
 class LoginBody(BaseModel):
     pin: str = Field(..., min_length=1, max_length=128)
+
+
+async def _read_upload(video: UploadFile | None, label: str) -> dict | None:
+    if video is None or not video.filename:
+        return None
+    data = await video.read()
+    max_b = MAX_UPLOAD_MB * 1024 * 1024
+    if len(data) > max_b:
+        raise HTTPException(413, f"{label} supera {MAX_UPLOAD_MB} MB")
+    if len(data) < 1000:
+        raise HTTPException(400, f"Archivo {label} vacío o inválido")
+    return {"bytes": data, "filename": video.filename}
 
 
 @app.get("/api/forense/health")
@@ -85,6 +100,13 @@ def auth_me(request: Request) -> dict:
     return {"ok": True, "role": role}
 
 
+@app.get("/api/forense/templates")
+def templates_list(request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    return {"ok": True, "templates": list_templates()}
+
+
 @app.get("/api/forense/jobs")
 def jobs_list(request: Request) -> dict:
     _require_license()
@@ -97,6 +119,7 @@ def jobs_list(request: Request) -> dict:
             "progress": j.get("progress"),
             "progress_message": j.get("progress_message"),
             "created_at": j.get("created_at"),
+            "template_id": j.get("template_id"),
             "event_count": (j.get("analysis") or {}).get("event_count", 0),
         }
         for j in list_jobs()
@@ -108,34 +131,80 @@ def jobs_list(request: Request) -> dict:
 async def jobs_create(
     request: Request,
     video: UploadFile = File(...),
+    video2: UploadFile | None = File(None),
+    video3: UploadFile | None = File(None),
     title: str = Form(""),
     site: str = Form(""),
-    profile: str = Form("epp_completo"),
-    meters_per_pixel: float = Form(0.045),
-    max_machinery_kmh: float = Form(DEFAULT_MAX_MACHINERY_KMH),
-    max_person_kmh: float = Form(DEFAULT_MAX_PERSON_KMH),
-    min_distance_m: float = Form(DEFAULT_MIN_DISTANCE_M),
+    template_id: str = Form("general"),
+    profile: str = Form(""),
+    meters_per_pixel: float | None = Form(None),
+    max_machinery_kmh: float | None = Form(None),
+    max_person_kmh: float | None = Form(None),
+    min_distance_m: float | None = Form(None),
+    reference_job_id: str = Form(""),
+    offset2: float = Form(0.0),
+    offset3: float = Form(0.0),
 ) -> dict:
     _require_license()
     require_forense_admin(request)
-    data = await video.read()
-    max_b = MAX_UPLOAD_MB * 1024 * 1024
-    if len(data) > max_b:
-        raise HTTPException(413, f"Video supera {MAX_UPLOAD_MB} MB")
-    if len(data) < 1000:
-        raise HTTPException(400, "Archivo de video vacío o inválido")
+    primary = await _read_upload(video, "Video principal")
+    assert primary is not None
+
+    extra_sources: list[dict] = []
+    for extra_file, off in ((video2, offset2), (video3, offset3)):
+        extra = await _read_upload(extra_file, "Video adicional")
+        if extra:
+            extra["offset_sec"] = float(off)
+            extra_sources.append(extra)
+
+    ref_id = reference_job_id.strip() or None
+    if ref_id and not get_job(ref_id):
+        raise HTTPException(400, "Trabajo de referencia no encontrado")
+
     job = create_job(
-        data,
-        filename=video.filename or "video.mp4",
+        primary["bytes"],
+        filename=primary["filename"] or "video.mp4",
         title=title,
         site=site,
-        profile=profile,
-        meters_per_pixel=max(0.01, min(0.5, meters_per_pixel)),
-        max_machinery_kmh=max(1.0, min(80.0, max_machinery_kmh)),
-        max_person_kmh=max(1.0, min(30.0, max_person_kmh)),
-        min_distance_m=max(0.5, min(20.0, min_distance_m)),
+        template_id=template_id,
+        profile=profile or None,
+        meters_per_pixel=max(0.01, min(0.5, meters_per_pixel)) if meters_per_pixel is not None else None,
+        max_machinery_kmh=max(1.0, min(80.0, max_machinery_kmh)) if max_machinery_kmh is not None else None,
+        max_person_kmh=max(1.0, min(30.0, max_person_kmh)) if max_person_kmh is not None else None,
+        min_distance_m=max(0.5, min(20.0, min_distance_m)) if min_distance_m is not None else None,
+        reference_job_id=ref_id,
+        extra_sources=extra_sources or None,
     )
     return {"ok": True, "job": {"id": job["id"], "status": job["status"]}}
+
+
+def _job_payload(job: dict) -> dict:
+    analysis = job.get("analysis") or {}
+    return {
+        "id": job["id"],
+        "title": job.get("title"),
+        "site": job.get("site"),
+        "status": job.get("status"),
+        "progress": job.get("progress"),
+        "progress_message": job.get("progress_message"),
+        "meta": job.get("meta"),
+        "analysis": analysis,
+        "comparison": job.get("comparison"),
+        "error": job.get("error"),
+        "template_id": job.get("template_id"),
+        "template_name": job.get("template_name"),
+        "reference_job_id": job.get("reference_job_id"),
+        "sources": job.get("sources"),
+        "meters_per_pixel": job.get("meters_per_pixel"),
+        "max_machinery_kmh": job.get("max_machinery_kmh"),
+        "max_person_kmh": job.get("max_person_kmh"),
+        "min_distance_m": job.get("min_distance_m"),
+        "has_heatmap": bool(analysis.get("heatmap")),
+        "has_pdf": report_pdf_path(job["id"]) is not None,
+        "has_bundle": case_bundle_path(job["id"]) is not None,
+        "has_committee": committee_md_path(job["id"]) is not None,
+        "ehs_push": job.get("ehs_push"),
+    }
 
 
 @app.get("/api/forense/jobs/{job_id}")
@@ -145,26 +214,18 @@ def jobs_get(job_id: str, request: Request) -> dict:
     job = get_job(job_id)
     if not job:
         raise HTTPException(404, "Trabajo no encontrado")
-    return {
-        "ok": True,
-        "job": {
-            "id": job["id"],
-            "title": job.get("title"),
-            "site": job.get("site"),
-            "status": job.get("status"),
-            "progress": job.get("progress"),
-            "progress_message": job.get("progress_message"),
-            "meta": job.get("meta"),
-            "analysis": job.get("analysis"),
-            "error": job.get("error"),
-            "meters_per_pixel": job.get("meters_per_pixel"),
-            "max_machinery_kmh": job.get("max_machinery_kmh"),
-            "max_person_kmh": job.get("max_person_kmh"),
-            "min_distance_m": job.get("min_distance_m"),
-            "has_heatmap": bool((job.get("analysis") or {}).get("heatmap")),
-            "has_pdf": report_pdf_path(job_id) is not None,
-        },
-    }
+    return {"ok": True, "job": _job_payload(job)}
+
+
+@app.get("/api/forense/jobs/{job_id}/charts")
+def jobs_charts(job_id: str, request: Request) -> JSONResponse:
+    _require_license()
+    require_forense_admin(request)
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(404, "Trabajo no encontrado")
+    series = (job.get("analysis") or {}).get("speed_series") or []
+    return JSONResponse({"ok": True, "speed_series": series})
 
 
 @app.get("/api/forense/jobs/{job_id}/report.md")
@@ -178,6 +239,22 @@ def jobs_report_md(job_id: str, request: Request) -> PlainTextResponse:
     return PlainTextResponse(md, media_type="text/markdown; charset=utf-8")
 
 
+@app.get("/api/forense/jobs/{job_id}/committee.md")
+def jobs_committee_md(job_id: str, request: Request) -> PlainTextResponse:
+    _require_license()
+    require_forense_admin(request)
+    path = committee_md_path(job_id)
+    if not path:
+        job = get_job(job_id)
+        if not job:
+            raise HTTPException(404, "Trabajo no encontrado")
+        md = job.get("committee_md") or ""
+        if not md:
+            raise HTTPException(404, "Informe comité no disponible")
+        return PlainTextResponse(md, media_type="text/markdown; charset=utf-8")
+    return PlainTextResponse(path.read_text(encoding="utf-8"), media_type="text/markdown; charset=utf-8")
+
+
 @app.get("/api/forense/jobs/{job_id}/report.pdf")
 def jobs_report_pdf(job_id: str, request: Request) -> FileResponse:
     _require_license()
@@ -186,6 +263,26 @@ def jobs_report_pdf(job_id: str, request: Request) -> FileResponse:
     if not path:
         raise HTTPException(404, "PDF no disponible")
     return FileResponse(path, media_type="application/pdf", filename=f"forense-{job_id}.pdf")
+
+
+@app.get("/api/forense/jobs/{job_id}/case_bundle.zip")
+def jobs_case_bundle(job_id: str, request: Request) -> FileResponse:
+    _require_license()
+    require_forense_admin(request)
+    path = case_bundle_path(job_id)
+    if not path:
+        raise HTTPException(404, "Bundle no disponible")
+    return FileResponse(path, media_type="application/zip", filename=f"forense-case-{job_id}.zip")
+
+
+@app.post("/api/forense/jobs/{job_id}/export-ehs")
+def jobs_export_ehs(job_id: str, request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    results = export_job_ehs(job_id)
+    if results and results[0].get("error") == "Trabajo no encontrado":
+        raise HTTPException(404, "Trabajo no encontrado")
+    return {"ok": True, "results": results}
 
 
 @app.get("/api/forense/jobs/{job_id}/heatmap.jpg")
