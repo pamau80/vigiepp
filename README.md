@@ -32,11 +32,13 @@ Requisito: VigiEPP **edge** en la misma red que el NVR (Render cloud no alcanza 
 ## Desarrollo local
 
 ```bash
-cd backend
-../.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+bash .cursor/install.sh   # primera vez
+bash scripts/probar.sh      # VigiEPP :8000 + Forense :8001
 ```
 
-PIN admin por defecto (solo dev): `vigiepp`
+Guía completa: **[docs/PROBAR.md](docs/PROBAR.md)**
+
+PIN admin por defecto (solo dev): `vigiepp` · portería: `porteria`
 
 ## Despliegue
 
