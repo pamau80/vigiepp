@@ -124,3 +124,32 @@ def test_settings_roundtrip():
     got = actions_mod.get_settings()
     assert got["meters_per_pixel"] == 0.062
     assert got["reference"] == "Test ref"
+
+
+def test_action_audio_settings():
+    actions_mod.save_settings(
+        {"action_audio_enabled": False, "action_audio_severities": ["critical", "medium"]}
+    )
+    got = actions_mod.get_settings()
+    assert got["action_audio_enabled"] is False
+    assert got["action_audio_severities"] == ["critical", "medium"]
+    assert actions_mod.should_play_action_audio("critical") is False
+    actions_mod.save_settings({"action_audio_enabled": True})
+    assert actions_mod.should_play_action_audio("critical") is True
+    assert actions_mod.should_play_action_audio("high") is False
+
+
+def test_list_action_events(tmp_path, monkeypatch):
+    monkeypatch.setattr(actions_mod, "data_dir", lambda: tmp_path)
+    actions_mod.log_action_event(
+        {"rule_id": "r1", "severity": "high", "message": "Test A", "source": "live"}
+    )
+    actions_mod.log_action_event(
+        {"rule_id": "r2", "severity": "critical", "message": "Test B", "source": "live"}
+    )
+    all_ev = actions_mod.list_action_events(limit=10)
+    assert len(all_ev) == 2
+    assert all_ev[0]["message"] == "Test B"
+    crit = actions_mod.list_action_events(severity="critical")
+    assert len(crit) == 1
+    assert crit[0]["severity"] == "critical"

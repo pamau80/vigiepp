@@ -31,4 +31,9 @@ echo "--- Bloque B: enrolar fotos por UI (servidor fresco) ---"
   tests/e2e/test_browser_core.py::test_browser_enroll_photos_in_ui \
   -v --tb=short "$@"
 
+echo "--- Bloque C: pestaña Acciones (P2) ---"
+"$PY" -m pytest \
+  tests/e2e/test_browser_actions.py \
+  -v --tb=short "$@"
+
 echo "=== Browser E2E OK ==="

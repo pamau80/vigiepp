@@ -855,6 +855,43 @@ body.mode-actions .stage { min-height: auto; }
 }
 .actions-teach-list .is-done { color: var(--ok, #7ddf9a); }
 .actions-help li { font-size: 0.85rem; }
+.actions-history { margin-top: 1rem; }
+.actions-history-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+.actions-event-list { max-height: 220px; overflow: auto; }
+.actions-event {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 0.35rem 0.5rem;
+  align-items: baseline;
+  font-size: 0.85rem;
+}
+.actions-event-time { font-variant-numeric: tabular-nums; color: var(--muted, #8fa3bf); }
+.actions-event-msg { grid-column: 1 / -1; }
+.actions-event-src { grid-column: 1 / -1; font-size: 0.78rem; }
+.actions-audio-sev {
+  border: none;
+  margin: 0.5rem 0 0.75rem;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+.actions-audio-sev legend { margin-bottom: 0.25rem; }
+.ehs-incident {
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.85rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--border, #243552);
+}
+.ehs-incident-actions { display: flex; gap: 0.35rem; margin-top: 0.2rem; }
+.ehs-st-open .ehs-incident-meta b { color: var(--warn, #f0b429); }
+.ehs-st-closed .ehs-incident-meta b { color: var(--muted, #8fa3bf); }
+.ehs-st-verified .ehs-incident-meta b { color: var(--ok, #3ecf8e); }
 .panel[data-mode="actions"] [data-live-only],
 .panel[data-mode="actions"] [data-hide-teach] {
   display: none;
@@ -2313,3 +2350,8 @@ body.day-zero-open { overflow: hidden; }
 }
 .day-zero-banner.hidden { display: none; }
 body[data-role="operator"] .day-zero-banner { display: none !important; }
+body[data-rbac-admin="0"] #configBlock .enterprise-only,
+body[data-rbac-admin="0"] #btnDayZeroReopen,
+body[data-rbac-admin="0"] #btnDayZeroReset {
+  display: none !important;
+}

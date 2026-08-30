@@ -18,11 +18,12 @@ def client(tmp_path, monkeypatch):
     return TestClient(app)
 
 
-def test_build_v62(client):
+def test_build_v66(client):
     r = client.get("/api/health")
     assert r.status_code == 200
     body = r.json()
-    assert body["build"] == "v62"
+    assert body["build"] == "v66"
+    assert body["excellence"]["capabilities"]["rbac_ui_sync"] is True
     assert "epp_custom" in body
     assert body["epp_custom"] is False
     assert "otel" in body
@@ -56,9 +57,11 @@ def test_all_get_endpoints(client):
         "/api/actions/settings",
         "/api/actions/sources",
         "/api/actions/presets",
+        "/api/actions/events",
         "/api/sites",
         "/api/privacy/config",
         "/api/ehs/config",
+        "/api/ehs/incidents",
         "/metrics",
         "/",
     ]
@@ -178,9 +181,15 @@ def test_ehs_config_push(client):
     assert r.status_code == 200
     r2 = client.post(
         "/api/ehs/push",
-        json={"summary": "test incident", "compliant": False, "missing": ["casco"]},
+        json={"summary": "Test incident", "compliant": False, "missing": ["casco"]},
     )
     assert r2.status_code == 200
+    body = r2.json()
+    assert body.get("ok")
+    assert body.get("incident", {}).get("status") == "open"
+    r3 = client.get("/api/ehs/incidents")
+    assert r3.status_code == 200
+    assert r3.json().get("count", 0) >= 1
 
 
 def test_audit_export(client):

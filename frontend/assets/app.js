@@ -49,7 +49,7 @@ const api = createApi({
 });
 
 const enterprise = createEnterpriseController(api);
-const { refreshSitesUi, refreshEhsUi, bindEnterpriseEvents } = enterprise;
+const { refreshSitesUi, refreshEhsUi, refreshEhsIncidents, bindEnterpriseEvents } = enterprise;
 
 function bindAuthController(onOperatorLogin) {
   const ctrl = createAuthController({ onOperatorLogin });
@@ -60,7 +60,7 @@ function bindAuthController(onOperatorLogin) {
   };
 }
 
-const APP_BUILD = globalThis.VIGIEPP_BUILD || "v62";
+const APP_BUILD = globalThis.VIGIEPP_BUILD || "v66";
 const els = createAppElements();
 const state = createAppRuntimeState();
 const { settings, loadSettings, saveSettings, applyMobileChrome } = createSettingsStore(els);
@@ -256,6 +256,7 @@ modes = createAppModesController({
       if (id === "enterprise") {
         refreshSitesUi();
         refreshEhsUi();
+        refreshEhsIncidents();
       }
       if (id === "zones") {
         bindZonesCanvasEvents();
@@ -292,6 +293,7 @@ livePanel = createLivePanelController({
   kiosk,
   getEnroll: () => enroll,
   audio,
+  getActionSettings: () => actions.getSettings?.() || {},
   displayPersonName,
   setIdentityCard,
   getLastIdentity: state.getLastIdentity,

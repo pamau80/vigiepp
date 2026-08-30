@@ -18,6 +18,49 @@ export function createEnterpriseController(api) {
     }
   }
 
+  async function refreshEhsIncidents() {
+    const list = $("#cfgEhsIncidentList");
+    if (!list) return;
+    try {
+      const data = await api("/api/ehs/incidents?limit=30");
+      const items = data.incidents || [];
+      if (!items.length) {
+        list.innerHTML = `<li class="muted">Sin incidentes registrados</li>`;
+        return;
+      }
+      const statusLabel = { open: "Abierto", closed: "Cerrado", verified: "Verificado" };
+      list.innerHTML = items
+        .map((inc) => {
+          const st = inc.status || "open";
+          const ts = (inc.created_at || "").replace("T", " ").slice(0, 16);
+          const actions =
+            st === "open"
+              ? `<button type="button" class="btn ghost btn-sm" data-ehs-close="${inc.id}">Cerrar</button>`
+              : st === "closed"
+                ? `<button type="button" class="btn ghost btn-sm" data-ehs-verify="${inc.id}">Verificar</button>`
+                : "";
+          return `<li class="ehs-incident ehs-st-${st}">
+            <span class="ehs-incident-meta">${ts} · <b>${statusLabel[st] || st}</b></span>
+            <span class="ehs-incident-summary">${inc.summary || "—"}</span>
+            <span class="muted">${inc.worker_name || ""} ${inc.site ? "· " + inc.site : ""}</span>
+            <span class="ehs-incident-actions">${actions}</span>
+          </li>`;
+        })
+        .join("");
+    } catch (e) {
+      list.innerHTML = `<li class="muted">${String(e.message || e)}</li>`;
+    }
+  }
+
+  async function setIncidentStatus(id, status) {
+    await api(`/api/ehs/incidents/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    await refreshEhsIncidents();
+  }
+
   async function refreshEhsUi() {
     const hint = $("#cfgEhsHint");
     const urlEl = $("#cfgEhsWebhookUrl");
@@ -197,11 +240,25 @@ export function createEnterpriseController(api) {
         els.repSideSummary.textContent = err.message || "SAP EWM falló";
       }
     });
+
+    $("#btnEhsRefreshIncidents")?.addEventListener("click", () => refreshEhsIncidents());
+    $("#cfgEhsIncidentList")?.addEventListener("click", async (ev) => {
+      const closeId = ev.target.closest("[data-ehs-close]")?.getAttribute("data-ehs-close");
+      const verifyId = ev.target.closest("[data-ehs-verify]")?.getAttribute("data-ehs-verify");
+      try {
+        if (closeId) await setIncidentStatus(closeId, "closed");
+        if (verifyId) await setIncidentStatus(verifyId, "verified");
+        if (closeId || verifyId) els.repSideSummary.textContent = "Incidente EHS actualizado";
+      } catch (err) {
+        els.repSideSummary.textContent = err.message || "Error al actualizar incidente";
+      }
+    });
   }
 
   return {
     refreshSitesUi,
     refreshEhsUi,
+    refreshEhsIncidents,
     saveEhsConfig,
     updateEnterpriseHints,
     bindEnterpriseEvents,

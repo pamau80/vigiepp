@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Revisión E2E completa — todos los módulos API VigiEPP v58
+# Revisión E2E completa — todos los módulos API VigiEPP v66
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -18,14 +18,14 @@ export PYTHONPATH="${PYTHONPATH:-}:$ROOT/backend"
 ok() { echo "✓ $1"; PASS=$((PASS+1)); }
 bad() { echo "✗ $1"; FAIL=$((FAIL+1)); }
 
-echo "=== VigiEPP FULL API Review v58 ==="
+echo "=== VigiEPP FULL API Review v66 ==="
 
 # Auth first (profiles/ppe require session)
 curl -s -c "$COOKIE" -X POST "$BASE/api/auth/login" -H 'Content-Type: application/json' -d '{"pin":"vigiepp"}' | $PY -c "import sys,json; assert json.load(sys.stdin).get('ok')" && ok "auth login" || bad "auth login"
 
 # Health + core
 H=$(curl -s "$BASE/api/health")
-echo "$H" | $PY -c "import sys,json; d=json.load(sys.stdin); assert d['build']=='v58'" && ok "health v58" || bad "health"
+echo "$H" | $PY -c "import sys,json; d=json.load(sys.stdin); assert d['build']=='v66'; assert 'excellence' in d" && ok "health v66" || bad "health"
 
 curl -s -b "$COOKIE" "$BASE/api/profiles" | $PY -c "import sys,json; assert isinstance(json.load(sys.stdin),list)" && ok "profiles" || bad "profiles"
 curl -s -b "$COOKIE" "$BASE/api/ppe/catalog" | $PY -c "import sys,json; assert 'items' in json.load(sys.stdin)" && ok "ppe catalog" || bad "ppe"
@@ -33,6 +33,13 @@ curl -s -b "$COOKIE" "$BASE/api/ppe/catalog" | $PY -c "import sys,json; assert '
 # Auth (me + oidc)
 curl -s -b "$COOKIE" "$BASE/api/auth/me" | $PY -c "import sys,json; assert json.load(sys.stdin).get('authenticated')" && ok "auth me" || bad "auth me"
 curl -s -b "$COOKIE" "$BASE/api/auth/oidc/config" | $PY -c "import sys,json; assert 'enabled' in json.load(sys.stdin)" && ok "oidc config" || bad "oidc"
+
+# Actions (P1/P2)
+curl -s -b "$COOKIE" "$BASE/api/actions/rules" | $PY -c "import sys,json; d=json.load(sys.stdin); assert 'rules' in d and 'settings' in d" && ok "actions rules" || bad "actions rules"
+curl -s -b "$COOKIE" "$BASE/api/actions/events?limit=5" | $PY -c "import sys,json; d=json.load(sys.stdin); assert d.get('ok') and 'events' in d" && ok "actions events" || bad "actions events"
+curl -s -b "$COOKIE" "$BASE/api/actions/presets" | $PY -c "import sys,json; assert 'presets' in json.load(sys.stdin)" && ok "actions presets" || bad "actions presets"
+
+curl -s -b "$COOKIE" "$BASE/api/ehs/incidents?limit=5" | $PY -c "import sys,json; d=json.load(sys.stdin); assert d.get('ok') and 'incidents' in d" && ok "ehs incidents" || bad "ehs incidents"
 
 # Zones
 curl -s -b "$COOKIE" "$BASE/api/zones" | $PY -c "import sys,json; assert 'zones' in json.load(sys.stdin)" && ok "zones get" || bad "zones"

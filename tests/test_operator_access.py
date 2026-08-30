@@ -42,6 +42,39 @@ def test_operator_cannot_list_workers(edge_client):
     assert r.status_code == 403
 
 
+def test_operator_cannot_write_actions_settings(edge_client):
+    r = edge_client.post(
+        "/api/actions/settings",
+        json={"settings": {"action_audio_enabled": True}},
+        headers=_hdrs(edge_client, "edge-operator"),
+    )
+    assert r.status_code == 403
+
+
+def test_operator_can_read_actions_and_ehs_incidents(edge_client):
+    op = _hdrs(edge_client, "edge-operator")
+    assert edge_client.get("/api/actions/rules", headers=op).status_code == 200
+    assert edge_client.get("/api/ehs/incidents", headers=op).status_code == 200
+
+
+def test_operator_cannot_write_ehs_config(edge_client):
+    r = edge_client.post(
+        "/api/ehs/config",
+        json={"connectors": {}},
+        headers=_hdrs(edge_client, "edge-operator"),
+    )
+    assert r.status_code == 403
+
+
+def test_operator_me_includes_rbac(edge_client):
+    r = edge_client.get("/api/auth/me", headers=_hdrs(edge_client, "edge-operator"))
+    assert r.status_code == 200
+    body = r.json()
+    assert body["role"] == "operator"
+    assert body["rbac"]["admin"] is False
+    assert body["rbac"]["granular"] is True
+
+
 def test_admin_full_access(edge_client):
     admin = _hdrs(edge_client, "edge-admin")
     assert edge_client.get("/api/identity/workers", headers=admin).status_code == 200

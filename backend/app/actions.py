@@ -16,6 +16,8 @@ ACTIONS_FILE = data_dir() / "action_rules.json"
 DEFAULT_SETTINGS: dict[str, Any] = {
     "meters_per_pixel": 0.045,
     "reference": "Ajustá según altura de cámara NVR (4–6 cm/px típico en patio)",
+    "action_audio_enabled": True,
+    "action_audio_severities": ["critical", "high"],
 }
 _lock = threading.Lock()
 _last_trigger: dict[str, float] = {}
@@ -383,6 +385,13 @@ def get_settings() -> dict[str, Any]:
     settings = dict(DEFAULT_SETTINGS)
     settings.update(data.get("settings") or {})
     settings["meters_per_pixel"] = max(0.01, min(0.5, float(settings.get("meters_per_pixel") or 0.045)))
+    settings["action_audio_enabled"] = bool(settings.get("action_audio_enabled", True))
+    sev = settings.get("action_audio_severities")
+    if not isinstance(sev, list):
+        sev = list(DEFAULT_SETTINGS["action_audio_severities"])
+    settings["action_audio_severities"] = [s for s in sev if s in ("critical", "high", "medium", "low")]
+    if not settings["action_audio_severities"]:
+        settings["action_audio_severities"] = ["critical", "high"]
     return settings
 
 
@@ -392,6 +401,13 @@ def save_settings(settings: dict[str, Any]) -> dict[str, Any]:
     merged.update(data.get("settings") or {})
     merged.update(settings or {})
     merged["meters_per_pixel"] = max(0.01, min(0.5, float(merged.get("meters_per_pixel") or 0.045)))
+    merged["action_audio_enabled"] = bool(merged.get("action_audio_enabled", True))
+    sev = merged.get("action_audio_severities")
+    if not isinstance(sev, list):
+        sev = list(DEFAULT_SETTINGS["action_audio_severities"])
+    merged["action_audio_severities"] = [s for s in sev if s in ("critical", "high", "medium", "low")]
+    if not merged["action_audio_severities"]:
+        merged["action_audio_severities"] = ["critical", "high"]
     payload = {"rules": data.get("rules") or [], "settings": merged, "updated_at": datetime.now(UTC).isoformat()}
     with _lock:
         ACTIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -645,6 +661,49 @@ def log_action_event(triggered: dict[str, Any]) -> None:
             fh.write(json.dumps(line, ensure_ascii=False) + "\n")
     except OSError:
         pass
+
+
+def list_action_events(
+    *,
+    limit: int = 100,
+    severity: str | None = None,
+    source_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Últimos eventos de acciones inseguras (más recientes primero)."""
+    path = data_dir() / "action_events.jsonl"
+    if not path.is_file():
+        return []
+    limit = max(1, min(500, int(limit)))
+    lines: list[str] = []
+    try:
+        with path.open(encoding="utf-8") as fh:
+            for line in fh:
+                if line.strip():
+                    lines.append(line)
+    except OSError:
+        return []
+    events: list[dict[str, Any]] = []
+    for raw in reversed(lines):
+        try:
+            ev = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if severity and (ev.get("severity") or "") != severity:
+            continue
+        if source_id and (ev.get("source") or "") != source_id:
+            continue
+        events.append(ev)
+        if len(events) >= limit:
+            break
+    return events
+
+
+def should_play_action_audio(severity: str) -> bool:
+    settings = get_settings()
+    if not settings.get("action_audio_enabled", True):
+        return False
+    allowed = settings.get("action_audio_severities") or ["critical", "high"]
+    return (severity or "medium") in allowed
 
 
 def add_rule_from_preset(preset_id: str) -> dict[str, Any]:

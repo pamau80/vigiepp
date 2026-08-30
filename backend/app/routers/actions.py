@@ -84,3 +84,13 @@ def actions_reset_defaults() -> dict[str, Any]:
     save_rules(payload["rules"])
     actions_mod.save_settings(payload["settings"])
     return actions_mod.get_rules() | {"settings": actions_mod.get_settings()}
+
+
+@router.get("/events")
+def actions_list_events(
+    limit: int = 100,
+    severity: str | None = None,
+    source_id: str | None = None,
+) -> dict[str, Any]:
+    events = actions_mod.list_action_events(limit=limit, severity=severity, source_id=source_id)
+    return {"ok": True, "events": events, "count": len(events)}
