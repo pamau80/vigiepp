@@ -16,12 +16,12 @@ import numpy as np
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
+from . import actions as actions_mod
 from . import exposure as exposure_mod
 from . import inference as inference_mod
 from . import metrics as metrics_mod
 from . import notifications as notif_mod
 from . import zones as zones_mod
-from . import actions as actions_mod
 from .compliance import evaluate
 from .detector import PPEDetector, decode_image_bytes, encode_jpeg
 from .identity import IdentityRegistry, IdentityService

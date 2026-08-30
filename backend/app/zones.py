@@ -168,7 +168,7 @@ def zones_for_source(source_id: str | None = None) -> list[dict[str, Any]]:
     data = get_zones()
     sid = (source_id or "live").strip()
     by_src = data.get("by_source") or {}
-    if sid in by_src and by_src[sid]:
+    if by_src.get(sid):
         return [z for z in by_src[sid] if z.get("enabled", True)]
     return [z for z in data.get("zones") or [] if z.get("enabled")]
 

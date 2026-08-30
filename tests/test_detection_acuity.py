@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 import cv2
 import numpy as np
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
-LENA = ROOT / "tests" / "fixtures" / "lena.jpg"
+from tests.face_fixtures import LENA, ensure_lena, face_jpeg_variants
 
 
 def _require_face_models() -> None:
@@ -46,10 +44,10 @@ def _largest_face(reg, frame: np.ndarray) -> np.ndarray:
 
 def _enroll_lena_variants(svc, count: int = 6) -> int:
     from app.detector import decode_image_bytes
-    from tests.e2e.helpers import _face_jpeg_variants
 
+    ensure_lena()
     saved = 0
-    for blob in _face_jpeg_variants(LENA, count):
+    for blob in face_jpeg_variants(LENA, count):
         frame = decode_image_bytes(blob)
         result = svc.enroll(
             frame,
@@ -97,7 +95,13 @@ def test_face_quality_strict_meets_enroll_thresholds(acuity_session):
 @pytest.mark.acuity
 def test_face_quality_live_accepts_porteria_frame(acuity_session):
     del acuity_session
-    from app.identity import MIN_DETECT_SCORE_LIVE, MIN_FACE_AREA_RATIO_LIVE, MIN_SHARPNESS_LIVE, IdentityRegistry, assess_face_quality
+    from app.identity import (
+        MIN_DETECT_SCORE_LIVE,
+        MIN_FACE_AREA_RATIO_LIVE,
+        MIN_SHARPNESS_LIVE,
+        IdentityRegistry,
+        assess_face_quality,
+    )
 
     img = _load_lena()
     face = _largest_face(IdentityRegistry.get(), img)

@@ -15,13 +15,12 @@ from pathlib import Path
 import pytest
 
 from tests.e2e.helpers import E2E_PIN, enroll_worker_via_api
+from tests.face_fixtures import ensure_lena
 
 ROOT = Path(__file__).resolve().parents[2]
 BACKEND = ROOT / "backend"
-FACE_FIXTURE = ROOT / "tests" / "fixtures" / "lena.jpg"
 Y4M_FIXTURE = ROOT / "tests" / "fixtures" / "lena.y4m"
 E2E_DATA = ROOT / "tests" / "e2e" / "_runtime_data"
-LENA_URL = "https://raw.githubusercontent.com/opencv/opencv/4.x/samples/data/lena.jpg"
 
 
 def _free_port() -> int:
@@ -46,11 +45,7 @@ def _wait_health(url: str, timeout_s: float = 90.0) -> None:
 
 @pytest.fixture(scope="session")
 def face_jpeg_path() -> Path:
-    FACE_FIXTURE.parent.mkdir(parents=True, exist_ok=True)
-    if not FACE_FIXTURE.exists() or FACE_FIXTURE.stat().st_size < 1000:
-        urllib.request.urlretrieve(LENA_URL, FACE_FIXTURE)
-    assert FACE_FIXTURE.exists(), "fixture lena.jpg no disponible"
-    return FACE_FIXTURE
+    return ensure_lena()
 
 
 @pytest.fixture(scope="session")

@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from . import (
+    actions,
     audit,
     auth,
     cameras,
@@ -22,7 +23,6 @@ from . import (
     teach,
     watchlist,
     zones,
-    actions,
 )
 from .ehs import router as ehs_router
 

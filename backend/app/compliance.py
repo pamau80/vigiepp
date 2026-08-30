@@ -23,7 +23,6 @@ CLASS_TO_CATEGORY: dict[str, str] = {
     "goggles": "lentes",
     "lentes": "lentes",
     "Gloves": "guantes",
-    "Goggles": "lentes",
     "gloves": "guantes",
     "guantes": "guantes",
     "No_Harness": "sin_arnes",
