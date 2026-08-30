@@ -44,7 +44,7 @@ def edge_excellence_summary(*, identity_ready: bool, epp_ready: bool) -> dict[st
         },
         "rbac": rbac_mod.rbac_summary(),
         "qa_maturity": {
-            "pytest_unit": 126,
+            "pytest_unit": 125,
             "security_audit_p0_p1": True,
             "e2e_playwright": True,
             "eslint_ci": True,
