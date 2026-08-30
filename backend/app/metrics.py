@@ -41,6 +41,25 @@ def observe_http_ms(bucket: str, ms: float) -> None:
         _http_latency[bucket] = float(ms)
 
 
+def edge_readiness_gauges() -> dict[str, float]:
+    """Gauges 0/1 para monitoreo HA / Prometheus (watchdog, Grafana)."""
+    from . import paths as paths_mod
+    from .detector import PPEDetector
+    from .identity import IdentityRegistry
+
+    reg = IdentityRegistry.peek()
+    det = PPEDetector.peek()
+    identity_ready = 1.0 if reg is not None else 0.0
+    epp_ready = 1.0 if det and det.ready else 0.0
+    data_persistent = 1.0 if paths_mod.is_persistent() else 0.0
+    return {
+        "identity_ready": identity_ready,
+        "epp_ready": epp_ready,
+        "data_persistent": data_persistent,
+        "edge_ready": 1.0 if identity_ready and data_persistent else 0.0,
+    }
+
+
 def prometheus_text(extra: dict[str, Any] | None = None) -> str:
     lines: list[str] = []
     with _lock:

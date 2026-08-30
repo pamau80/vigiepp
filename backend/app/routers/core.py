@@ -20,7 +20,7 @@ from ..profiles import PPE_CATALOG, list_profiles
 
 router = APIRouter(prefix="/api", tags=["core"])
 
-BUILD_VERSION = "v66"
+BUILD_VERSION = "v67"
 
 
 @router.get("/health")
@@ -106,5 +106,5 @@ metrics_router = APIRouter(tags=["metrics"])
 def metrics_prometheus() -> PlainTextResponse:
     from ..stream_rtsp import active_stream_count
 
-    extra = {"rtsp_streams_active": active_stream_count()}
+    extra = {**metrics_mod.edge_readiness_gauges(), "rtsp_streams_active": active_stream_count()}
     return PlainTextResponse(metrics_mod.prometheus_text(extra), media_type="text/plain; version=0.0.4")
