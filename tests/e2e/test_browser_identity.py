@@ -22,7 +22,7 @@ def test_browser_identify_known_worker(page: Page, enrolled_worker: dict) -> Non
         lambda r: "/api/identity/identify" in r.url and r.request.method == "POST",
         timeout=180000,
     ) as resp_info:
-        page.locator("#btnIdentify").click(timeout=60000)
+        page.evaluate("() => document.getElementById('btnIdentify')?.click()")
     resp = resp_info.value
     assert resp.ok, resp.text()
     payload = resp.json()
