@@ -45,6 +45,7 @@ def auth_login(body: AuthLoginRequest, request: Request, response: Response) -> 
         "token": token,
         "role": role,
         "expires_hours": auth_mod.SESSION_HOURS,
+        "rbac": auth_mod.rbac_for_role(role),
     }
 
 
@@ -59,12 +60,18 @@ def auth_logout(request: Request, response: Response) -> dict[str, Any]:
 @router.get("/me")
 def auth_me(request: Request) -> dict[str, Any]:
     if not auth_mod.auth_enabled():
-        return {"ok": True, "authenticated": True, "auth_enabled": False, "role": "admin"}
+        return {"ok": True, "authenticated": True, "auth_enabled": False, "role": "admin", "rbac": auth_mod.rbac_for_role("admin")}
     token = auth_mod.extract_token(request)
     role = auth_mod.session_role(token)
     if not role:
         raise HTTPException(401, "No autorizado")
-    return {"ok": True, "authenticated": True, "auth_enabled": True, "role": role}
+    return {
+        "ok": True,
+        "authenticated": True,
+        "auth_enabled": True,
+        "role": role,
+        "rbac": auth_mod.rbac_for_role(role),
+    }
 
 
 @router.get("/oidc/config")

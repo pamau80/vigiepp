@@ -368,6 +368,15 @@ def default_pins_blocked_on_cloud() -> bool:
     )
 
 
+def rbac_for_role(role: str) -> dict[str, object]:
+    from .rbac import ROLE_ADMIN, ROLE_OPERATOR, rbac_summary
+
+    base = rbac_summary()
+    if role == ROLE_OPERATOR:
+        return {**base, "current": ROLE_OPERATOR, "admin": False}
+    return {**base, "current": ROLE_ADMIN, "admin": True}
+
+
 def auth_status() -> dict[str, Any]:
     defaults = using_default_pins()
     cloud = on_cloud()
