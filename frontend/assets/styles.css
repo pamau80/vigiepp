@@ -2350,3 +2350,8 @@ body.day-zero-open { overflow: hidden; }
 }
 .day-zero-banner.hidden { display: none; }
 body[data-role="operator"] .day-zero-banner { display: none !important; }
+body[data-rbac-admin="0"] #configBlock .enterprise-only,
+body[data-rbac-admin="0"] #btnDayZeroReopen,
+body[data-rbac-admin="0"] #btnDayZeroReset {
+  display: none !important;
+}

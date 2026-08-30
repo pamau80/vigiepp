@@ -38,11 +38,13 @@ export function createAuthController({ onOperatorLogin } = {}) {
     }
   }
 
-  function applyRoleUI(role) {
+  function applyRoleUI(role, rbac = null) {
     userRole = role || "admin";
     sessionStorage.setItem("vigiepp.role", userRole);
+    if (rbac) sessionStorage.setItem("vigiepp.rbac", JSON.stringify(rbac));
     document.body.dataset.role = userRole;
-    const isOp = userRole === "operator";
+    document.body.dataset.rbacAdmin = rbac?.admin === false ? "0" : "1";
+    const isOp = userRole === "operator" || rbac?.admin === false;
     $$(".mode-btn").forEach((b) => {
       const mode = b.dataset.mode;
       const allow = !isOp || mode === "live";
@@ -77,7 +79,7 @@ export function createAuthController({ onOperatorLogin } = {}) {
           const data = await me.json().catch(() => ({}));
           showAuthGate(false);
           $("#btnLogout")?.classList.remove("hidden");
-          applyRoleUI(data.role || sessionStorage.getItem("vigiepp.role") || "admin");
+          applyRoleUI(data.role || sessionStorage.getItem("vigiepp.role") || "admin", data.rbac);
           return true;
         }
       }
@@ -105,7 +107,7 @@ export function createAuthController({ onOperatorLogin } = {}) {
             return;
           }
           if (data.token) sessionStorage.setItem("vigiepp.token", data.token);
-          applyRoleUI(data.role || "admin");
+          applyRoleUI(data.role || "admin", data.rbac);
           showAuthGate(false);
           $("#btnLogout")?.classList.remove("hidden");
           form?.removeEventListener("submit", onSubmit);
