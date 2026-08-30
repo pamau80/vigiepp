@@ -881,6 +881,17 @@ body.mode-actions .stage { min-height: auto; }
   gap: 0.35rem;
 }
 .actions-audio-sev legend { margin-bottom: 0.25rem; }
+.ehs-incident {
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.85rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--border, #243552);
+}
+.ehs-incident-actions { display: flex; gap: 0.35rem; margin-top: 0.2rem; }
+.ehs-st-open .ehs-incident-meta b { color: var(--warn, #f0b429); }
+.ehs-st-closed .ehs-incident-meta b { color: var(--muted, #8fa3bf); }
+.ehs-st-verified .ehs-incident-meta b { color: var(--ok, #3ecf8e); }
 .panel[data-mode="actions"] [data-live-only],
 .panel[data-mode="actions"] [data-hide-teach] {
   display: none;

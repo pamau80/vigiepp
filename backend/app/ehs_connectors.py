@@ -213,6 +213,8 @@ def _connector_headers(cfg: dict[str, Any]) -> dict[str, str]:
 
 def push_incident(incident: dict[str, Any]) -> list[dict[str, Any]]:
     """Envía incidente a conectores EHS habilitados."""
+    from . import ehs_incidents as inc_mod
+
     with _lock:
         data = _load()
         connectors = data.get("connectors") or {}
@@ -234,6 +236,13 @@ def push_incident(incident: dict[str, Any]) -> list[dict[str, Any]]:
         results.append({"connector": cid, "ok": ok, "detail": msg})
         if not ok:
             logger.warning("EHS push %s falló: %s", cid, msg)
+    try:
+        inc_mod.create_incident(
+            {**incident, "push_results": results},
+            source="ehs_push",
+        )
+    except Exception:
+        logger.exception("No se pudo registrar incidente EHS local")
     return results
 
 
