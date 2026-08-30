@@ -44,6 +44,16 @@ def build_csp(nonce: str) -> str:
     )
 
 
+def hsts_enabled() -> bool:
+    raw = os.getenv("VIGIEPP_HSTS", "").strip().lower()
+    if raw in ("0", "false", "off", "no"):
+        return False
+    if raw in ("1", "true", "yes", "on"):
+        return True
+    edge = os.getenv("VIGIEPP_EDGE", "").strip().lower() in ("1", "true", "yes", "on")
+    return edge
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         request_id = request.headers.get("x-request-id") or uuid.uuid4().hex[:16]
@@ -56,6 +66,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Permissions-Policy"] = "camera=(self), microphone=(self), geolocation=()"
         response.headers["X-Permitted-Cross-Domain-Policies"] = "none"
         response.headers["Content-Security-Policy"] = build_csp(nonce)
-        if os.getenv("VIGIEPP_HSTS", "").strip().lower() in ("1", "true", "yes"):
+        if hsts_enabled():
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         return response
