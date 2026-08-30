@@ -242,6 +242,7 @@ export function createEnterpriseController(api) {
     });
 
     $("#btnEhsRefreshIncidents")?.addEventListener("click", () => refreshEhsIncidents());
+    refreshForenseLink();
     $("#cfgEhsIncidentList")?.addEventListener("click", async (ev) => {
       const closeId = ev.target.closest("[data-ehs-close]")?.getAttribute("data-ehs-close");
       const verifyId = ev.target.closest("[data-ehs-verify]")?.getAttribute("data-ehs-verify");
@@ -255,12 +256,21 @@ export function createEnterpriseController(api) {
     });
   }
 
+  function refreshForenseLink() {
+    const a = $("#lnkForense");
+    if (!a) return;
+    const token = sessionStorage.getItem("vigiepp.token");
+    const base = `${window.location.protocol}//${window.location.hostname}:8001/`;
+    a.href = token ? `${base}?key=${encodeURIComponent(token)}` : base;
+  }
+
   return {
     refreshSitesUi,
     refreshEhsUi,
     refreshEhsIncidents,
     saveEhsConfig,
     updateEnterpriseHints,
+    refreshForenseLink,
     bindEnterpriseEvents,
   };
 }

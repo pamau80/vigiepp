@@ -62,9 +62,10 @@ PIN admin: vigiepp · PIN portería: porteria
 
 Producto **aislado** — no toca la UI de VigiEPP.
 
-1. **http://127.0.0.1:8001/** → mismo PIN admin `vigiepp`
-2. Subir un video corto (MP4) o usar muestra
-3. Crear job de análisis → ver informe, heatmap, export PDF
+1. **Opción A:** Config → Enterprise → **Abrir Forense** (sesión admin automática)
+2. **Opción B:** http://127.0.0.1:8001/ → PIN admin `vigiepp`
+3. Subir un video corto (MP4) o usar muestra
+4. Crear job de análisis → ver informe, heatmap, export PDF
 4. Health:
    ```bash
    curl -s http://127.0.0.1:8001/api/forense/health | jq .

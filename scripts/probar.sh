@@ -62,6 +62,7 @@ wait_health "http://127.0.0.1:8000/api/health" "VigiEPP health"
 
 echo "[probar] iniciando Forense :8001"
 "$PY" -m pip install -q -r forense/requirements.txt 2>/dev/null || true
+export PYTHONPATH="${ROOT}/backend:${ROOT}"
 export VIGIEPP_FORENSE_DATA_DIR="${VIGIEPP_FORENSE_DATA_DIR:-${ROOT}/forense/data}"
 export VIGIEPP_FORENSE=1
 export VIGIEPP_FORENSE_LICENSE="${VIGIEPP_FORENSE_LICENSE:-dev}"
