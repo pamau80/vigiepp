@@ -135,9 +135,20 @@ Criterios **healthy**:
 
 ### Script watchdog (cron cada 60 s en un tercer host o en standby)
 
+Incluido en el repo: `scripts/vigiepp-watchdog.sh`
+
+```bash
+# Solo alerta (recomendado en cron)
+* * * * * /opt/vigiepp/scripts/vigiepp-watchdog.sh --check-only
+
+# Failover semi-automático (requiere FAILOVER_CMD configurado)
+AUTO_FAILOVER=1 FAILOVER_CMD="ssh vigiepp-02 'cd /opt/vigiepp && docker compose up -d'" \
+  ./scripts/vigiepp-watchdog.sh --failover
+```
+
 ```bash
 #!/bin/bash
-# /usr/local/bin/vigiepp-watchdog.sh
+# Ejemplo mínimo inline (equivalente al script del repo)
 PRIMARY=192.168.10.11
 STANDBY=192.168.10.12
 if ! curl -sf --max-time 5 "http://${PRIMARY}:8000/api/health" | jq -e '.identity_ready' >/dev/null; then

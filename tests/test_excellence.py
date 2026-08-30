@@ -10,5 +10,8 @@ def test_excellence_summary():
     assert data["tier"] == "edge_sovereign"
     assert data["capabilities"]["actions_presets"] >= 22
     assert data["capabilities"]["ehs_workflow"] is True
+    assert data["capabilities"]["rbac_granular"] is True
+    assert data["capabilities"]["csp_nonce"] is True
     assert data["edge_score"] >= 9.0
     assert len(data["differentiators"]) >= 5
+    assert "rbac" in data

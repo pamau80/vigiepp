@@ -274,43 +274,10 @@ def is_public_path(path: str) -> bool:
 
 
 def is_admin_only(method: str, path: str) -> bool:
-    """Rutas que el operador (portería) no puede usar."""
-    m = method.upper()
-    if m in ("GET", "HEAD", "OPTIONS"):
-        if path.startswith("/api/identity/backup"):
-            return True
-        if path.startswith("/api/identity/consent"):
-            return True
-        if path.startswith("/api/identity/workers") and path.endswith("/photo"):
-            return True
-        if path == "/api/identity/workers":
-            return True
-        if path.startswith(("/api/notifications/config", "/api/notifications/log")):
-            return True
-        if path.startswith("/api/teach/"):
-            return True
-        if path.startswith("/api/audit"):
-            return True
-        if path.startswith("/api/reports/"):
-            return True
-        return bool(path.startswith("/api/evidence/"))
+    """Rutas que el operador (portería) no puede usar — delegado a rbac granular."""
+    from .rbac import is_admin_only as rbac_admin_only
 
-    if path in ("/api/detect", "/api/identity/identify"):
-        return False
-    if path.startswith("/api/rtsp/"):
-        return False
-    if path.startswith("/api/auth/"):
-        return False
-
-    if path.startswith("/api/identity/"):
-        return True
-    if path.startswith("/api/zones"):
-        return True
-    if path.startswith("/api/teach/"):
-        return True
-    if path.startswith("/api/notifications/"):
-        return True
-    return bool(path.startswith("/api/cameras"))
+    return rbac_admin_only(method, path)
 
 
 def set_session_cookie(response: Response, token: str) -> None:

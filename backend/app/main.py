@@ -9,7 +9,7 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -21,7 +21,7 @@ from .identity import IdentityRegistry
 from .request_limits import MaxBodySizeMiddleware
 from .request_metrics import RequestMetricsMiddleware
 from .routers import register_routers
-from .security_headers import SecurityHeadersMiddleware
+from .security_headers import SecurityHeadersMiddleware, ensure_csp_nonce
 from .startup_checks import run_startup_security_checks
 from .stream_rtsp import stop_all
 
@@ -115,8 +115,10 @@ if FRONTEND_DIR.exists():
         return FileResponse(path)
 
     @app.get("/", response_class=HTMLResponse)
-    async def index() -> HTMLResponse:
+    async def index(request: Request) -> HTMLResponse:
         html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+        nonce = ensure_csp_nonce(request)
+        html = html.replace("<script ", f'<script nonce="{nonce}" ')
         return HTMLResponse(
             html,
             headers={
