@@ -7,10 +7,12 @@ from forense.app.templates import list_templates, resolve_template
 
 def test_list_templates():
     tpls = list_templates()
-    assert len(tpls) >= 5
+    assert len(tpls) >= 12
     ids = {t["id"] for t in tpls}
     assert "mineria" in ids
+    assert "petroquimica" in ids
     assert "general" in ids
+    assert tpls[0].get("meters_per_pixel") is not None
 
 
 def test_resolve_template_defaults():

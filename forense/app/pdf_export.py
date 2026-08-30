@@ -14,15 +14,17 @@ def export_report_pdf(job: dict[str, Any], out_path: Path) -> bool:
 
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_margins(15, 15, 15)
     pdf.add_page()
+    effective_w = pdf.w - pdf.l_margin - pdf.r_margin
     pdf.set_font("Helvetica", "B", 16)
-    pdf.cell(0, 10, "VigiEPP Forense - Informe IA", ln=True)
+    pdf.multi_cell(effective_w, 10, _plain_text("VigiEPP Forense - Informe IA"))
     pdf.set_font("Helvetica", "", 10)
-    pdf.multi_cell(0, 6, _plain_text(job.get("title") or "Caso"))
+    pdf.multi_cell(effective_w, 6, _plain_text(job.get("title") or "Caso"))
     pdf.ln(4)
     pdf.set_font("Helvetica", "I", 9)
     pdf.multi_cell(
-        0,
+        effective_w,
         5,
         "Informe generado por IA. No constituye peritaje legal. Requiere validacion humana.",
     )
@@ -31,22 +33,25 @@ def export_report_pdf(job: dict[str, Any], out_path: Path) -> bool:
     body = job.get("report_md") or ""
     for line in body.splitlines():
         line = _plain_text(line)
+        if not line.strip():
+            pdf.ln(2)
+            continue
         if line.startswith("# "):
             pdf.ln(4)
             pdf.set_font("Helvetica", "B", 12)
-            pdf.multi_cell(0, 6, line[2:])
+            pdf.multi_cell(effective_w, 6, _wrap_line(line[2:], 80))
             pdf.set_font("Helvetica", "", 10)
         elif line.startswith("## "):
             pdf.ln(3)
             pdf.set_font("Helvetica", "B", 11)
-            pdf.multi_cell(0, 6, line[3:])
+            pdf.multi_cell(effective_w, 6, _wrap_line(line[3:], 90))
             pdf.set_font("Helvetica", "", 10)
         elif line.startswith(">"):
             pdf.set_font("Helvetica", "I", 9)
-            pdf.multi_cell(0, 5, line.lstrip("> ").strip())
+            pdf.multi_cell(effective_w, 5, _wrap_line(line.lstrip("> ").strip(), 100))
             pdf.set_font("Helvetica", "", 10)
-        elif line.strip():
-            pdf.multi_cell(0, 5, line)
+        else:
+            pdf.multi_cell(effective_w, 5, _wrap_line(line, 110))
     out_path.parent.mkdir(parents=True, exist_ok=True)
     pdf.output(str(out_path))
     return out_path.is_file()
@@ -82,3 +87,21 @@ def _plain_text(s: str) -> str:
         .encode("latin-1", "replace")
         .decode("latin-1")
     )
+
+
+def _wrap_line(text: str, width: int) -> str:
+    """Parte líneas largas para evitar fallos de FPDF con palabras enormes."""
+    text = text.strip()
+    if len(text) <= width:
+        return text
+    parts: list[str] = []
+    while text:
+        if len(text) <= width:
+            parts.append(text)
+            break
+        cut = text.rfind(" ", 0, width)
+        if cut <= 0:
+            cut = width
+        parts.append(text[:cut].strip())
+        text = text[cut:].strip()
+    return "\n".join(parts)

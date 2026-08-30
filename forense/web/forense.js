@@ -1,11 +1,4 @@
 const API = "";
-const TEMPLATE_DEFAULTS = {
-  general: { meters_per_pixel: 0.045, max_machinery_kmh: 15, max_person_kmh: 8, min_distance_m: 2 },
-  mineria: { meters_per_pixel: 0.05, max_machinery_kmh: 12, max_person_kmh: 6, min_distance_m: 3 },
-  portuario: { meters_per_pixel: 0.045, max_machinery_kmh: 18, max_person_kmh: 8, min_distance_m: 2.5 },
-  bodega: { meters_per_pixel: 0.04, max_machinery_kmh: 15, max_person_kmh: 8, min_distance_m: 2 },
-  construccion: { meters_per_pixel: 0.048, max_machinery_kmh: 10, max_person_kmh: 6, min_distance_m: 2.5 },
-};
 
 async function api(path, opts = {}) {
   const token = sessionStorage.getItem("forense.token");
@@ -38,30 +31,58 @@ const authGate = $("#authGate");
 const app = $("#app");
 
 let templatesCache = [];
+let situationTypesCache = {};
+let pollTimer = null;
+let currentJobId = null;
 
 function applyTemplateDefaults(templateId) {
-  const d = TEMPLATE_DEFAULTS[templateId] || TEMPLATE_DEFAULTS.general;
-  $("#caseMpp").value = d.meters_per_pixel;
-  $("#caseMachKmh").value = d.max_machinery_kmh;
-  $("#casePersonKmh").value = d.max_person_kmh;
-  $("#caseMinDist").value = d.min_distance_m;
-  const tpl = templatesCache.find((t) => t.id === templateId);
-  $("#templateHint").textContent = tpl ? `Perfil: ${tpl.profile}` : "";
+  const tpl = templatesCache.find((t) => t.id === templateId) || templatesCache.find((t) => t.id === "general");
+  if (!tpl) return;
+  $("#caseMpp").value = tpl.meters_per_pixel;
+  $("#caseMachKmh").value = tpl.max_machinery_kmh;
+  $("#casePersonKmh").value = tpl.max_person_kmh;
+  $("#caseMinDist").value = tpl.min_distance_m;
+  const focus = (tpl.situation_focus || []).join(", ");
+  $("#templateHint").textContent = tpl.intro
+    ? `${tpl.intro}${focus ? ` · Foco: ${focus}` : ""}`
+    : `Perfil: ${tpl.profile}`;
 }
 
 async function loadTemplates() {
   const data = await api("/api/forense/templates");
   templatesCache = data.templates || [];
   const sel = $("#caseTemplate");
+  const knIndustry = $("#knIndustry");
   sel.innerHTML = "";
+  knIndustry.innerHTML = "";
   for (const t of templatesCache) {
     const opt = document.createElement("option");
     opt.value = t.id;
     opt.textContent = t.name;
     sel.appendChild(opt);
+    const opt2 = document.createElement("option");
+    opt2.value = t.id;
+    opt2.textContent = t.name;
+    knIndustry.appendChild(opt2);
   }
   sel.onchange = () => applyTemplateDefaults(sel.value);
   applyTemplateDefaults(sel.value || "general");
+}
+
+function resetNewCaseForm() {
+  $("#uploadForm")?.reset();
+  $("#caseTemplate").value = "general";
+  applyTemplateDefaults("general");
+  $("#caseReference").value = "";
+  $("#uploadHint")?.classList.add("hidden");
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+  currentJobId = null;
+  $("#jobView")?.classList.add("hidden");
+  $("#emptyState")?.classList.remove("hidden");
+  refreshJobs();
 }
 
 function refreshReferenceSelect(jobs) {
@@ -78,17 +99,62 @@ function refreshReferenceSelect(jobs) {
   if (current) sel.value = current;
 }
 
+async function loadKnowledge() {
+  const data = await api("/api/forense/knowledge");
+  situationTypesCache = data.situation_types || {};
+  const typeSel = $("#knSituationType");
+  if (typeSel && !typeSel.options.length) {
+    typeSel.innerHTML = "";
+    for (const [id, label] of Object.entries(situationTypesCache)) {
+      const opt = document.createElement("option");
+      opt.value = id;
+      opt.textContent = label;
+      typeSel.appendChild(opt);
+    }
+  }
+  const stats = data.stats || {};
+  $("#knowledgeStats").textContent = `${stats.total || 0} situación(es) en biblioteca`;
+  const ul = $("#knowledgeList");
+  ul.innerHTML = "";
+  for (const e of data.entries || []) {
+    const li = document.createElement("li");
+    li.className = "knowledge-item";
+    const thumb = e.has_thumb
+      ? `<img src="/api/forense/knowledge/${e.id}/thumb.jpg" alt="" class="kn-thumb" />`
+      : `<span class="kn-thumb placeholder">📷</span>`;
+    li.innerHTML = `
+      ${thumb}
+      <div class="kn-body">
+        <strong>${e.title}</strong>
+        <span class="muted small">${e.situation_label || e.situation_type} · ${e.industry}</span>
+        <p class="small">${e.description || ""}</p>
+      </div>
+      <button type="button" class="btn ghost small" data-del="${e.id}">✕</button>
+    `;
+    li.querySelector("[data-del]")?.addEventListener("click", async () => {
+      if (!confirm(`¿Eliminar «${e.title}» de la biblioteca?`)) return;
+      await api(`/api/forense/knowledge/${e.id}`, { method: "DELETE" });
+      await loadKnowledge();
+    });
+    ul.appendChild(li);
+  }
+}
+
 async function checkSession() {
   try {
     const h = await api("/api/forense/health");
     $("#licenseLine").textContent = h.license?.valid
-      ? `Licencia activa · ${h.build}`
+      ? `Licencia activa · ${h.build} · IA + aprendizaje`
       : `Sin licencia: ${h.license?.detail || "—"}`;
-    const st = await fetch("/api/forense/auth/status", { credentials: "include", headers: sessionStorage.getItem("forense.token") ? { "X-VigiEPP-Key": sessionStorage.getItem("forense.token") } : {} }).then((r) => r.json());
+    const st = await fetch("/api/forense/auth/status", {
+      credentials: "include",
+      headers: sessionStorage.getItem("forense.token") ? { "X-VigiEPP-Key": sessionStorage.getItem("forense.token") } : {},
+    }).then((r) => r.json());
     if (st.can_access) {
       authGate.classList.add("hidden");
       app.classList.remove("hidden");
       await loadTemplates();
+      await loadKnowledge();
       await refreshJobs();
       return;
     }
@@ -116,8 +182,48 @@ $("#authForm")?.addEventListener("submit", async (e) => {
   }
 });
 
-let pollTimer = null;
-let currentJobId = null;
+$("#btnNewCase")?.addEventListener("click", resetNewCaseForm);
+$("#btnResetForm")?.addEventListener("click", () => {
+  $("#uploadForm")?.reset();
+  applyTemplateDefaults($("#caseTemplate").value || "general");
+  $("#uploadHint")?.classList.add("hidden");
+});
+
+$("#btnResetKnowledge")?.addEventListener("click", async () => {
+  const confirm = prompt("Esto borra TODA la biblioteca de aprendizaje. Escribí RESETEAR para confirmar:");
+  if (confirm?.trim().toUpperCase() !== "RESETEAR") return;
+  try {
+    const res = await api("/api/forense/knowledge/reset", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirm: "RESETEAR" }),
+    });
+    $("#knowledgeHint").textContent = `Biblioteca reseteada (${res.removed} entradas eliminadas).`;
+    await loadKnowledge();
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+$("#knowledgeForm")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  $("#knowledgeHint").textContent = "Guardando…";
+  const fd = new FormData();
+  fd.append("title", $("#knTitle").value);
+  fd.append("situation_type", $("#knSituationType").value);
+  fd.append("industry", $("#knIndustry").value);
+  fd.append("description", $("#knDescription").value);
+  const media = $("#knMedia").files?.[0];
+  if (media) fd.append("media", media);
+  try {
+    await api("/api/forense/knowledge", { method: "POST", body: fd });
+    $("#knowledgeForm").reset();
+    $("#knowledgeHint").textContent = "Situación agregada. Se usará en futuros análisis.";
+    await loadKnowledge();
+  } catch (err) {
+    $("#knowledgeHint").textContent = err.message;
+  }
+});
 
 async function refreshJobs() {
   const data = await api("/api/forense/jobs");
@@ -128,8 +234,10 @@ async function refreshJobs() {
     const li = document.createElement("li");
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.textContent = `${j.title || j.id} · ${j.status} (${j.progress || 0}%)`;
+    const label = j.status === "error" ? "error" : j.status;
+    btn.textContent = `${j.title || j.id} · ${label} (${j.progress || 0}%)`;
     btn.classList.toggle("active", j.id === currentJobId);
+    if (j.status === "error") btn.classList.add("job-error");
     btn.onclick = () => selectJob(j.id);
     li.appendChild(btn);
     ul.appendChild(li);
@@ -213,6 +321,29 @@ async function selectJob(id) {
   pollTimer = setInterval(() => loadJob(id, true), 2000);
 }
 
+async function promoteKeyframe(jobId, keyframeName, timeLabel) {
+  const title = prompt("Título de la situación:", `Incidente en ${timeLabel}`);
+  if (!title) return;
+  const description = prompt("¿Qué ocurrió acá?", "") || "";
+  const situationType = $("#knSituationType")?.value || "other";
+  try {
+    await api(`/api/forense/jobs/${jobId}/knowledge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        keyframe_name: keyframeName,
+        title,
+        situation_type: situationType,
+        description,
+      }),
+    });
+    await loadKnowledge();
+    alert("Captura guardada en la biblioteca de aprendizaje.");
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
 async function loadJob(id, quiet = false) {
   const data = await api(`/api/forense/jobs/${id}`);
   const j = data.job;
@@ -227,12 +358,40 @@ async function loadJob(id, quiet = false) {
     pw.classList.remove("hidden");
     $("#progressBar").style.width = `${j.progress || 0}%`;
     $("#progressText").textContent = j.progress_message || "";
+    $("#progressText").style.color = "";
+  } else if (j.status === "error") {
+    pw.classList.remove("hidden");
+    $("#progressBar").style.width = `${j.progress || 0}%`;
+    $("#progressText").textContent = `Error: ${j.error || j.progress_message || "Análisis falló"}`;
+    $("#progressText").style.color = "#f07178";
   } else {
     pw.classList.add("hidden");
+    $("#progressText").style.color = "";
     if (j.status === "done" && pollTimer) {
       clearInterval(pollTimer);
       pollTimer = null;
     }
+  }
+
+  const knSec = $("#knowledgeSection");
+  const knMatches = j.knowledge?.matches || [];
+  const knUl = $("#knowledgeMatches");
+  knUl.innerHTML = "";
+  if (knMatches.length) {
+    knSec.classList.remove("hidden");
+    for (const m of knMatches) {
+      const li = document.createElement("li");
+      li.innerHTML = `<strong>${m.title}</strong> (${m.situation_label}) — ${m.confidence_pct}% · ${(m.reasons || []).join(", ")}`;
+      if (m.description) {
+        const p = document.createElement("p");
+        p.className = "muted small";
+        p.textContent = m.description;
+        li.appendChild(p);
+      }
+      knUl.appendChild(li);
+    }
+  } else {
+    knSec.classList.add("hidden");
   }
 
   const compSec = $("#comparisonSection");
@@ -283,7 +442,7 @@ async function loadJob(id, quiet = false) {
   tl.innerHTML = "";
   for (const ev of j.analysis?.timeline || []) {
     const li = document.createElement("li");
-    li.className = `sev-${ev.severity || "medium"}`;
+    li.className = `sev-${ev.severity || "medium"}${ev.type === "knowledge_match" ? " knowledge-ev" : ""}`;
     const cam = ev.camera ? ` [${ev.camera}]` : "";
     li.textContent = `${ev.time_label}${cam} · ${ev.type}: ${ev.message}`;
     tl.appendChild(li);
@@ -296,11 +455,20 @@ async function loadJob(id, quiet = false) {
   kf.innerHTML = "";
   for (const frame of j.analysis?.keyframes || []) {
     if (!frame.image) continue;
+    const wrap = document.createElement("button");
+    wrap.type = "button";
+    wrap.className = "keyframe-btn";
+    wrap.title = "Clic para guardar en biblioteca: " + (frame.events || []).join("; ");
     const img = document.createElement("img");
     img.src = `/api/forense/jobs/${id}/keyframes/${frame.image}`;
     img.alt = frame.time_label;
-    img.title = (frame.events || []).join("; ");
-    kf.appendChild(img);
+    wrap.appendChild(img);
+    const cap = document.createElement("span");
+    cap.className = "small muted";
+    cap.textContent = frame.time_label;
+    wrap.appendChild(cap);
+    wrap.onclick = () => promoteKeyframe(id, frame.image, frame.time_label);
+    kf.appendChild(wrap);
   }
 
   const pdf = $("#downloadPdf");
@@ -349,6 +517,17 @@ async function loadJob(id, quiet = false) {
   }
 }
 
+$("#btnDeleteJob")?.addEventListener("click", async () => {
+  if (!currentJobId) return;
+  if (!confirm("¿Eliminar este trabajo y todos sus archivos?")) return;
+  try {
+    await api(`/api/forense/jobs/${currentJobId}`, { method: "DELETE" });
+    resetNewCaseForm();
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
 $("#exportEhs")?.addEventListener("click", async () => {
   if (!currentJobId) return;
   $("#ehsStatus").textContent = "Exportando…";
@@ -364,7 +543,21 @@ $("#exportEhs")?.addEventListener("click", async () => {
 $("#uploadForm")?.addEventListener("submit", async (e) => {
   e.preventDefault();
   const file = $("#caseVideo").files?.[0];
-  if (!file) return;
+  if (!file) {
+    alert("Seleccioná un video principal (MP4 o MOV) antes de iniciar el análisis.");
+    return;
+  }
+  const btn = $("#btnStartAnalysis");
+  const hint = $("#uploadHint");
+  const prevLabel = btn?.textContent || "Iniciar análisis";
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Subiendo video…";
+  }
+  if (hint) {
+    hint.textContent = `Procesando «${file.name}» — análisis optimizado por plantilla.`;
+    hint.classList.remove("hidden");
+  }
   const fd = new FormData();
   fd.append("video", file);
   const v2 = $("#caseVideo2").files?.[0];
@@ -383,10 +576,20 @@ $("#uploadForm")?.addEventListener("submit", async (e) => {
   fd.append("offset3", $("#caseOffset3").value);
   try {
     const res = await api("/api/forense/jobs", { method: "POST", body: fd });
+    if (hint) hint.textContent = "Análisis iniciado con biblioteca de aprendizaje activa.";
     await refreshJobs();
-    selectJob(res.job.id);
+    await selectJob(res.job.id);
   } catch (err) {
-    alert(err.message);
+    if (hint) {
+      hint.textContent = err.message;
+      hint.style.color = "#f07178";
+    }
+    alert(err.message || "No se pudo iniciar el análisis");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = prevLabel;
+    }
   }
 });
 
