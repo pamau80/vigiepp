@@ -8,6 +8,7 @@ const TYPE_LABEL = {
   person_in_zone: "Persona en zona",
   detect_in_zone: "Objeto en zona",
   proximity: "Proximidad persona–objeto",
+  detect_anywhere: "Detección en escena",
 };
 
 /** Pestaña Acciones: reglas, fuentes por cámara y distancia en metros. */

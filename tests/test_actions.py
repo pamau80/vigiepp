@@ -51,7 +51,22 @@ def test_cooldown_suppresses_repeat():
 
 def test_presets_api():
     presets = actions_mod.list_presets()
+    assert len(presets) >= 22
     assert any(p["id"] == "preset-celular-zona" for p in presets)
+    assert any(p["id"] == "preset-linea-fuego-1m" for p in presets)
+    assert any(p["id"] == "preset-humo-incendio" for p in presets)
+
+
+def test_detect_anywhere_celular():
+    rules = actions_mod.get_rules()["rules"]
+    for r in rules:
+        if r["id"] == "preset-celular-faena":
+            r["enabled"] = True
+    actions_mod.save_rules(rules)
+    actions_mod._last_trigger.clear()
+    detections = [{"label": "cell phone", "box": [10, 10, 80, 120], "confidence": 0.85}]
+    out = actions_mod.evaluate_actions(detections, 640, 480, compliance={"overall_compliant": True, "persons": []})
+    assert any(t["rule_id"] == "preset-celular-faena" for t in out["triggered"])
 
 
 def test_proximity_uses_meters_calibration():
