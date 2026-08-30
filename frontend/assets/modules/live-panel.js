@@ -21,6 +21,7 @@ export function createLivePanelController({
   setLastFrameSize,
   getLastAccessAllow,
   setLastAccessAllow,
+  getActionSettings,
 }) {
   function updateUi(payload) {
     if (!payload || !payload.ok) return;
@@ -97,10 +98,19 @@ export function createLivePanelController({
     }
 
     if (getAppMode() === "live" && hasPeople && !ok) {
-      const actionAlert = (payload.actions?.alerts || [])[0];
+      const actionSettings = getActionSettings?.() || {};
+      const triggered = payload.actions?.triggered || [];
+      const sevRank = { critical: 4, high: 3, medium: 2, low: 1 };
+      const allowed = actionSettings.action_audio_severities || ["critical", "high"];
+      const topAction = triggered
+        .filter((t) => actionSettings.action_audio_enabled !== false && allowed.includes(t.severity || "medium"))
+        .sort((a, b) => (sevRank[b.severity] || 0) - (sevRank[a.severity] || 0))[0];
+      const actionAlert = topAction?.message || (payload.actions?.alerts || [])[0];
       const zoneAlert = (payload.zones?.alerts || [])[0];
       const miss = (c.persons?.[0]?.missing || []).slice(0, 2).join(" y ");
-      if (actionAlert) {
+      if (topAction) {
+        audio.speakActionAlert(topAction, actionSettings);
+      } else if (actionAlert) {
         audio.speakAlert(actionAlert.replace("Near-miss:", "Cuidado."));
       } else if (zoneAlert) {
         audio.speakAlert(

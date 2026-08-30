@@ -56,6 +56,7 @@ def test_all_get_endpoints(client):
         "/api/actions/settings",
         "/api/actions/sources",
         "/api/actions/presets",
+        "/api/actions/events",
         "/api/sites",
         "/api/privacy/config",
         "/api/ehs/config",

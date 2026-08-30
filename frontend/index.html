@@ -411,6 +411,15 @@
               <p class="muted">Seleccioná una regla de la lista para configurar cámaras y distancia.</p>
             </div>
           </div>
+          <section class="actions-history card">
+            <div class="actions-history-head">
+              <p class="card-kicker">Historial de eventos</p>
+              <button type="button" class="btn ghost btn-sm" id="btnActionsRefreshEvents">Actualizar</button>
+            </div>
+            <ul class="item-list actions-event-list" id="actionsEventList">
+              <li class="muted">Sin eventos registrados</li>
+            </ul>
+          </section>
         </div>
       </div>
 
@@ -530,6 +539,14 @@
           <input type="number" id="actionsMetersPerPixel" min="0.01" max="0.5" step="0.005" value="0.045" />
         </label>
         <p class="card-meta muted" id="actionsCalibHint">Típico NVR en altura: 0.04–0.06 m/px según zoom.</p>
+        <label class="check"><input type="checkbox" id="actionsAudioEnabled" checked /> Audio en piso por acciones inseguras</label>
+        <fieldset class="actions-audio-sev">
+          <legend class="card-kicker list-label">Severidad con audio</legend>
+          <label class="check"><input type="checkbox" data-action-sev="critical" checked /> Crítica</label>
+          <label class="check"><input type="checkbox" data-action-sev="high" checked /> Alta</label>
+          <label class="check"><input type="checkbox" data-action-sev="medium" /> Media</label>
+          <label class="check"><input type="checkbox" data-action-sev="low" /> Baja</label>
+        </fieldset>
         <p class="card-kicker list-label">Entrenamiento detecciones</p>
         <ul class="item-list actions-teach-list" id="actionsTeachList">
           <li class="muted">Cargando progreso…</li>

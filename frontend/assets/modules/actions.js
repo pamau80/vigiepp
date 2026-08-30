@@ -13,9 +13,10 @@ const TYPE_LABEL = {
 /** Pestaña Acciones: reglas, fuentes por cámara y distancia en metros. */
 export function createActionsController({ api, els, setAppMode, teach }) {
   let rules = [];
-  let settings = { meters_per_pixel: 0.045 };
+  let settings = { meters_per_pixel: 0.045, action_audio_enabled: true, action_audio_severities: ["critical", "high"] };
   let sources = [{ id: "live", label: "Vivo / portería" }];
   let selectedId = null;
+  let events = [];
 
   function escapeHtml(s) {
     return String(s)
@@ -55,7 +56,38 @@ export function createActionsController({ api, els, setAppMode, teach }) {
     renderDetail();
     syncCalibrationForm();
     await renderTeachProgress();
+    await loadEvents();
     return rules;
+  }
+
+  async function loadEvents() {
+    try {
+      const data = await api("/api/actions/events?limit=50");
+      events = data.events || [];
+    } catch (_) {
+      events = [];
+    }
+    renderEvents();
+  }
+
+  function renderEvents() {
+    if (!els.actionsEventList) return;
+    if (!events.length) {
+      els.actionsEventList.innerHTML = `<li class="muted">Sin eventos registrados</li>`;
+      return;
+    }
+    els.actionsEventList.innerHTML = events
+      .map((ev) => {
+        const ts = (ev.ts || "").replace("T", " ").slice(0, 19);
+        const sev = ev.severity || "medium";
+        return `<li class="actions-event sev-${escapeHtml(sev)}">
+          <span class="actions-event-time">${escapeHtml(ts || "—")}</span>
+          <span class="actions-sev sev-${escapeHtml(sev)}">${escapeHtml(SEV_LABEL[sev] || sev)}</span>
+          <span class="actions-event-msg">${escapeHtml(ev.message || ev.name || "—")}</span>
+          <span class="muted actions-event-src">${escapeHtml(ev.source || "")}</span>
+        </li>`;
+      })
+      .join("");
   }
 
   async function renderTeachProgress() {
@@ -104,6 +136,23 @@ export function createActionsController({ api, els, setAppMode, teach }) {
     if (els.actionsCalibHint && settings.reference) {
       els.actionsCalibHint.textContent = settings.reference;
     }
+    if (els.actionsAudioEnabled) {
+      els.actionsAudioEnabled.checked = settings.action_audio_enabled !== false;
+    }
+    const allowed = new Set(settings.action_audio_severities || ["critical", "high"]);
+    document.querySelectorAll("[data-action-sev]").forEach((cb) => {
+      const sev = cb.getAttribute("data-action-sev");
+      cb.checked = allowed.has(sev);
+    });
+  }
+
+  async function saveAudioSettings() {
+    const severities = [...document.querySelectorAll("[data-action-sev]:checked")].map((el) =>
+      el.getAttribute("data-action-sev")
+    );
+    settings.action_audio_enabled = !!els.actionsAudioEnabled?.checked;
+    settings.action_audio_severities = severities.length ? severities : ["critical", "high"];
+    await saveSettings();
   }
 
   function render() {
@@ -274,6 +323,13 @@ export function createActionsController({ api, els, setAppMode, teach }) {
       await saveSettings();
     });
 
+    els.actionsAudioEnabled?.addEventListener("change", () => saveAudioSettings());
+    document.querySelectorAll("[data-action-sev]").forEach((cb) => {
+      cb.addEventListener("change", () => saveAudioSettings());
+    });
+
+    els.btnActionsRefreshEvents?.addEventListener("click", () => loadEvents());
+
     els.btnActionsOpenTeach?.addEventListener("click", () => {
       setAppMode?.("teach");
       if (els.teachClass) els.teachClass.value = "montacargas";
@@ -281,5 +337,5 @@ export function createActionsController({ api, els, setAppMode, teach }) {
     });
   }
 
-  return { loadRules, refreshPresets, bindEvents, render, renderTeachProgress };
+  return { loadRules, refreshPresets, bindEvents, render, renderTeachProgress, getSettings: () => settings, loadEvents };
 }
