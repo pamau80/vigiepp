@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from playwright.sync_api import Page, expect
 
-from tests.e2e.helpers import go_identity_tab, start_fake_camera_ui, ui_login, wait_camera_ready
+from tests.e2e.helpers import go_identity_tab, start_fake_camera_ui, ui_login, wait_camera_ready, wait_identify_ready
 
 
 def test_browser_identify_known_worker(page: Page, enrolled_worker: dict) -> None:
@@ -13,6 +13,10 @@ def test_browser_identify_known_worker(page: Page, enrolled_worker: dict) -> Non
     expect(page.locator("#workerList")).to_contain_text("E2E Lena Test", timeout=90000)
     start_fake_camera_ui(page)
     wait_camera_ready(page)
+    chk = page.locator("#chkIdentify")
+    if chk.is_visible() and not chk.is_checked():
+        chk.check()
+    wait_identify_ready(page)
 
     with page.expect_response(
         lambda r: "/api/identity/identify" in r.url and r.request.method == "POST",
