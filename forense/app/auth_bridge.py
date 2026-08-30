@@ -24,7 +24,7 @@ def login_pin(request: Request, response: Response, pin: str) -> dict:
     if auth_mod.default_pins_blocked_on_cloud():
         raise HTTPException(503, "PIN por defecto bloqueado en cloud")
     if not auth_mod.auth_enabled():
-        return {"ok": True, "role": "admin", "auth_enabled": False}
+        return {"ok": True, "role": "admin", "auth_enabled": False, "token": ""}
     ip = auth_mod.client_ip(request)
     auth_mod.check_login_rate(ip)
     role = auth_mod.resolve_pin_role(pin)
@@ -36,3 +36,25 @@ def login_pin(request: Request, response: Response, pin: str) -> dict:
     token = auth_mod.create_session(role)
     auth_mod.set_session_cookie(response, token)
     return {"ok": True, "token": token, "role": role}
+
+
+def auth_status_payload(request: Request) -> dict:
+    """Estado de sesión sin 401 — evita ruido en consola del navegador."""
+    if not auth_mod.auth_enabled():
+        return {
+            "ok": True,
+            "auth_enabled": False,
+            "authenticated": True,
+            "role": auth_mod.ROLE_ADMIN,
+            "can_access": True,
+        }
+    token = auth_mod.extract_token(request)
+    role = auth_mod.session_role(token)
+    is_admin = role == auth_mod.ROLE_ADMIN
+    return {
+        "ok": True,
+        "auth_enabled": True,
+        "authenticated": bool(role),
+        "role": role if is_admin else None,
+        "can_access": is_admin,
+    }

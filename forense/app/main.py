@@ -9,13 +9,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
-from .auth_bridge import login_pin, require_forense_admin
+from .auth_bridge import auth_status_payload, login_pin, require_forense_admin
 from .config import (
     BUILD,
     DEFAULT_MAX_MACHINERY_KMH,
     DEFAULT_MAX_PERSON_KMH,
     DEFAULT_MIN_DISTANCE_M,
     MAX_UPLOAD_MB,
+    ROOT,
     WEB_DIR,
     ensure_dirs,
 )
@@ -93,11 +94,19 @@ def auth_login(body: LoginBody, request: Request, response: Response) -> dict:
     return login_pin(request, response, body.pin)
 
 
+@app.get("/api/forense/auth/status")
+def auth_status(request: Request) -> dict:
+    _require_license()
+    return auth_status_payload(request)
+
+
 @app.get("/api/forense/auth/me")
 def auth_me(request: Request) -> dict:
     _require_license()
-    role = require_forense_admin(request)
-    return {"ok": True, "role": role}
+    payload = auth_status_payload(request)
+    if not payload.get("can_access"):
+        raise HTTPException(401, "No autorizado. Ingresá con PIN administrador.")
+    return {"ok": True, "role": payload.get("role")}
 
 
 @app.get("/api/forense/templates")
@@ -340,3 +349,16 @@ def forense_css() -> FileResponse:
 @app.get("/forense.js")
 def forense_js() -> FileResponse:
     return FileResponse(WEB_DIR / "forense.js", media_type="application/javascript")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon() -> FileResponse:
+    for candidate in (
+        ROOT / "frontend" / "assets" / "favicon.png",
+        ROOT / "frontend" / "favicon.ico",
+        WEB_DIR / "favicon.ico",
+    ):
+        if candidate.is_file():
+            media = "image/png" if candidate.suffix == ".png" else "image/x-icon"
+            return FileResponse(candidate, media_type=media)
+    raise HTTPException(404, "favicon no encontrado")

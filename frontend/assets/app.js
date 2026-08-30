@@ -49,7 +49,7 @@ const api = createApi({
 });
 
 const enterprise = createEnterpriseController(api);
-const { refreshSitesUi, refreshEhsUi, refreshEhsIncidents, bindEnterpriseEvents } = enterprise;
+const { refreshSitesUi, refreshEhsUi, refreshEhsIncidents, refreshForenseLink, bindEnterpriseEvents } = enterprise;
 
 function bindAuthController(onOperatorLogin) {
   const ctrl = createAuthController({ onOperatorLogin });
@@ -257,6 +257,7 @@ modes = createAppModesController({
         refreshSitesUi();
         refreshEhsUi();
         refreshEhsIncidents();
+        refreshForenseLink();
       }
       if (id === "zones") {
         bindZonesCanvasEvents();

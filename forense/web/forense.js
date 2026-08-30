@@ -8,7 +8,10 @@ const TEMPLATE_DEFAULTS = {
 };
 
 async function api(path, opts = {}) {
-  const res = await fetch(`${API}${path}`, { credentials: "include", ...opts });
+  const token = sessionStorage.getItem("forense.token");
+  const headers = { ...(opts.headers || {}) };
+  if (token) headers["X-VigiEPP-Key"] = token;
+  const res = await fetch(`${API}${path}`, { credentials: "include", ...opts, headers });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.detail || err.message || res.statusText);
@@ -16,6 +19,18 @@ async function api(path, opts = {}) {
   const ct = res.headers.get("content-type") || "";
   if (ct.includes("application/json")) return res.json();
   return res.text();
+}
+
+function captureBridgeToken() {
+  const params = new URLSearchParams(window.location.search);
+  const key = params.get("key");
+  if (key) {
+    sessionStorage.setItem("forense.token", key);
+    params.delete("key");
+    const qs = params.toString();
+    const clean = `${window.location.pathname}${qs ? `?${qs}` : ""}`;
+    window.history.replaceState({}, "", clean);
+  }
 }
 
 const $ = (s) => document.querySelector(s);
@@ -69,15 +84,19 @@ async function checkSession() {
     $("#licenseLine").textContent = h.license?.valid
       ? `Licencia activa · ${h.build}`
       : `Sin licencia: ${h.license?.detail || "—"}`;
-    await api("/api/forense/auth/me");
-    authGate.classList.add("hidden");
-    app.classList.remove("hidden");
-    await loadTemplates();
-    await refreshJobs();
+    const st = await fetch("/api/forense/auth/status", { credentials: "include", headers: sessionStorage.getItem("forense.token") ? { "X-VigiEPP-Key": sessionStorage.getItem("forense.token") } : {} }).then((r) => r.json());
+    if (st.can_access) {
+      authGate.classList.add("hidden");
+      app.classList.remove("hidden");
+      await loadTemplates();
+      await refreshJobs();
+      return;
+    }
   } catch {
-    authGate.classList.remove("hidden");
-    app.classList.add("hidden");
+    /* mostrar gate */
   }
+  authGate.classList.remove("hidden");
+  app.classList.add("hidden");
 }
 
 $("#authForm")?.addEventListener("submit", async (e) => {
@@ -85,11 +104,12 @@ $("#authForm")?.addEventListener("submit", async (e) => {
   const pin = $("#authPin").value;
   $("#authHint").textContent = "";
   try {
-    await api("/api/forense/auth/login", {
+    const res = await api("/api/forense/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ pin }),
     });
+    if (res.token) sessionStorage.setItem("forense.token", res.token);
     await checkSession();
   } catch (err) {
     $("#authHint").textContent = err.message;
@@ -370,4 +390,5 @@ $("#uploadForm")?.addEventListener("submit", async (e) => {
   }
 });
 
+captureBridgeToken();
 checkSession();
