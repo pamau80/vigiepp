@@ -6,7 +6,7 @@ import csv
 import io
 import json
 from collections import Counter, defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +26,7 @@ def _parse_ts(ts: str | None) -> datetime | None:
     if not ts:
         return None
     try:
-        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        return datetime.fromisoformat(ts)
     except ValueError:
         return None
 
@@ -75,7 +75,7 @@ def filter_scans(
 ) -> list[dict[str, Any]]:
     cutoff = None
     if days is not None and days > 0:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        cutoff = datetime.now(UTC) - timedelta(days=days)
     out = []
     for s in scans:
         ts = _parse_ts(s.get("ts"))
@@ -177,7 +177,7 @@ def compute_stats(days: int = 30, profile: str | None = None) -> dict[str, Any]:
         "ok": True,
         "range_days": days,
         "profile": profile,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "totals": {
             "scans": total,
             "compliant": ok,

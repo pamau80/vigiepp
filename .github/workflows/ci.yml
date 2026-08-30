@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "cursor/**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r backend/requirements.txt
+          pip install pytest httpx ruff bandit
+
+      - name: Ruff
+        run: ruff check backend/app tests --ignore E501
+
+      - name: Bandit
+        run: bandit -q -r backend/app -x tests -lll
+
+      - name: Install Node (ESLint frontend)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: ESLint frontend
+        run: |
+          npm ci
+          npm run lint
+
+      - name: Run pytest
+        run: pytest tests/ -v --tb=short --ignore=tests/e2e
+        env:
+          VIGIEPP_COMBINED_INFERENCE: "0"
+
+  browser-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install dependencies
+        run: |
+          pip install -r backend/requirements.txt
+          pip install pytest pytest-playwright
+          playwright install --with-deps chromium
+
+      - name: Browser E2E (Playwright)
+        run: |
+          pytest tests/e2e/test_browser_core.py::test_browser_login_and_build \
+            tests/e2e/test_browser_core.py::test_browser_navigate_personas_tab \
+            tests/e2e/test_browser_identity.py \
+            tests/e2e/test_browser_operator.py \
+            -v --tb=short
+          pytest tests/e2e/test_browser_core.py::test_browser_enroll_photos_in_ui -v --tb=short
+        env:
+          VIGIEPP_COMBINED_INFERENCE: "0"

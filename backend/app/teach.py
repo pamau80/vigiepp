@@ -4,18 +4,17 @@ from __future__ import annotations
 
 import json
 import logging
-import shutil
 import subprocess
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import cv2
 import numpy as np
 
-from .paths import custom_weights_path, teach_dataset_dir, teach_runs_dir
+from .paths import teach_dataset_dir, teach_runs_dir
 
 logger = logging.getLogger("vigiepp.teach")
 
@@ -26,16 +25,47 @@ RUNS_DIR = teach_runs_dir()
 
 # Clases base + el cliente puede agregar prendas propias (meta.custom_classes)
 TEACHABLE_CLASSES: list[dict[str, str]] = [
-    {"id": "casco", "name": "Casco de seguridad", "hint": "Frente, lateral y con distintos colores"},
-    {"id": "lentes", "name": "Lentes / gafas de seguridad", "hint": "Cerca del rostro, varios ángulos"},
-    {"id": "chaleco_fluor", "name": "Chaleco / ropa flúor", "hint": "Alta visibilidad, de día y sombra"},
+    {
+        "id": "casco",
+        "name": "Casco de seguridad",
+        "hint": "Entrená TU casco: color, tipo y logo (30–80 fotos: blanco, naranja, azul, lateral y frente)",
+    },
+    {
+        "id": "lentes",
+        "name": "Lentes / gafas de seguridad",
+        "hint": "Entrená TU tipo: claros, oscuros, sellados — varios ángulos cerca del rostro",
+    },
+    {
+        "id": "chaleco_fluor",
+        "name": "Chaleco / ropa flúor",
+        "hint": "Entrená TU ropa de faena: color reflectante, franjas y uniforme de la empresa",
+    },
     {"id": "polera", "name": "Polera corporativa", "hint": "Color y logo de la empresa"},
     {"id": "casaca", "name": "Casaca / chaqueta de faena", "hint": "Torso completo, abiertas y cerradas"},
     {"id": "pantalon_azul_franja", "name": "Pantalón azul con franja flúor", "hint": "Cuerpo completo / medio cuerpo"},
     {"id": "pantalon_trabajo", "name": "Pantalón de trabajo", "hint": "Cualquier pantalón de uniforme"},
     {"id": "zapatos_seguridad", "name": "Zapatos de seguridad", "hint": "Cámara baja o acceso/torniquete"},
     {"id": "botas", "name": "Botas de seguridad", "hint": "Pie completo, distintos suelos"},
-    {"id": "guantes", "name": "Guantes de seguridad", "hint": "Manos visibles, varios colores"},
+    {
+        "id": "guantes",
+        "name": "Guantes de seguridad",
+        "hint": "Entrená TU guante: nitrilo azul, cabritilla, anticorte — manos visibles en portería",
+    },
+    {
+        "id": "montacargas",
+        "name": "Montacargas / grúa horquilla",
+        "hint": "Fotos desde cámara en altura: distintos ángulos, cargas, operación en patio/bodega",
+    },
+    {
+        "id": "celular",
+        "name": "Celular / teléfono en mano",
+        "hint": "Manos con teléfono en faena — varios ángulos para regla «celular en zona»",
+    },
+    {
+        "id": "carga_suspendida",
+        "name": "Carga suspendida / gancho",
+        "hint": "Grúa con carga en el aire, palet suspendido — vista desde NVR en altura",
+    },
     {"id": "arnes", "name": "Arnés anticaídas", "hint": "Torso con correas visibles"},
     {"id": "mascarilla", "name": "Mascarilla / respirador", "hint": "Rostro con EPP respiratorio"},
     {"id": "orejeras", "name": "Orejeras / protección auditiva", "hint": "Cabeza lateral"},
@@ -70,6 +100,11 @@ class TeachStore:
                 cls._instance = cls()
             return cls._instance
 
+    @classmethod
+    def reset_for_site(cls) -> None:
+        with cls._lock:
+            cls._instance = None
+
     def _load_meta(self) -> dict[str, Any]:
         if META_FILE.exists():
             raw = json.loads(META_FILE.read_text(encoding="utf-8"))
@@ -80,7 +115,7 @@ class TeachStore:
             "classes": [c["id"] for c in TEACHABLE_CLASSES],
             "custom_classes": [],
             "samples": {},
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
         }
         self._write_meta(meta)
         return meta

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
 
@@ -29,7 +29,7 @@ def _load() -> dict[str, Any]:
 
 
 def _save(payload: dict[str, Any]) -> None:
-    payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+    payload["updated_at"] = datetime.now(UTC).isoformat()
     CAMERAS_FILE.parent.mkdir(parents=True, exist_ok=True)
     CAMERAS_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     try:
@@ -40,14 +40,11 @@ def _save(payload: dict[str, Any]) -> None:
         pass
 
 
+from .rtsp_security import validate_rtsp_url as _validate_rtsp
+
+
 def validate_rtsp(url: str) -> str:
-    u = (url or "").strip()
-    parsed = urlparse(u)
-    if parsed.scheme not in ("rtsp", "rtsps"):
-        raise ValueError("Solo rtsp:// o rtsps://")
-    if not parsed.hostname:
-        raise ValueError("URL sin host")
-    return u
+    return _validate_rtsp(url)
 
 
 def list_cameras() -> list[dict[str, Any]]:

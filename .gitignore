@@ -6,6 +6,7 @@ __pycache__/
 venv/
 .env
 .env.*
+!.env.example
 
 # Local runtime data / biometrics (keep structure, ignore contents)
 backend/data/faces/
@@ -15,6 +16,18 @@ backend/data/notifications.json
 backend/data/notification_log.jsonl
 backend/data/zones.json
 backend/data/evidence/
+
+# Runtime secrets / sessions (edge local)
+backend/data/.secrets_key
+backend/data/sessions.json
+backend/data/users.json
+backend/data/audit.jsonl
+backend/data/privacy.json
+backend/data/sites.json
+backend/data/sites/
+backend/data/nvr_devices.json
+backend/data/ehs_connectors.json
+backend/data/datasets/
 backend/datasets/
 backend/runs/
 
@@ -43,3 +56,13 @@ frontend/frontend/
 
 .admin-pin.local.txt
 
+# E2E browser runtime (generado en tests)
+tests/e2e/_runtime_data/
+tests/e2e/_runtime_debug*/
+tests/e2e/_debug_data*/
+tests/fixtures/lena.y4m
+tests/fixtures/lena.mjpeg
+tests/fixtures/lena.jpg
+node_modules/
+
+tests/e2e/_runtime_api_test/

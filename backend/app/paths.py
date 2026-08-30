@@ -8,13 +8,23 @@ from pathlib import Path
 _BUNDLE_DATA = Path(__file__).resolve().parents[1] / "data"
 
 
-def data_dir() -> Path:
-    """Datos mutables (workers, faces, zones, scans, notifs, teach)."""
+def _bundle_data_root() -> Path:
     raw = os.getenv("VIGIEPP_DATA_DIR", "").strip()
     path = Path(raw) if raw else _BUNDLE_DATA
     path.mkdir(parents=True, exist_ok=True)
-    (path / "faces").mkdir(parents=True, exist_ok=True)
     return path
+
+
+def data_dir() -> Path:
+    """Datos mutables del sitio activo (multi-faena)."""
+    try:
+        from .tenants import get_active_site_id, site_data_dir
+
+        return site_data_dir(get_active_site_id())
+    except Exception:  # noqa: BLE001
+        path = _bundle_data_root()
+        (path / "faces").mkdir(parents=True, exist_ok=True)
+        return path
 
 
 def face_models_dir() -> Path:

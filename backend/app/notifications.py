@@ -9,13 +9,14 @@ import ssl
 import threading
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.message import EmailMessage
-from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+from . import access_gate as gate_mod
 from . import hardware_alarm as hw_mod
+from . import whatsapp_cloud as wa_mod
 from .paths import data_dir
 
 DATA_DIR = data_dir()
@@ -35,11 +36,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "require_identity": True,
         "notify": True,
         "hardware": dict(hw_mod.DEFAULT_HARDWARE),
+        "gate": dict(gate_mod.DEFAULT_GATE),
     },
     "channels": {
         "webhook": {"enabled": False, "url": ""},
         "email": {"enabled": False, "to": "", "cc": ""},
         "whatsapp_webhook": {"enabled": False, "url": ""},
+        "whatsapp_cloud": {"enabled": False, "phone_number_id": "", "to": ""},
     },
     "template": {
         "subject": "Alerta VigiEPP — incumplimiento EPP",
@@ -62,6 +65,11 @@ def _ensure() -> None:
         )
 
 
+def refresh_paths() -> None:
+    """Rebind paths tras cambio de sitio activo."""
+    _ensure()
+
+
 def get_config() -> dict[str, Any]:
     _ensure()
     with _lock:
@@ -72,12 +80,17 @@ def get_config() -> dict[str, Any]:
         cfg.setdefault("access_control", {})
         ac_raw = raw["access_control"]
         hw_raw = ac_raw.get("hardware") if isinstance(ac_raw.get("hardware"), dict) else {}
-        cfg["access_control"].update({k: v for k, v in ac_raw.items() if k != "hardware"})
+        gate_raw = ac_raw.get("gate") if isinstance(ac_raw.get("gate"), dict) else ac_raw
+        cfg["access_control"].update({k: v for k, v in ac_raw.items() if k not in ("hardware", "gate")})
         cfg["access_control"]["hardware"] = hw_mod.merge_hardware(hw_raw)
+        cfg["access_control"]["gate"] = gate_mod.merge_gate(gate_raw)
     else:
         cfg.setdefault("access_control", {})
         cfg["access_control"]["hardware"] = hw_mod.merge_hardware(
             (cfg.get("access_control") or {}).get("hardware")
+        )
+        cfg["access_control"]["gate"] = gate_mod.merge_gate(
+            (cfg.get("access_control") or {}).get("gate")
         )
     if isinstance(raw.get("channels"), dict):
         for k, v in raw["channels"].items():
@@ -107,7 +120,10 @@ def save_config(patch: dict[str, Any]) -> dict[str, Any]:
         cfg.setdefault("access_control", {})
         ac_patch = patch["access_control"]
         hw_patch = ac_patch.get("hardware") if isinstance(ac_patch.get("hardware"), dict) else None
-        cfg["access_control"].update({k: v for k, v in ac_patch.items() if k != "hardware"})
+        gate_patch = ac_patch.get("gate") if isinstance(ac_patch.get("gate"), dict) else None
+        cfg["access_control"].update(
+            {k: v for k, v in ac_patch.items() if k not in ("hardware", "gate")}
+        )
         if hw_patch is not None:
             current_hw = hw_mod.merge_hardware(cfg["access_control"].get("hardware"))
             current_hw.update(hw_patch)
@@ -120,6 +136,14 @@ def save_config(patch: dict[str, Any]) -> dict[str, Any]:
             else:
                 current_hw["base_url"] = ""
             cfg["access_control"]["hardware"] = current_hw
+        if gate_patch is not None:
+            merged = gate_mod.merge_gate(cfg["access_control"].get("gate"))
+            for k, v in gate_patch.items():
+                if k in ("esp32", "modbus", "http_dual", "wiegand") and isinstance(v, dict):
+                    merged[k].update(v)
+                elif k in merged:
+                    merged[k] = v
+            cfg["access_control"]["gate"] = gate_mod.merge_gate(merged)
     if isinstance(patch.get("channels"), dict):
         for name, ch in patch["channels"].items():
             cfg["channels"].setdefault(name, {})
@@ -169,7 +193,7 @@ def _format_message(cfg: dict[str, Any], payload: dict[str, Any]) -> tuple[str, 
         "profile": payload.get("profile") or "—",
         "summary": payload.get("summary") or "—",
         "missing": ", ".join(payload.get("missing") or []) or "—",
-        "ts": payload.get("ts") or datetime.now(timezone.utc).isoformat(),
+        "ts": payload.get("ts") or datetime.now(UTC).isoformat(),
     }
     subject = str(tpl.get("subject") or "Alerta VigiEPP").format(**ctx)
     body = str(tpl.get("body") or "{summary}").format(**ctx)
@@ -177,6 +201,11 @@ def _format_message(cfg: dict[str, Any], payload: dict[str, Any]) -> tuple[str, 
 
 
 def _post_json(url: str, data: dict[str, Any], timeout: float = 8.0) -> tuple[bool, str]:
+    from .security_urls import validate_outbound_url
+
+    ok_u, why = validate_outbound_url(url, allow_public=True)
+    if not ok_u:
+        return False, why
     if not url or not url.startswith(("http://", "https://")):
         return False, "URL inválida"
     req = urllib.request.Request(
@@ -272,9 +301,8 @@ def _append_log(entry: dict[str, Any]) -> None:
     DATA_DIR = data_dir()
     LOG_FILE = DATA_DIR / "notification_log.jsonl"
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with _lock:
-        with LOG_FILE.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    with _lock, LOG_FILE.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 def recent_log(limit: int = 30) -> list[dict[str, Any]]:
@@ -315,7 +343,7 @@ def send_notification(
     if not force and not cfg.get("enabled"):
         return {"ok": False, "skipped": True, "reason": "notificaciones desactivadas"}
 
-    now = datetime.now(timezone.utc).timestamp()
+    now = datetime.now(UTC).timestamp()
     cooldown = float(cfg.get("cooldown_seconds") or 0)
     key = _cooldown_key(kind, payload)
     if not force and cooldown > 0:
@@ -351,6 +379,20 @@ def send_notification(
             {"message": body, "subject": subject, "source": "VigiEPP", "payload": payload},
         )
         results.append({"channel": "whatsapp_webhook", "ok": ok, "detail": detail})
+
+    wa_cloud = channels.get("whatsapp_cloud") or {}
+    if wa_cloud.get("enabled") and wa_cloud.get("to"):
+        recipients = [x.strip() for x in str(wa_cloud.get("to") or "").replace(";", ",").split(",") if x.strip()]
+        wa_results = wa_mod.send_to_recipients(recipients, subject, body, cfg=wa_cloud)
+        for wr in wa_results:
+            results.append(
+                {
+                    "channel": "whatsapp_cloud",
+                    "ok": wr.get("ok"),
+                    "detail": wr.get("detail"),
+                    "to": wr.get("to"),
+                }
+            )
 
     email = channels.get("email") or {}
     mailto = None
@@ -390,7 +432,7 @@ def send_notification(
                     _last_sent_keys.pop(k, None)
 
     entry = {
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": datetime.now(UTC).isoformat(),
         "kind": kind,
         "ok": any_ok,
         "subject": subject,
@@ -429,7 +471,7 @@ def maybe_notify_scan(identity: dict[str, Any] | None, compliance: dict[str, Any
             "profile": profile,
             "summary": compliance.get("summary"),
             "missing": missing,
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
             "compliant": False,
         },
         force=False,
@@ -453,7 +495,7 @@ def maybe_notify_unknown(identity: dict[str, Any] | None, profile: str) -> None:
             "profile": profile,
             "summary": "Rostro detectado sin identidad enrolada / activa",
             "missing": ["identidad"],
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
             "compliant": False,
             "faces_detected": (identity or {}).get("faces_detected"),
             "score": (identity or {}).get("score"),
@@ -487,7 +529,7 @@ def maybe_notify_zones(
             "summary": summary,
             "missing": ["zona"],
             "zone": summary,
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
             "compliant": False,
         },
         force=True,
@@ -502,16 +544,16 @@ def maybe_access_gate(
 ) -> dict[str, Any] | None:
     cfg = get_config()
     access = cfg.get("access_control") or {}
-    hw = access.get("hardware") or {}
-    hardware_result = hw_mod.sync_from_scan(
+    gate_cfg = access.get("gate") or access
+    gate_result = gate_mod.sync_from_scan(
         identity,
         compliance,
-        hardware=hw,
+        gate=gate_cfg,
         access_enabled=bool(access.get("enabled")),
         require_identity=bool(access.get("require_identity", True)),
     )
 
-    if not access.get("enabled") and hardware_result is None:
+    if not access.get("enabled") and gate_result is None:
         return None
 
     known = bool((identity or {}).get("known") and (identity or {}).get("id"))
@@ -521,21 +563,20 @@ def maybe_access_gate(
         allow = False
 
     if not access.get("enabled"):
-        # Solo hardware (alarma visual/sonora) sin gate de torniquete
-        if hardware_result is None:
+        if gate_result is None:
             return None
         return {
             "allow": ok_epp,
-            "action": "hardware_ok" if hardware_result.get("action") == "ok" else "hardware_alarma",
+            "action": gate_result.get("gate_action") or gate_result.get("action"),
             "name": (identity or {}).get("name"),
             "rut": (identity or {}).get("rut"),
             "worker_id": (identity or {}).get("id"),
             "profile": profile,
-            "summary": "Hardware sincronizado",
+            "summary": "Control de acceso sincronizado",
             "missing": [],
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
             "compliant": ok_epp,
-            "hardware": hardware_result,
+            "gate": gate_result,
         }
 
     payload = {
@@ -555,9 +596,9 @@ def maybe_access_gate(
                 for m in (p.get("missing") or [])
             ])
         ),
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": datetime.now(UTC).isoformat(),
         "compliant": ok_epp,
-        "hardware": hardware_result,
+        "gate": gate_result,
     }
     if cfg.get("enabled") and access.get("notify", True):
         send_notification(payload, force=True, kind="access_allow" if allow else "access_deny")
@@ -566,17 +607,7 @@ def maybe_access_gate(
 
 def test_hardware(action: str = "alarma") -> dict[str, Any]:
     cfg = get_config()
-    hw = hw_mod.merge_hardware((cfg.get("access_control") or {}).get("hardware"))
-    if not hw.get("base_url"):
-        return {"ok": False, "detail": "Configurá la URL base del ESP32 (ej. http://192.168.1.50)"}
-    act = "ok" if str(action).lower().strip() in ("ok", "verde", "allow") else "alarma"
-    return hw_mod.trigger(
-        act,  # type: ignore[arg-type]
-        base_url=str(hw["base_url"]),
-        alarma_path=str(hw.get("alarma_path") or "/alarma"),
-        ok_path=str(hw.get("ok_path") or "/ok"),
-        method=str(hw.get("method") or "GET"),
-        timeout_seconds=float(hw.get("timeout_seconds") or 4),
-        cooldown_seconds=0,
-        reason="manual_test",
-    )
+    access = cfg.get("access_control") or {}
+    gate_cfg = gate_mod.merge_gate(access.get("gate") or access)
+    act = "allow" if str(action).lower().strip() in ("ok", "verde", "allow", "open") else "deny"
+    return gate_mod.test_driver(gate_cfg, act)  # type: ignore[arg-type]

@@ -4,27 +4,42 @@ from __future__ import annotations
 
 import json
 import threading
-from datetime import datetime, timezone
+from contextvars import ContextVar
+from datetime import UTC, datetime
 from typing import Any
 
 from .paths import data_dir
 
 _lock = threading.Lock()
-AUDIT_FILE = data_dir() / "audit.jsonl"
+_audit_actor: ContextVar[str] = ContextVar("audit_actor", default="system")
 
 
-def log(action: str, *, actor: str = "admin", detail: str = "", extra: dict[str, Any] | None = None) -> None:
+def set_actor(actor: str) -> None:
+    _audit_actor.set((actor or "system")[:64])
+
+
+def current_actor() -> str:
+    return _audit_actor.get()
+
+
+def _audit_file() -> Any:
+    return data_dir() / "audit.jsonl"
+
+
+def log(action: str, *, actor: str | None = None, detail: str = "", extra: dict[str, Any] | None = None) -> None:
+    who = (actor or current_actor() or "system")[:64]
     row = {
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": datetime.now(UTC).isoformat(),
         "action": action,
-        "actor": actor,
+        "actor": who,
         "detail": (detail or "")[:400],
         **(extra or {}),
     }
     line = json.dumps(row, ensure_ascii=False) + "\n"
+    path = _audit_file()
     with _lock:
-        AUDIT_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with AUDIT_FILE.open("a", encoding="utf-8") as fh:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
             fh.write(line)
     try:
         from . import cloud_persist as cloud_mod
@@ -35,11 +50,12 @@ def log(action: str, *, actor: str = "admin", detail: str = "", extra: dict[str,
 
 
 def recent(limit: int = 80) -> list[dict[str, Any]]:
-    if not AUDIT_FILE.exists():
+    path = _audit_file()
+    if not path.exists():
         return []
     n = max(1, min(500, int(limit or 80)))
     with _lock:
-        lines = AUDIT_FILE.read_text(encoding="utf-8").splitlines()
+        lines = path.read_text(encoding="utf-8").splitlines()
     out: list[dict[str, Any]] = []
     for line in lines[-n:]:
         try:
@@ -50,3 +66,23 @@ def recent(limit: int = 80) -> list[dict[str, Any]]:
             continue
     out.reverse()
     return out
+
+
+def export_csv(limit: int = 500) -> str:
+    import csv
+    import io
+
+    rows = recent(limit=limit)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["ts", "action", "actor", "detail"])
+    for row in rows:
+        writer.writerow(
+            [
+                row.get("ts") or "",
+                row.get("action") or "",
+                row.get("actor") or "",
+                row.get("detail") or "",
+            ]
+        )
+    return buf.getvalue()

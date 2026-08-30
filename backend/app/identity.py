@@ -9,9 +9,9 @@ import threading
 import time
 import uuid
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import cv2
 import numpy as np
@@ -302,7 +302,7 @@ class IdentityRegistry:
             self._recognizer = cv2.FaceRecognizerSF_create(str(SFACE_PATH), "")
             self._backend = "sface"
             logger.info("Identidad facial: YuNet + SFace listos")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.exception("No se pudo cargar YuNet/SFace: %s", exc)
             self._backend = "none"
 
@@ -337,6 +337,12 @@ class IdentityRegistry:
             return None
         return inst
 
+    @classmethod
+    def reset_for_site(cls) -> None:
+        with cls._lock:
+            cls._instance = None
+            cls._load_started = False
+
     def _load(self) -> None:
         if not WORKERS_FILE.exists():
             return
@@ -346,20 +352,20 @@ class IdentityRegistry:
                 w = worker_from_dict(item)
                 if w.id:
                     self._workers[w.id] = w
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.exception("Worker inválido en workers.json: %s", item)
 
     def _save(self) -> None:
         payload = {
             "workers": [asdict(w) for w in self._workers.values()],
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
         }
         WORKERS_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         try:
             from . import cloud_persist as cloud_mod
 
             cloud_mod.schedule_push()
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.debug("cloud_persist schedule omitido", exc_info=True)
 
     def _migrate_embeddings(self) -> None:
@@ -417,7 +423,7 @@ class IdentityRegistry:
         if changed:
             self._save()
 
-    def extract_feature_from_image(self, frame_bgr: np.ndarray) -> Optional[np.ndarray]:
+    def extract_feature_from_image(self, frame_bgr: np.ndarray) -> np.ndarray | None:
         faces = self.detect_faces(frame_bgr)
         if not faces:
             return None
@@ -452,7 +458,7 @@ class IdentityRegistry:
             out.append(f2)
         return out
 
-    def feature_from_face(self, frame_bgr: np.ndarray, face_row: np.ndarray) -> Optional[np.ndarray]:
+    def feature_from_face(self, frame_bgr: np.ndarray, face_row: np.ndarray) -> np.ndarray | None:
         if self._recognizer is None:
             return None
         try:
@@ -485,7 +491,7 @@ class IdentityRegistry:
         w = self._workers.get(worker_id)
         if not w:
             return
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         now_iso = now.isoformat()
         prev = w.last_seen or ""
         w.last_seen = now_iso
@@ -493,9 +499,9 @@ class IdentityRegistry:
         should_save = True
         if prev:
             try:
-                older = datetime.fromisoformat(prev.replace("Z", "+00:00"))
+                older = datetime.fromisoformat(prev)
                 if older.tzinfo is None:
-                    older = older.replace(tzinfo=timezone.utc)
+                    older = older.replace(tzinfo=UTC)
                 should_save = (now - older).total_seconds() > 45
             except Exception:  # noqa: BLE001
                 should_save = True
@@ -548,7 +554,7 @@ def validate_rut(rut: str) -> bool:
         return False
 
 
-def extract_rut_from_text(text: str) -> Optional[str]:
+def extract_rut_from_text(text: str) -> str | None:
     if not text:
         return None
     for match in RUT_RE.finditer(text):
@@ -738,7 +744,7 @@ class IdentityService:
         worker.face_samples = idx
         worker.quality = compute_quality(idx)
         if consent or not worker.consent_at:
-            worker.consent_at = datetime.now(timezone.utc).isoformat()
+            worker.consent_at = datetime.now(UTC).isoformat()
             worker.consent_version = CONSENT_VERSION
         self.registry._embeddings.setdefault(worker.id, []).append(feat)
         self.registry._enroll_lm[worker.id] = _landmarks(face_row)
@@ -779,7 +785,7 @@ class IdentityService:
             id=uuid.uuid4().hex[:10],
             name=name,
             rut=rut,
-            enrolled_at=datetime.now(timezone.utc).isoformat(),
+            enrolled_at=datetime.now(UTC).isoformat(),
             face_samples=0,
             source=source,
             notes=notes,
@@ -789,6 +795,9 @@ class IdentityService:
         return worker
 
     def identify(self, frame_bgr: np.ndarray, threshold: float = DEFAULT_THRESHOLD) -> dict[str, Any]:
+        from .privacy import qr_only_enabled
+
+        qr_only = qr_only_enabled()
         qr = self.read_qr(frame_bgr)
         by_qr = None
         if qr.get("rut"):
@@ -809,7 +818,17 @@ class IdentityService:
             cv2.polylines(annotated, [pts], True, (0, 180, 255), 2)
 
         gallery_n = sum(len(e) for e in self.registry._embeddings.values())
-        faces = self.registry.detect_faces(frame_bgr)
+        faces = [] if qr_only else self.registry.detect_faces(frame_bgr)
+        if qr_only and not qr.get("rut"):
+            cv2.putText(
+                annotated,
+                "Modo QR-only — escanea cédula",
+                (20, 40),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.75,
+                (50, 50, 220),
+                2,
+            )
         if not faces and self.registry._backend != "sface":
             cv2.putText(
                 annotated,

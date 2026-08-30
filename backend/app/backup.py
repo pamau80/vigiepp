@@ -8,7 +8,7 @@ import logging
 import shutil
 import tempfile
 import zipfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -45,7 +45,7 @@ def build_backup_zip() -> bytes:
         "product": "VigiEPP",
         "kind": "site-backup",
         "version": 2,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "includes": ["workers.json", "faces/", *SITE_FILES],
     }
     with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -125,8 +125,8 @@ def restore_backup_zip(data: bytes, *, mode: str = "merge") -> dict[str, Any]:
             dest_faces.mkdir(parents=True, exist_ok=True)
             payload = {
                 "workers": incoming,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-                "restored_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(UTC).isoformat(),
+                "restored_at": datetime.now(UTC).isoformat(),
             }
             dest_workers.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
             if faces_src.exists():
@@ -177,8 +177,8 @@ def restore_backup_zip(data: bytes, *, mode: str = "merge") -> dict[str, Any]:
 
         payload = {
             "workers": list(by_id.values()),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-            "restored_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
+            "restored_at": datetime.now(UTC).isoformat(),
         }
         dest_workers.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         return {

@@ -6,10 +6,10 @@ from dataclasses import dataclass, field
 
 from .profiles import IndustryProfile, get_profile
 
-
 # Mapeo: clase del modelo → categoría interna
 CLASS_TO_CATEGORY: dict[str, str] = {
     "hardhat": "casco",
+    "Hardhat": "casco",
     "helmet": "casco",
     "Helmet": "casco",
     "casco": "casco",
@@ -109,11 +109,70 @@ def _center_inside(inner: list[float], outer: list[float], pad: float = 0.15) ->
     return (ox1 - w * pad) <= cx <= (ox2 + w * pad) and (oy1 - h * pad) <= cy <= (oy2 + h * pad)
 
 
+def _category_for_label(label: str) -> str:
+    key = str(label or "").strip()
+    if not key:
+        return "unknown"
+    if key in CLASS_TO_CATEGORY:
+        return CLASS_TO_CATEGORY[key]
+    low = key.lower()
+    if low in CLASS_TO_CATEGORY:
+        return CLASS_TO_CATEGORY[low]
+    norm = low.replace("-", "_").replace(" ", "_")
+    for src, cat in CLASS_TO_CATEGORY.items():
+        if src.lower().replace("-", "_").replace(" ", "_") == norm:
+            return cat
+    return norm
+
+
+def _positive_ppe_family(category: str) -> str | None:
+    """Familia EPP del perfil (casco, chaleco, …) incl. clases entrenadas en faena."""
+    if category in POSITIVE_PPE:
+        return category
+    low = category.lower().replace("-", "_")
+    needles = (
+        ("casco", "casco"),
+        ("hardhat", "casco"),
+        ("helmet", "casco"),
+        ("chaleco", "chaleco"),
+        ("vest", "chaleco"),
+        ("fluor", "chaleco"),
+        ("uniforme", "chaleco"),
+        ("lente", "lentes"),
+        ("goggle", "lentes"),
+        ("guante", "guantes"),
+        ("glove", "guantes"),
+        ("arnes", "arnes"),
+        ("harness", "arnes"),
+    )
+    for needle, family in needles:
+        if needle in low:
+            return family
+    return None
+
+
+def _violation_missing_key(category: str) -> str | None:
+    if category in NEGATIVE_PPE:
+        return NEGATIVE_PPE[category]
+    low = category.lower().replace("-", "_")
+    if "sin_casco" in low or "no_hardhat" in low:
+        return "casco"
+    if "sin_chaleco" in low or "no_safety_vest" in low or "no_vest" in low:
+        return "chaleco"
+    if "sin_lente" in low or "no_goggle" in low:
+        return "lentes"
+    if "sin_guante" in low or "no_glove" in low:
+        return "guantes"
+    if "sin_arnes" in low or "no_harness" in low:
+        return "arnes"
+    return None
+
+
 def normalize_detections(raw: list[dict]) -> list[Detection]:
     out: list[Detection] = []
     for item in raw:
         label = str(item.get("label", ""))
-        category = CLASS_TO_CATEGORY.get(label, label.lower().replace(" ", "_"))
+        category = _category_for_label(label)
         out.append(
             Detection(
                 label=label,
@@ -166,10 +225,18 @@ def evaluate(
                 continue
             if item.category in POSITIVE_PPE:
                 present.add(item.category)
-            elif item.category in NEGATIVE_PPE:
+            else:
+                family = _positive_ppe_family(item.category)
+                if family:
+                    present.add(family)
+            if item.category in NEGATIVE_PPE:
                 missing_key = NEGATIVE_PPE[item.category]
                 violations.append(missing_key)
-            elif item.category == "caida":
+            else:
+                miss = _violation_missing_key(item.category)
+                if miss:
+                    violations.append(miss)
+            if item.category == "caida":
                 violations.append("caida")
 
         missing = [r for r in required if r not in present]

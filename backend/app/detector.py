@@ -20,7 +20,7 @@ LABEL_ES: dict[str, str] = {
     "hardhat": "Casco",
     "Helmet": "Casco",
     "casco": "Casco",
-    "Safety Vest": "Chaleco / alta visibilidad",
+    "Safety Vest": "Ropa completa / chaleco",
     "Vest": "Chaleco",
     "chaleco_fluor": "Chaleco / ropa flúor",
     "Goggles": "Lentes de seguridad",
@@ -161,7 +161,7 @@ class PPEDetector:
             self.model_name = "SafetyVision YOLOv8s (EPP)"
             self.ready = True
             logger.info("Modelo listo: %s (%s)", self.model_name, weights.name)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             self.error = str(exc)
             self.ready = False
             logger.exception("No se pudo cargar el modelo EPP: %s", exc)

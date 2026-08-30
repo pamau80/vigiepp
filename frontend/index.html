@@ -21,15 +21,15 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/styles.css?v=32" />
+  <link rel="stylesheet" href="/assets/styles.css?v=39" />
 </head>
 <body>
   <div id="authGate" class="auth-gate hidden" aria-modal="true" role="dialog">
     <form id="authForm" class="auth-card">
       <p class="brand-name">VigiEPP</p>
-        <p class="card-meta">Ingresá PIN admin o PIN de portería (operador).</p>
+      <p class="card-meta">Ingresá tu PIN de acceso (administrador o portería).</p>
       <label class="field">
-        <span>PIN administrador</span>
+        <span>PIN</span>
         <input type="password" id="authPin" autocomplete="current-password" required />
       </label>
       <button type="submit" class="btn primary" id="authSubmit">Entrar</button>
@@ -37,29 +37,54 @@
     </form>
   </div>
   <div id="persistBanner" class="persist-banner hidden" role="status"></div>
+  <div id="dayZeroWizard" class="day-zero-wizard hidden" aria-modal="true" role="dialog" aria-labelledby="dayZeroTitle">
+    <div class="day-zero-card">
+      <header class="day-zero-head">
+        <p class="day-zero-progress" id="dayZeroProgress">Paso 1 de 8</p>
+        <h2 class="day-zero-title" id="dayZeroTitle">Bienvenido · Día cero</h2>
+      </header>
+      <div class="day-zero-body" id="dayZeroBody"></div>
+      <footer class="day-zero-foot">
+        <button type="button" class="btn ghost hidden" id="btnDayZeroBack">Anterior</button>
+        <button type="button" class="btn ghost" id="btnDayZeroSkip">Configurar después</button>
+        <button type="button" class="btn primary" id="btnDayZeroNext">Siguiente</button>
+      </footer>
+    </div>
+  </div>
   <header class="topbar">
     <div class="brand">
       <div class="brand-mark" aria-hidden="true"></div>
       <div>
         <p class="brand-name">VigiEPP</p>
-        <p class="brand-tag">EPP + identidad · Chile</p>
+        <p class="brand-tag" id="brandTag">EPP + identidad · Chile</p>
       </div>
     </div>
-    <nav class="mode-nav" role="tablist" aria-label="Secciones">
-      <button class="mode-btn active" data-mode="monitor" type="button" title="Monitoreo">
-        <span class="mode-full">1 · Monitoreo</span><span class="mode-short" aria-hidden="true">1</span>
+    <span class="role-badge hidden" id="roleBadge" aria-live="polite"></span>
+    <button type="button" class="day-zero-banner hidden" id="dayZeroBanner">Configuración faena</button>
+    <nav class="mode-nav" role="tablist" aria-label="Módulos VigiEPP">
+      <button class="mode-btn active" data-mode="live" type="button" role="tab" aria-selected="true" aria-controls="liveWorkspace" title="Vigilancia en vivo">
+        <span class="mode-full">Vivo</span><span class="mode-short" aria-hidden="true">▶</span>
       </button>
-      <button class="mode-btn" data-mode="identity" type="button" title="Personas">
-        <span class="mode-full">2 · Personas</span><span class="mode-short" aria-hidden="true">2</span>
+      <button class="mode-btn" data-mode="mass" type="button" role="tab" aria-selected="false" aria-controls="massWorkspace" title="Vigilancia masiva NVR">
+        <span class="mode-full">Masivo</span><span class="mode-short" aria-hidden="true">⊞</span>
       </button>
-      <button class="mode-btn" data-mode="teach" type="button" title="Ropa / EPP">
-        <span class="mode-full">3 · Ropa / EPP</span><span class="mode-short" aria-hidden="true">3</span>
+      <button class="mode-btn" data-mode="devices" type="button" role="tab" aria-selected="false" aria-controls="devicesWorkspace" title="NVR / DVR / cámaras">
+        <span class="mode-full">Equipos</span><span class="mode-short" aria-hidden="true">⎔</span>
       </button>
-      <button class="mode-btn" data-mode="config" type="button" title="Config">
-        <span class="mode-full">4 · Config</span><span class="mode-short" aria-hidden="true">4</span>
+      <button class="mode-btn" data-mode="identity" type="button" role="tab" aria-selected="false" title="Personas">
+        <span class="mode-full">Personas</span><span class="mode-short" aria-hidden="true">👤</span>
       </button>
-      <button class="mode-btn" data-mode="reports" type="button" title="Informes">
-        <span class="mode-full">5 · Informes</span><span class="mode-short" aria-hidden="true">5</span>
+      <button class="mode-btn" data-mode="teach" type="button" role="tab" aria-selected="false" title="Ropa / EPP">
+        <span class="mode-full">EPP</span><span class="mode-short" aria-hidden="true">⛨</span>
+      </button>
+      <button class="mode-btn" data-mode="actions" type="button" role="tab" aria-selected="false" aria-controls="actionsDesk" title="Acciones inseguras">
+        <span class="mode-full">Acciones</span><span class="mode-short" aria-hidden="true">⚠</span>
+      </button>
+      <button class="mode-btn" data-mode="config" type="button" role="tab" aria-selected="false" aria-controls="configBlock" title="Configuración">
+        <span class="mode-full">Config</span><span class="mode-short" aria-hidden="true">⚙</span>
+      </button>
+      <button class="mode-btn" data-mode="reports" type="button" role="tab" aria-selected="false" aria-controls="reportsDesk" title="Informes">
+        <span class="mode-full">Informes</span><span class="mode-short" aria-hidden="true">📊</span>
       </button>
     </nav>
     <div class="top-status" id="modelStatus">
@@ -72,13 +97,13 @@
 
   <main class="layout">
     <section class="stage">
-      <div class="stage-toolbar" id="monitorToolbar">
+      <div class="stage-toolbar" id="monitorToolbar" data-workspace="live">
         <div class="source-group">
-          <span class="toolbar-label">Fuente</span>
-          <div class="tabs" role="tablist">
-            <button class="tab active" data-source="camera" type="button">Webcam</button>
-            <button class="tab" data-source="rtsp" type="button">IP / NVR</button>
-            <button class="tab" data-source="upload" type="button">Foto</button>
+          <span class="toolbar-label">Fuente en vivo</span>
+          <div class="tabs" role="tablist" aria-label="Fuente en vivo">
+            <button class="tab active" data-source="camera" type="button" role="tab" aria-selected="true">Webcam</button>
+            <button class="tab" data-source="rtsp" type="button" role="tab" aria-selected="false">Un canal IP</button>
+            <button class="tab" data-source="upload" type="button" role="tab" aria-selected="false">Foto</button>
           </div>
         </div>
         <label class="field inline profile-field">
@@ -87,6 +112,20 @@
         </label>
         <button type="button" class="btn secondary" id="btnKiosk">Modo portería</button>
       </div>
+
+      <div class="stage-toolbar hidden" id="massToolbar" data-workspace="mass">
+        <p class="toolbar-label">Vigilancia masiva · NVR/DVR / multi-cámara</p>
+        <label class="field inline profile-field">
+          <span>Perfil faena</span>
+          <select id="massProfileSelect"></select>
+        </label>
+        <button type="button" class="btn primary" id="btnMassStart">Iniciar barrido</button>
+        <button type="button" class="btn ghost" id="btnMassStop" disabled>Detener</button>
+        <button type="button" class="btn secondary" id="btnMassRefresh">Actualizar ahora</button>
+        <span class="hint" id="massStatusHint">Hasta 16 canales · Dahua · Hikvision · RTSP</span>
+      </div>
+
+      <div class="workspace-shell" id="liveWorkspace" data-workspace="live">
 
       <div id="kioskOverlay" class="kiosk-overlay hidden" aria-live="polite">
         <p class="kiosk-brand">VigiEPP</p>
@@ -203,6 +242,92 @@
           <input id="fileInput" type="file" accept="image/*" hidden />
         </label>
       </div>
+      </div><!-- liveWorkspace -->
+
+      <div class="workspace-shell hidden" id="massWorkspace" data-workspace="mass">
+        <div class="mass-summary" id="massSummary">
+          <span id="massSummaryText">Sin barrido activo</span>
+        </div>
+        <div class="mass-grid" id="massGrid" aria-label="Grid de vigilancia masiva">
+          <p class="muted mass-empty">Agregá canales en Equipos o importá un NVR Dahua/Hikvision.</p>
+        </div>
+      </div>
+
+      <div class="workspace-shell hidden" id="devicesWorkspace" data-workspace="devices">
+        <div class="devices-desk">
+          <section class="devices-panel">
+            <p class="card-kicker">Conectar NVR / DVR</p>
+            <p class="card-meta">Dahua · Hikvision · Uniview · URLs RTSP por canal.</p>
+            <div class="devices-form">
+              <label class="field">
+                <span>Fabricante</span>
+                <select id="nvrVendor">
+                  <option value="dahua">Dahua</option>
+                  <option value="hikvision">Hikvision</option>
+                  <option value="uniview">Uniview</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>IP / host</span>
+                <input id="nvrHost" type="text" placeholder="192.168.1.64" autocomplete="off" />
+              </label>
+              <label class="field">
+                <span>Usuario</span>
+                <input id="nvrUser" type="text" placeholder="admin" autocomplete="off" />
+              </label>
+              <label class="field">
+                <span>Contraseña</span>
+                <input id="nvrPass" type="password" autocomplete="off" />
+              </label>
+              <label class="field">
+                <span>RTSP puerto</span>
+                <input id="nvrPort" type="number" value="554" min="1" max="65535" />
+              </label>
+              <label class="field">
+                <span>Canales</span>
+                <input id="nvrChannelCount" type="number" value="8" min="1" max="32" />
+              </label>
+              <label class="field">
+                <span>Stream</span>
+                <select id="nvrSubtype">
+                  <option value="0">Principal</option>
+                  <option value="1">Secundario (liviano)</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Nombre equipo</span>
+                <input id="nvrName" type="text" placeholder="NVR Portería" />
+              </label>
+            </div>
+            <div class="devices-actions">
+              <button type="button" class="btn secondary" id="btnNvrProbe">Probar conexión</button>
+              <button type="button" class="btn primary" id="btnNvrSave">Guardar NVR</button>
+              <button type="button" class="btn primary" id="btnNvrImportWatch">Importar a masivo</button>
+            </div>
+            <p class="hint" id="nvrProbeHint"></p>
+            <ul class="item-list" id="nvrDeviceList">
+              <li class="muted">Sin NVR registrados</li>
+            </ul>
+          </section>
+          <section class="devices-panel">
+            <p class="card-kicker">Canales vigilancia masiva</p>
+            <p class="card-meta">Máx. 16 canales para el módulo Masivo.</p>
+            <ul class="item-list" id="watchlistList">
+              <li class="muted">Sin canales</li>
+            </ul>
+            <p class="card-kicker">Canal rápido (vivo)</p>
+            <label class="field">
+              <span>URL RTSP</span>
+              <input id="devicesRtspUrl" type="text" placeholder="rtsp://usuario:clave@IP:554/..." />
+            </label>
+            <label class="field">
+              <span>Nombre</span>
+              <input id="devicesCameraName" type="text" placeholder="Portería" />
+            </label>
+            <button type="button" class="btn secondary" id="btnDevicesSaveCam">Guardar canal vivo</button>
+          </section>
+        </div>
+      </div>
 
       <div class="controls control-bar hidden" id="identityControls">
         <label class="field">
@@ -229,43 +354,64 @@
         <p class="hint" id="enrollCoach">4 poses de calidad · consentimiento + liveness · una persona</p>
       </div>
 
-      <div class="controls control-bar hidden" id="teachControls">
-        <label class="field grow">
-          <span>Clase / prenda a enseñar</span>
-          <select id="teachClass"></select>
-        </label>
-        <button id="btnTeachSample" class="btn primary" type="button">Foto cámara</button>
-        <label class="btn secondary file-btn">
-          Adjuntar fotos
-          <input id="teachPhotos" type="file" accept="image/*" multiple hidden />
-        </label>
-        <label class="btn secondary file-btn">
-          Adjuntar video
-          <input id="teachVideo" type="file" accept="video/*,.mp4,.mov,.webm" hidden />
-        </label>
-        <button id="btnTeachTrain" class="btn secondary" type="button">Entrenar modelo</button>
-        <button id="btnTeachActivate" class="btn ghost" type="button">Activar modelo</button>
-        <p class="hint" id="teachHint">Fotos + videos · 30–80 ejemplos por prenda</p>
+      <div class="controls control-bar teach-bar hidden" id="teachControls">
+        <div class="teach-steps" id="teachSteps" aria-label="Pasos de entrenamiento">
+          <span class="teach-step" data-teach-step="pick">1 · Ítem</span>
+          <span class="teach-step" data-teach-step="photos">2 · Fotos</span>
+          <span class="teach-step" data-teach-step="train">3 · Entrenar</span>
+          <span class="teach-step" data-teach-step="activate">4 · Activar</span>
+        </div>
+        <div class="teach-row">
+          <label class="field grow">
+            <span>Ítem a enseñar</span>
+            <select id="teachClass"></select>
+          </label>
+          <button id="btnTeachSample" class="btn secondary" type="button">Foto cámara</button>
+          <label class="btn primary file-btn">
+            Adjuntar fotos
+            <input id="teachPhotos" type="file" accept="image/*" multiple hidden />
+          </label>
+          <label class="btn secondary file-btn">
+            Video
+            <input id="teachVideo" type="file" accept="video/*,.mp4,.mov,.webm" hidden />
+          </label>
+        </div>
+        <div class="teach-row teach-row-end">
+          <button id="btnTeachTrain" class="btn secondary" type="button">Entrenar</button>
+          <button id="btnTeachActivate" class="btn primary" type="button">Activar en vivo</button>
+          <details class="teach-custom-inline">
+            <summary>Otra prenda</summary>
+            <div class="teach-custom-fields">
+              <input id="teachNewClass" type="text" placeholder="Ej. casaca naranja ACME" aria-label="Nombre prenda nueva" />
+              <button id="btnTeachAddClass" class="btn secondary" type="button">Crear</button>
+            </div>
+          </details>
+        </div>
+        <p class="hint teach-status" id="teachHint" role="status"></p>
       </div>
 
-      <div class="controls control-bar hidden" id="teachExtraControls">
-        <label class="field grow">
-          <span>Nueva prenda (no listada)</span>
-          <input id="teachNewClass" type="text" placeholder="Ej. casaca naranja ACME / pantalón denim faena" />
-        </label>
-        <button id="btnTeachAddClass" class="btn primary" type="button">Crear clase</button>
-        <p class="hint">Para ropa que el modelo base aún no conoce.</p>
-      </div>
-
-      <div class="controls control-bar hidden" id="configControls">
-        <nav class="cfg-nav" id="cfgNav" aria-label="Secciones de configuración">
-          <button type="button" class="cfg-nav-btn active" data-cfg-sec="guides">Guías</button>
-          <button type="button" class="cfg-nav-btn" data-cfg-sec="audio">Audio</button>
-          <button type="button" class="cfg-nav-btn" data-cfg-sec="zones">Zonas</button>
-          <button type="button" class="cfg-nav-btn" data-cfg-sec="monitor">Monitoreo</button>
-          <button type="button" class="cfg-nav-btn" data-cfg-sec="audit">Bitácora</button>
-        </nav>
-        <p class="hint">Elegí una sección arriba o en el panel. Los cambios se aplican al instante.</p>
+      <div class="actions-desk hidden" id="actionsDesk">
+        <div class="actions-main">
+          <div class="actions-toolbar">
+            <p class="toolbar-label">Vigilante de acciones inseguras</p>
+            <label class="field inline">
+              <span>Preset</span>
+              <select id="actionsPresetSelect"></select>
+            </label>
+            <button type="button" class="btn primary" id="btnActionsAddPreset">Agregar regla</button>
+            <button type="button" class="btn secondary" id="btnActionsOpenZones">Zonas en mapa</button>
+            <button type="button" class="btn ghost" id="btnActionsReset">Restaurar defaults</button>
+          </div>
+          <p class="hint" id="actionsHint">Configurá reglas para cámaras en altura y monitoreo en vivo.</p>
+          <div class="actions-layout">
+            <ul class="item-list actions-rule-list" id="actionsRuleList">
+              <li class="muted">Cargando reglas…</li>
+            </ul>
+            <div class="actions-detail card" id="actionsDetail">
+              <p class="muted">Seleccioná una regla de la lista para configurar cámaras y distancia.</p>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="reports-desk hidden" id="reportsDesk">
@@ -334,7 +480,7 @@
         <p class="panel-sub" id="panelContext">Resultado del escaneo en vivo</p>
       </div>
 
-      <section class="card status-card" id="complianceBox" data-state="idle" data-monitor-only>
+      <section class="card status-card" id="complianceBox" data-state="idle" data-live-only data-hide-teach>
         <div class="status-top">
           <p class="card-kicker">Resultado</p>
           <span class="status-pill" id="statusPill">Standby</span>
@@ -348,11 +494,11 @@
       <section class="card card-person" data-hide-teach>
         <p class="card-kicker">Persona</p>
         <p class="person-name" id="identityName">Sin identificar</p>
-        <p class="card-text" id="identityRut">Registra personas en la sección 2 · Personas</p>
+        <p class="card-text" id="identityRut">Enrolá trabajadores en la pestaña Personas</p>
         <p class="card-meta" id="identityMethod"></p>
       </section>
 
-      <section class="card" data-monitor-only>
+      <section class="card" data-live-only>
         <div class="card-row">
           <p class="card-kicker">EPP requerido</p>
           <p class="card-meta" id="profileDesc">—</p>
@@ -360,20 +506,56 @@
         <p class="card-meta" id="ppeSelectHint">Tocá cada ítem para marcarlo obligatorio u opcional.</p>
         <div class="chips ppe-chips" id="requiredChips" role="group" aria-label="EPP obligatorio"></div>
         <button type="button" class="btn ghost btn-sm" id="btnResetPpe">Restaurar defaults del perfil</button>
-        <p class="card-kicker list-label">Detectado ahora</p>
-        <ul class="item-list" id="detList">
-          <li class="muted">Sin detecciones</li>
-        </ul>
+        <details class="det-details" id="detDetails">
+          <summary class="card-kicker list-label">EPP detectado</summary>
+          <ul class="item-list" id="detList">
+            <li class="muted">Sin detecciones</li>
+          </ul>
+        </details>
       </section>
 
-      <section class="card" data-monitor-only>
+      <section class="card" data-live-only>
         <p class="card-kicker">Alertas</p>
         <ul class="item-list alert-list" id="alertList">
           <li class="muted">Sin alertas</li>
         </ul>
       </section>
 
-      <section class="card panel-section" data-show="monitor" id="registryCard">
+      <section class="card panel-section hidden" data-show="actions" id="actionsSidePanel">
+        <p class="card-kicker">Acciones inseguras</p>
+        <p class="card-text" id="actionsStats">0 activas</p>
+        <p class="card-meta">Montacargas, celular, carga suspendida, near-miss, EPP y caídas. Las alertas se ven en <strong>Vivo</strong> y <strong>Masivo</strong>.</p>
+        <label class="field">
+          <span>Calibración distancia (m/px)</span>
+          <input type="number" id="actionsMetersPerPixel" min="0.01" max="0.5" step="0.005" value="0.045" />
+        </label>
+        <p class="card-meta muted" id="actionsCalibHint">Típico NVR en altura: 0.04–0.06 m/px según zoom.</p>
+        <p class="card-kicker list-label">Entrenamiento detecciones</p>
+        <ul class="item-list actions-teach-list" id="actionsTeachList">
+          <li class="muted">Cargando progreso…</li>
+        </ul>
+        <button type="button" class="btn secondary btn-sm" id="btnActionsOpenTeach">Entrenar en EPP</button>
+        <ul class="item-list actions-help">
+          <li><span>Celular / montacargas</span><span class="muted">Entrená en EPP</span></li>
+          <li><span>Zonas</span><span class="muted">Config → Zonas</span></li>
+          <li><span>NVR altura</span><span class="muted">Masivo</span></li>
+        </ul>
+      </section>
+
+      <section class="card panel-section hidden" data-show="mass" id="massSidePanel">
+        <p class="card-kicker">Vigilancia masiva</p>
+        <p class="card-meta">Alertas por canal durante el barrido.</p>
+        <ul class="item-list" id="massAlertList">
+          <li class="muted">Iniciá el barrido para ver alertas por canal</li>
+        </ul>
+      </section>
+
+      <section class="card panel-section hidden" data-show="devices" id="devicesSidePanel">
+        <p class="card-kicker">Equipos de video</p>
+        <p class="card-meta">Misma red LAN que el NVR.</p>
+      </section>
+
+      <section class="card panel-section" data-show="live" id="registryCard">
         <p class="card-kicker">Últimos registros</p>
         <ul class="item-list" id="scanList">
           <li class="muted">Aún no hay escaneos con identidad</li>
@@ -416,22 +598,43 @@
       </section>
 
       <section class="card panel-section" data-show="teach" id="teachBlock">
-        <p class="card-kicker">Clases de ropa / EPP</p>
+        <div class="card-row">
+          <p class="card-kicker">EPP de tu faena</p>
+          <span class="teach-model-badge" id="teachModelBadge" data-state="base">Modelo base</span>
+        </div>
         <p class="card-text" id="teachStats">0 ejemplos</p>
-        <p class="card-meta">Adjuntá fotos o video de la prenda. Creá clases nuevas si hace falta.</p>
-        <ul class="item-list" id="teachClassList">
-          <li class="muted">Sin clases cargadas</li>
-        </ul>
+        <p class="card-meta teach-lead">Enseñá color y tipo reales (30–80 fotos por ítem). El operador en portería no ve esta pantalla.</p>
+        <ul class="teach-checklist" id="teachChecklist" aria-label="Progreso por ítem"></ul>
+        <details class="teach-more">
+          <summary>Todas las clases</summary>
+          <ul class="item-list" id="teachClassList">
+            <li class="muted">Sin clases cargadas</li>
+          </ul>
+        </details>
       </section>
 
       <section class="card panel-section config-card" data-show="config" id="configBlock">
         <nav class="cfg-nav cfg-nav-panel" id="cfgNavPanel" aria-label="Menú Config">
-          <button type="button" class="cfg-nav-btn active" data-cfg-sec="guides">1 · Guías</button>
-          <button type="button" class="cfg-nav-btn" data-cfg-sec="audio">2 · Audio</button>
-          <button type="button" class="cfg-nav-btn" data-cfg-sec="zones">3 · Zonas</button>
-          <button type="button" class="cfg-nav-btn" data-cfg-sec="monitor">4 · Monitoreo</button>
-          <button type="button" class="cfg-nav-btn" data-cfg-sec="audit">5 · Bitácora</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="appearance">Apariencia</button>
+          <button type="button" class="cfg-nav-btn active" data-cfg-sec="guides">Guías</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="audio">Audio</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="zones">Zonas</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="monitor">Monitoreo</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="privacy">Privacidad</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="enterprise">Enterprise</button>
+          <button type="button" class="cfg-nav-btn" data-cfg-sec="audit">Bitácora</button>
         </nav>
+
+        <div class="cfg-section hidden" data-cfg-section="appearance">
+          <p class="card-kicker">Skin del software</p>
+          <p class="card-meta">Tema visual en este navegador · no afecta detección EPP.</p>
+          <div class="skin-picker" id="cfgSkinPicker" role="group" aria-label="Temas visuales"></div>
+          <p class="card-meta" style="margin-top:1rem">Asistente inicial de faena</p>
+          <div class="day-zero-config-actions">
+            <button type="button" class="btn secondary" id="btnDayZeroReopen">Abrir asistente día cero</button>
+            <button type="button" class="btn ghost" id="btnDayZeroReset">Reiniciar progreso</button>
+          </div>
+        </div>
 
         <div class="cfg-section" data-cfg-section="guides">
           <p class="card-kicker">Guías visuales</p>
@@ -516,6 +719,10 @@
           </label>
           <div id="zonesEditor" class="zones-editor">
             <p class="card-meta">Zonas (activá y ajustá). Tipo «vía» = near-miss peatón.</p>
+            <div class="zones-preview" id="zonesPreview" aria-label="Lienzo de zonas">
+              <canvas id="zonesCanvas" role="img" aria-label="Editor visual de zonas"></canvas>
+              <p class="hint zones-preview-hint" id="zonesPreviewHint">Tocá una zona para seleccionar · arrastrá para mover · esquinas para tamaño</p>
+            </div>
             <div class="zone-presets">
               <button type="button" class="btn secondary" data-zone-preset="faena">Preset faena</button>
               <button type="button" class="btn secondary" data-zone-preset="porteria">Preset portería</button>
@@ -564,10 +771,111 @@
           <p class="card-meta" id="cfgSavedHint">Los cambios se guardan en este navegador.</p>
         </div>
 
+        <div class="cfg-section hidden" data-cfg-section="privacy">
+          <p class="card-kicker">Privacidad · Ley 21.719</p>
+          <p class="card-meta">Datos biométricos sensibles · vigencia fiscalización dic. 2026.</p>
+          <label class="cfg-row">
+            <span>
+              <strong>Modo solo QR/RUT (sin facial)</strong>
+              <small>Alternativa no biométrica para portería</small>
+            </span>
+            <input type="checkbox" id="cfgQrOnlyMode" />
+          </label>
+          <label class="cfg-row cfg-slider-row">
+            <span>
+              <strong>Retención evidencia (días)</strong>
+              <small>Fotos de incumplimiento en servidor · <b id="cfgRetentionVal">90</b></small>
+            </span>
+            <input type="range" id="cfgRetentionDays" min="7" max="365" value="90" step="1" />
+          </label>
+          <p class="card-meta">Exportá consentimiento en Personas. Anonimización de rostros desconocidos en Audio/Privacidad.</p>
+        </div>
+
+        <div class="cfg-section hidden" data-cfg-section="enterprise">
+          <p class="card-kicker">Multi-faena / Enterprise</p>
+          <label class="cfg-row">
+            <span>
+              <strong>Sitio activo</strong>
+              <small>Datos aislados por faena (personas, zonas, informes)</small>
+            </span>
+            <select id="cfgSiteSelect" aria-label="Sitio activo"></select>
+          </label>
+          <label class="cfg-row">
+            <span>
+              <strong>Nueva faena</strong>
+              <small>Crear sitio con datos separados</small>
+            </span>
+            <input type="text" id="cfgSiteNewName" placeholder="Ej. Faena Norte" maxlength="80" />
+          </label>
+          <div class="rep-actions" style="margin:0.5rem 0">
+            <button type="button" class="btn secondary" id="btnSiteCreate">Crear faena</button>
+            <button type="button" class="btn ghost" id="btnOidcLogin" hidden>Iniciar con SSO</button>
+          </div>
+          <p class="card-meta" id="cfgCombinedHint">Inferencia combinada ID+EPP: según servidor.</p>
+          <p class="card-meta" id="cfgEnterpriseHint">—</p>
+          <p class="card-kicker" style="margin-top:1rem">Conectores EHS</p>
+          <p class="card-meta">Exporta incidentes EPP a webhook, SafetyCloud o SAP EWM.</p>
+          <p class="card-meta" style="font-weight:600;margin-top:0.5rem">Webhook genérico</p>
+          <label class="cfg-row">
+            <span><strong>Webhook EHS</strong><small>URL POST JSON</small></span>
+            <input type="url" id="cfgEhsWebhookUrl" placeholder="https://..." />
+          </label>
+          <label class="cfg-row">
+            <span><strong>Auth header</strong><small>Authorization (opcional)</small></span>
+            <input type="password" id="cfgEhsWebhookAuth" placeholder="Bearer …" autocomplete="new-password" />
+          </label>
+          <label class="cfg-row cfg-toggle-row">
+            <span><strong>Webhook activo</strong></span>
+            <input type="checkbox" id="cfgEhsWebhookEnabled" />
+          </label>
+          <p class="card-meta" style="font-weight:600;margin-top:0.75rem">SafetyCloud</p>
+          <label class="cfg-row">
+            <span><strong>URL SafetyCloud</strong><small>Endpoint JSON EHS</small></span>
+            <input type="url" id="cfgEhsSafetyUrl" placeholder="https://..." />
+          </label>
+          <label class="cfg-row">
+            <span><strong>API key</strong><small>X-API-Key (opcional)</small></span>
+            <input type="password" id="cfgEhsSafetyKey" placeholder="Dejar vacío para no cambiar" autocomplete="new-password" />
+          </label>
+          <label class="cfg-row">
+            <span><strong>Código sitio</strong><small>site_code en payload</small></span>
+            <input type="text" id="cfgEhsSafetySite" placeholder="faena-norte" maxlength="80" />
+          </label>
+          <label class="cfg-row cfg-toggle-row">
+            <span><strong>SafetyCloud activo</strong></span>
+            <input type="checkbox" id="cfgEhsSafetyEnabled" />
+          </label>
+          <p class="card-meta" style="font-weight:600;margin-top:0.75rem">SAP EWM</p>
+          <label class="cfg-row">
+            <span><strong>URL SAP EWM</strong><small>Stub incident POST</small></span>
+            <input type="url" id="cfgEhsSapUrl" placeholder="https://..." />
+          </label>
+          <label class="cfg-row">
+            <span><strong>Client ID</strong><small>Header opcional</small></span>
+            <input type="password" id="cfgEhsSapClient" placeholder="Dejar vacío para no cambiar" autocomplete="new-password" />
+          </label>
+          <label class="cfg-row">
+            <span><strong>Planta</strong><small>Plant en payload</small></span>
+            <input type="text" id="cfgEhsSapPlant" placeholder="PL01" maxlength="40" />
+          </label>
+          <label class="cfg-row cfg-toggle-row">
+            <span><strong>SAP EWM activo</strong></span>
+            <input type="checkbox" id="cfgEhsSapEnabled" />
+          </label>
+          <div class="rep-actions" style="margin:0.5rem 0">
+            <button type="button" class="btn secondary" id="btnEhsSave">Guardar EHS</button>
+            <button type="button" class="btn ghost" id="btnEhsTest">Probar webhook</button>
+            <button type="button" class="btn ghost" id="btnEhsTestSafety">Probar SafetyCloud</button>
+            <button type="button" class="btn ghost" id="btnEhsTestSap">Probar SAP</button>
+          </div>
+          <p class="card-meta" id="cfgEhsHint">—</p>
+        </div>
+
         <div class="cfg-section hidden" data-cfg-section="audit">
           <p class="card-kicker">Bitácora administrativa</p>
           <p class="card-meta">Altas, bajas, cámaras y enrolamientos. Retención local en el servidor.</p>
           <button type="button" class="btn secondary" id="btnAuditRefresh">Actualizar</button>
+          <a class="btn ghost" href="/api/audit/export.csv" id="btnAuditExport" download>Export CSV</a>
           <ul class="item-list" id="auditList">
             <li class="muted">Sin eventos</li>
           </ul>
@@ -589,6 +897,7 @@
     <span id="fpsLabel">— ms</span>
   </footer>
 
-  <script src="/assets/app.js?v=34"></script>
+  <script src="/assets/lib/constants.js?v=43"></script>
+  <script type="module" src="/assets/app.js?v=43"></script>
 </body>
 </html>

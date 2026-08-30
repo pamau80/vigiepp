@@ -7,7 +7,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 from urllib.parse import urljoin, urlparse
 
@@ -55,7 +55,7 @@ def _host_allowed(host: str) -> bool:
         ip = ipaddress.ip_address(h)
     except ValueError:
         # hostname LAN (ej. esp32-alarm.local ya cubierto; otros hostnames locales)
-        return "." not in h or h.endswith(".lan") or h.endswith(".home")
+        return "." not in h or h.endswith((".lan", ".home"))
     return bool(ip.is_private or ip.is_loopback or ip.is_link_local)
 
 
@@ -96,7 +96,7 @@ def trigger(
             "ok": False,
             "action": action,
             "detail": detail,
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
         }
 
     path = alarma_path if action == "alarma" else ok_path
@@ -112,7 +112,7 @@ def trigger(
                 "detail": "cooldown hardware",
                 "url": url,
                 "reason": reason,
-                "ts": datetime.now(timezone.utc).isoformat(),
+                "ts": datetime.now(UTC).isoformat(),
             }
         _last[action] = now
 
@@ -136,7 +136,7 @@ def trigger(
                 "detail": f"HTTP {resp.status}",
                 "body": body[:120],
                 "reason": reason,
-                "ts": datetime.now(timezone.utc).isoformat(),
+                "ts": datetime.now(UTC).isoformat(),
             }
     except urllib.error.HTTPError as exc:
         return {
@@ -145,7 +145,7 @@ def trigger(
             "url": url,
             "detail": f"HTTP {exc.code}",
             "reason": reason,
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
         }
     except Exception as exc:  # noqa: BLE001
         return {
@@ -154,7 +154,7 @@ def trigger(
             "url": url,
             "detail": str(exc),
             "reason": reason,
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
         }
 
 

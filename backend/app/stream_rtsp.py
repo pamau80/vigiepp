@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
-from typing import Optional
 
 import cv2
 import numpy as np
@@ -19,11 +19,11 @@ class RTSPStream:
     def __init__(self, url: str, reconnect_sec: float = 3.0) -> None:
         self.url = url.strip()
         self.reconnect_sec = reconnect_sec
-        self._cap: Optional[cv2.VideoCapture] = None
-        self._frame: Optional[np.ndarray] = None
+        self._cap: cv2.VideoCapture | None = None
+        self._frame: np.ndarray | None = None
         self._lock = threading.Lock()
         self._running = False
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self.last_error: str | None = None
         self.connected = False
 
@@ -77,7 +77,7 @@ class RTSPStream:
                 self._frame = frame
             self.connected = True
 
-    def read(self) -> Optional[np.ndarray]:
+    def read(self) -> np.ndarray | None:
         with self._lock:
             if self._frame is None:
                 return None
@@ -87,12 +87,22 @@ class RTSPStream:
 # Registro simple de streams activos por sesión/demo
 _streams: dict[str, RTSPStream] = {}
 _streams_lock = threading.Lock()
+_MAX_STREAMS = int(os.getenv("VIGIEPP_MAX_RTSP_STREAMS", "24"))
+
+
+def active_stream_count() -> int:
+    with _streams_lock:
+        return len(_streams)
 
 
 def get_or_create_stream(url: str) -> RTSPStream:
     key = url.strip()
     with _streams_lock:
         if key not in _streams:
+            if len(_streams) >= _MAX_STREAMS:
+                raise RuntimeError(
+                    f"Límite de streams RTSP ({_MAX_STREAMS}). Detén cámaras antes de agregar más."
+                )
             stream = RTSPStream(key)
             stream.start()
             _streams[key] = stream
