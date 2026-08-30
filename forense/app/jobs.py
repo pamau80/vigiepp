@@ -12,7 +12,15 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .analyzer import run_analysis
-from .config import BUILD, JOBS_DIR, ensure_dirs
+from .config import (
+    BUILD,
+    DEFAULT_MAX_MACHINERY_KMH,
+    DEFAULT_MAX_PERSON_KMH,
+    DEFAULT_MIN_DISTANCE_M,
+    JOBS_DIR,
+    ensure_dirs,
+)
+from .pdf_export import export_report_pdf
 from .report import build_report_markdown, maybe_enrich_with_llm
 from .sampler import adaptive_sample_video
 
@@ -78,6 +86,9 @@ def create_job(
     site: str,
     profile: str,
     meters_per_pixel: float,
+    max_machinery_kmh: float = DEFAULT_MAX_MACHINERY_KMH,
+    max_person_kmh: float = DEFAULT_MAX_PERSON_KMH,
+    min_distance_m: float = DEFAULT_MIN_DISTANCE_M,
 ) -> dict[str, Any]:
     ensure_dirs()
     job_id = uuid.uuid4().hex[:12]
@@ -94,6 +105,9 @@ def create_job(
         "site": site.strip() or "Faena",
         "profile": profile,
         "meters_per_pixel": meters_per_pixel,
+        "max_machinery_kmh": max_machinery_kmh,
+        "max_person_kmh": max_person_kmh,
+        "min_distance_m": min_distance_m,
         "filename": filename,
         "status": "queued",
         "progress": 0,
@@ -129,6 +143,10 @@ def _process_job(job_id: str, video_path: str) -> None:
             job_id=job_id,
             profile=job["profile"],
             meters_per_pixel=float(job["meters_per_pixel"]),
+            max_machinery_kmh=float(job.get("max_machinery_kmh") or DEFAULT_MAX_MACHINERY_KMH),
+            max_person_kmh=float(job.get("max_person_kmh") or DEFAULT_MAX_PERSON_KMH),
+            min_distance_m=float(job.get("min_distance_m") or DEFAULT_MIN_DISTANCE_M),
+            heatmap_path=_job_dir(job_id) / "heatmap.jpg",
             progress_cb=lambda p, m: _set_progress(job_id, p, m),
         )
 
@@ -145,6 +163,9 @@ def _process_job(job_id: str, video_path: str) -> None:
             "timeline": analysis.get("timeline") or [],
             "keyframes": analysis.get("keyframes") or [],
             "event_count": analysis.get("event_count", 0),
+            "kinematics": analysis.get("kinematics") or {},
+            "heatmap": analysis.get("heatmap", False),
+            "frame_size": analysis.get("frame_size") or {},
         }
         _set_progress(job_id, 92, "Generando informe IA")
 
@@ -153,6 +174,7 @@ def _process_job(job_id: str, video_path: str) -> None:
             job["llm_narrative"] = narrative
         job["report_md"] = build_report_markdown(job)
         (_job_dir(job_id) / "report.md").write_text(job["report_md"], encoding="utf-8")
+        export_report_pdf(job, _job_dir(job_id) / "report.pdf")
 
         job["status"] = "done"
         job["progress"] = 100
@@ -181,4 +203,14 @@ def delete_job(job_id: str) -> bool:
 
 def keyframe_path(job_id: str, name: str) -> Path | None:
     p = _job_dir(job_id) / "keyframes" / name
+    return p if p.is_file() else None
+
+
+def heatmap_path(job_id: str) -> Path | None:
+    p = _job_dir(job_id) / "heatmap.jpg"
+    return p if p.is_file() else None
+
+
+def report_pdf_path(job_id: str) -> Path | None:
+    p = _job_dir(job_id) / "report.pdf"
     return p if p.is_file() else None

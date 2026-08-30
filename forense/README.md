@@ -26,6 +26,13 @@ Solo rol **admin** puede usar Forense (mismo PIN que VigiEPP).
 
 Almacenados en `forense/data/` (separado de `backend/data/`).
 
-## Disclaimer
+## P1 (forense-p1)
+
+- Tracking IoU persona / maquinaria
+- Velocidades estimadas (km/h) con calibración m/px
+- Límites configurables (km/h maquinaria, persona, distancia mínima)
+- Mapa de calor de tránsito
+- Export PDF (`report.pdf`) + Markdown
+
 
 Los informes son **generación IA asistida**. No constituyen peritaje legal ni dictamen oficial.

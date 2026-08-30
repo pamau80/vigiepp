@@ -33,6 +33,9 @@
         <label>Título del caso<input type="text" id="caseTitle" placeholder="Near-miss patio bodega" /></label>
         <label>Faena / sitio<input type="text" id="caseSite" placeholder="Faena principal" /></label>
         <label>Calibración m/px<input type="number" id="caseMpp" step="0.005" min="0.01" max="0.5" value="0.045" /></label>
+        <label>Límite maquinaria (km/h)<input type="number" id="caseMachKmh" step="1" min="1" max="80" value="15" /></label>
+        <label>Límite persona (km/h)<input type="number" id="casePersonKmh" step="1" min="1" max="30" value="8" /></label>
+        <label>Distancia mín. persona–máq. (m)<input type="number" id="caseMinDist" step="0.1" min="0.5" max="20" value="2" /></label>
         <label>Video (MP4/MOV)<input type="file" id="caseVideo" accept="video/*" required /></label>
         <button type="submit" class="btn primary">Iniciar análisis</button>
       </form>
@@ -55,6 +58,18 @@
           </div>
         </header>
         <section class="card">
+          <h3>Cinemática y velocidades</h3>
+          <table class="data-table" id="kinematicsTable">
+            <thead><tr><th>Track</th><th>Tipo</th><th>Máx km/h</th><th>Prom km/h</th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <ul id="kinViolations" class="violations"></ul>
+        </section>
+        <section class="card hidden" id="heatmapSection">
+          <h3>Mapa de calor — tránsito personas</h3>
+          <img id="heatmapImg" alt="Mapa de calor" class="heatmap-img" />
+        </section>
+        <section class="card">
           <h3>Línea de tiempo</h3>
           <ul id="timeline" class="timeline"></ul>
         </section>
@@ -65,7 +80,10 @@
         <section class="card">
           <h3>Informe IA</h3>
           <pre id="reportMd" class="report-md"></pre>
-          <a id="downloadMd" class="btn secondary" href="#" download>Descargar .md</a>
+          <div class="btn-row">
+            <a id="downloadMd" class="btn secondary" href="#" download>Descargar .md</a>
+            <a id="downloadPdf" class="btn primary hidden" href="#" download>Descargar PDF</a>
+          </div>
         </section>
       </div>
     </main>

@@ -95,6 +95,33 @@ async function loadJob(id, quiet = false) {
     }
   }
 
+  const kin = j.analysis?.kinematics || {};
+  const tbody = $("#kinematicsTable tbody");
+  tbody.innerHTML = "";
+  for (const row of kin.track_speeds || []) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>#${row.track_id}</td><td>${row.kind}</td><td>${row.max_kmh}</td><td>${row.avg_kmh}</td>`;
+    tbody.appendChild(tr);
+  }
+  if (!tbody.children.length) {
+    tbody.innerHTML = "<tr><td colspan='4' class='muted'>Sin tracks suficientes</td></tr>";
+  }
+  const viol = $("#kinViolations");
+  viol.innerHTML = "";
+  for (const v of [...(kin.speed_violations || []), ...(kin.proximity_events || [])]) {
+    const li = document.createElement("li");
+    li.textContent = v.message;
+    viol.appendChild(li);
+  }
+
+  const hmSec = $("#heatmapSection");
+  if (j.has_heatmap) {
+    hmSec.classList.remove("hidden");
+    $("#heatmapImg").src = `/api/forense/jobs/${id}/heatmap.jpg?t=${Date.now()}`;
+  } else {
+    hmSec.classList.add("hidden");
+  }
+
   const tl = $("#timeline");
   tl.innerHTML = "";
   for (const ev of j.analysis?.timeline || []) {
@@ -124,6 +151,14 @@ async function loadJob(id, quiet = false) {
     const dl = $("#downloadMd");
     dl.href = `/api/forense/jobs/${id}/report.md`;
     dl.download = `forense-${id}.md`;
+    const pdf = $("#downloadPdf");
+    if (j.has_pdf) {
+      pdf.classList.remove("hidden");
+      pdf.href = `/api/forense/jobs/${id}/report.pdf`;
+      pdf.download = `forense-${id}.pdf`;
+    } else {
+      pdf.classList.add("hidden");
+    }
   } else if (!quiet) {
     $("#reportMd").textContent = "Informe disponible al completar el análisis…";
   }
@@ -138,6 +173,9 @@ $("#uploadForm")?.addEventListener("submit", async (e) => {
   fd.append("title", $("#caseTitle").value);
   fd.append("site", $("#caseSite").value);
   fd.append("meters_per_pixel", $("#caseMpp").value);
+  fd.append("max_machinery_kmh", $("#caseMachKmh").value);
+  fd.append("max_person_kmh", $("#casePersonKmh").value);
+  fd.append("min_distance_m", $("#caseMinDist").value);
   fd.append("profile", "epp_completo");
   try {
     const res = await api("/api/forense/jobs", { method: "POST", body: fd });

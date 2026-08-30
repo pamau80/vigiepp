@@ -6,6 +6,9 @@ import logging
 from typing import Any, Callable
 
 from .config import DEFAULT_PROFILE
+from .heatmap import render_heatmap
+from .kinematics import compute_track_speeds, find_proximity_events, find_speed_violations
+from .tracker import IoUTracker
 
 logger = logging.getLogger("vigiepp.forense.analyzer")
 
@@ -34,7 +37,6 @@ def analyze_frame(
     det = PPEDetector.get()
     detections, _ = det.predict(frame_bgr, annotate=False, imgsz=256)
 
-    # Calibración temporal para proximidad en metros (sin persistir en VigiEPP)
     settings = actions_mod.get_settings()
     settings["meters_per_pixel"] = meters_per_pixel
 
@@ -90,6 +92,9 @@ def analyze_frame(
         "time_sec": time_sec,
         "time_label": _format_ts(time_sec),
         "detection_count": len(detections),
+        "detections": detections,
+        "frame_w": w,
+        "frame_h": h,
         "events": events,
         "keyframe_jpeg": keyframe_jpeg,
         "compliance": comp,
@@ -102,16 +107,22 @@ def run_analysis(
     job_id: str,
     profile: str,
     meters_per_pixel: float,
+    max_machinery_kmh: float = 15.0,
+    max_person_kmh: float = 8.0,
+    min_distance_m: float = 2.0,
+    heatmap_path=None,
     progress_cb: Callable[[int, str], None] | None = None,
 ) -> dict[str, Any]:
     source_id = f"forense:{job_id}"
     timeline: list[dict[str, Any]] = []
     keyframes: list[dict[str, Any]] = []
+    tracker = IoUTracker()
+    frame_w, frame_h = 0, 0
     total = len(samples)
 
     for i, sample in enumerate(samples):
         if progress_cb:
-            pct = int(10 + (80 * (i + 1) / max(total, 1)))
+            pct = int(10 + (75 * (i + 1) / max(total, 1)))
             progress_cb(pct, f"Analizando frame {i + 1}/{total}")
         try:
             result = analyze_frame(
@@ -121,6 +132,9 @@ def run_analysis(
                 profile=profile,
                 meters_per_pixel=meters_per_pixel,
             )
+            frame_w = max(frame_w, int(result.get("frame_w") or 0))
+            frame_h = max(frame_h, int(result.get("frame_h") or 0))
+            tracker.update(sample.time_sec, result.get("detections") or [])
             for ev in result.get("events") or []:
                 timeline.append(ev)
             if result.get("keyframe_jpeg"):
@@ -135,5 +149,59 @@ def run_analysis(
         except Exception:
             logger.exception("Frame %s falló en job %s", sample.index, job_id)
 
+    if progress_cb:
+        progress_cb(88, "Calculando cinemática y mapa de calor")
+
+    tracks = tracker.all_tracks()
+    track_speeds = compute_track_speeds(tracks, meters_per_pixel=meters_per_pixel)
+    speed_violations = find_speed_violations(
+        track_speeds,
+        max_machinery_kmh=max_machinery_kmh,
+        max_person_kmh=max_person_kmh,
+    )
+    proximity_events = find_proximity_events(
+        tracks,
+        meters_per_pixel=meters_per_pixel,
+        min_distance_m=min_distance_m,
+    )
+
+    for sv in speed_violations:
+        timeline.append(
+            {
+                "time_sec": 0,
+                "time_label": "—",
+                "type": "speed_violation",
+                "severity": "high",
+                "message": sv["message"],
+            }
+        )
+    for pe in proximity_events:
+        timeline.append(
+            {
+                "time_sec": pe["time_sec"],
+                "time_label": _format_ts(pe["time_sec"]),
+                "type": "proximity",
+                "severity": "critical",
+                "message": pe["message"],
+            }
+        )
+
     timeline.sort(key=lambda e: e.get("time_sec", 0))
-    return {"timeline": timeline, "keyframes": keyframes, "event_count": len(timeline)}
+
+    heatmap_ok = False
+    if heatmap_path and frame_w and frame_h:
+        heatmap_ok = render_heatmap(tracks, frame_w=frame_w, frame_h=frame_h, out_path=heatmap_path)
+
+    return {
+        "timeline": timeline,
+        "keyframes": keyframes,
+        "event_count": len(timeline),
+        "kinematics": {
+            "track_speeds": track_speeds,
+            "speed_violations": speed_violations,
+            "proximity_events": proximity_events,
+            "tracks_count": len(tracks),
+        },
+        "heatmap": heatmap_ok,
+        "frame_size": {"w": frame_w, "h": frame_h},
+    }

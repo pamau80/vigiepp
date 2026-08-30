@@ -31,10 +31,40 @@ def _section_timeline(timeline: list[dict[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _section_kinematics(kin: dict[str, Any], job: dict[str, Any]) -> str:
+    speeds = kin.get("track_speeds") or []
+    if not speeds:
+        return "_No se estimaron velocidades (sin tracks persona/maquinaria suficientes)._\n"
+    lines = [
+        f"Límites configurados: maquinaria **{job.get('max_machinery_kmh', '—')} km/h**, "
+        f"persona **{job.get('max_person_kmh', '—')} km/h**, "
+        f"distancia mínima **{job.get('min_distance_m', '—')} m**.",
+        "",
+        "| Track | Tipo | Máx km/h | Prom km/h |",
+        "|-------|------|----------|-----------|",
+    ]
+    for ts in speeds[:30]:
+        lines.append(
+            f"| #{ts.get('track_id')} | {ts.get('kind')} | {ts.get('max_kmh')} | {ts.get('avg_kmh')} |"
+        )
+    violations = kin.get("speed_violations") or []
+    if violations:
+        lines.append("\n**Excesos de velocidad estimados:**\n")
+        for v in violations:
+            lines.append(f"- {v.get('message')}")
+    prox = kin.get("proximity_events") or []
+    if prox:
+        lines.append("\n**Proximidad persona–maquinaria:**\n")
+        for p in prox[:20]:
+            lines.append(f"- {p.get('message')}")
+    return "\n".join(lines) + "\n"
+
+
 def build_report_markdown(job: dict[str, Any]) -> str:
     meta = job.get("meta") or {}
     analysis = job.get("analysis") or {}
     timeline = analysis.get("timeline") or []
+    kin = analysis.get("kinematics") or {}
     title = job.get("title") or "Incidente sin título"
     site = job.get("site") or "Faena"
     now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
@@ -52,28 +82,32 @@ def build_report_markdown(job: dict[str, Any]) -> str:
 ## 1. Resumen ejecutivo
 
 Se analizó un video de **{meta.get('duration_sec', '—')} s** ({meta.get('sampled_frames', '—')} frames muestreados de {meta.get('total_frames', '—')} totales).  
-Se detectaron **{analysis.get('event_count', 0)} eventos** relevantes (EPP, zonas, acciones inseguras).
+Se detectaron **{analysis.get('event_count', 0)} eventos** relevantes (EPP, zonas, acciones, cinemática).
 
-## 2. Secuencia cronológica
+## 2. Cinemática y velocidades
+
+{_section_kinematics(kin, job)}
+
+## 3. Secuencia cronológica
 
 {_section_timeline(timeline)}
 
-## 3. Hechos observables (automáticos)
+## 4. Hechos observables (automáticos)
 
-Los eventos listados provienen del motor de visión VigiEPP (detección EPP, zonas y reglas de Acciones) aplicado al video con muestreo adaptivo.
+Los eventos listados provienen del motor de visión VigiEPP (detección EPP, zonas, reglas de Acciones y tracking) aplicado al video con muestreo adaptivo.
 
-## 4. Hipótesis contribuyentes (asistido IA)
+## 5. Hipótesis contribuyentes (asistido IA)
 
 {_narrative_block(job)}
 
-## 5. Recomendaciones preventivas
+## 6. Recomendaciones preventivas
 
 - Revisar señalética y delimitación de zonas restringidas en el sector del incidente.
 - Reforzar distanciamiento persona–maquinaria y límites de velocidad en vías internas.
 - Verificar cumplimiento EPP en el tramo horario del evento.
 - Capacitar supervisores en uso del monitoreo en vivo para evitar recurrencia.
 
-## 6. Limitaciones del análisis
+## 7. Limitaciones del análisis
 
 - Muestreo adaptivo (~2–10 fps efectivos): pueden existir eventos entre frames no analizados.
 - Velocidades y distancias requieren calibración `m/px` ({job.get('meters_per_pixel', '—')} m/px en este análisis).
@@ -100,6 +134,8 @@ def _narrative_block(job: dict[str, Any]) -> str:
         parts.append("- Posible factor: incumplimiento de EPP detectado antes o durante el evento.")
     if "action" in types:
         parts.append("- Posible factor: proximidad o conducta insegura según reglas Acciones.")
+    if "proximity" in types or "speed_violation" in types:
+        parts.append("- Posible factor: exceso de velocidad o proximidad crítica persona–maquinaria.")
     if "zone" in types:
         parts.append("- Posible factor: tránsito por zona no autorizada o de riesgo.")
     return "\n".join(parts) if parts else "_Revisar secuencia cronológica manualmente._"

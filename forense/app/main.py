@@ -11,8 +11,24 @@ from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
 from .auth_bridge import login_pin, require_forense_admin
-from .config import BUILD, MAX_UPLOAD_MB, WEB_DIR, ensure_dirs
-from .jobs import create_job, delete_job, get_job, keyframe_path, list_jobs
+from .config import (
+    BUILD,
+    DEFAULT_MAX_MACHINERY_KMH,
+    DEFAULT_MAX_PERSON_KMH,
+    DEFAULT_MIN_DISTANCE_M,
+    MAX_UPLOAD_MB,
+    WEB_DIR,
+    ensure_dirs,
+)
+from .jobs import (
+    create_job,
+    delete_job,
+    get_job,
+    heatmap_path,
+    keyframe_path,
+    list_jobs,
+    report_pdf_path,
+)
 from .license import license_status, verify_license
 
 logging.basicConfig(level=logging.INFO)
@@ -96,6 +112,9 @@ async def jobs_create(
     site: str = Form(""),
     profile: str = Form("epp_completo"),
     meters_per_pixel: float = Form(0.045),
+    max_machinery_kmh: float = Form(DEFAULT_MAX_MACHINERY_KMH),
+    max_person_kmh: float = Form(DEFAULT_MAX_PERSON_KMH),
+    min_distance_m: float = Form(DEFAULT_MIN_DISTANCE_M),
 ) -> dict:
     _require_license()
     require_forense_admin(request)
@@ -112,6 +131,9 @@ async def jobs_create(
         site=site,
         profile=profile,
         meters_per_pixel=max(0.01, min(0.5, meters_per_pixel)),
+        max_machinery_kmh=max(1.0, min(80.0, max_machinery_kmh)),
+        max_person_kmh=max(1.0, min(30.0, max_person_kmh)),
+        min_distance_m=max(0.5, min(20.0, min_distance_m)),
     )
     return {"ok": True, "job": {"id": job["id"], "status": job["status"]}}
 
@@ -136,6 +158,11 @@ def jobs_get(job_id: str, request: Request) -> dict:
             "analysis": job.get("analysis"),
             "error": job.get("error"),
             "meters_per_pixel": job.get("meters_per_pixel"),
+            "max_machinery_kmh": job.get("max_machinery_kmh"),
+            "max_person_kmh": job.get("max_person_kmh"),
+            "min_distance_m": job.get("min_distance_m"),
+            "has_heatmap": bool((job.get("analysis") or {}).get("heatmap")),
+            "has_pdf": report_pdf_path(job_id) is not None,
         },
     }
 
@@ -149,6 +176,26 @@ def jobs_report_md(job_id: str, request: Request) -> PlainTextResponse:
         raise HTTPException(404, "Trabajo no encontrado")
     md = job.get("report_md") or ""
     return PlainTextResponse(md, media_type="text/markdown; charset=utf-8")
+
+
+@app.get("/api/forense/jobs/{job_id}/report.pdf")
+def jobs_report_pdf(job_id: str, request: Request) -> FileResponse:
+    _require_license()
+    require_forense_admin(request)
+    path = report_pdf_path(job_id)
+    if not path:
+        raise HTTPException(404, "PDF no disponible")
+    return FileResponse(path, media_type="application/pdf", filename=f"forense-{job_id}.pdf")
+
+
+@app.get("/api/forense/jobs/{job_id}/heatmap.jpg")
+def jobs_heatmap(job_id: str, request: Request) -> FileResponse:
+    _require_license()
+    require_forense_admin(request)
+    path = heatmap_path(job_id)
+    if not path:
+        raise HTTPException(404, "Mapa de calor no disponible")
+    return FileResponse(path, media_type="image/jpeg")
 
 
 @app.get("/api/forense/jobs/{job_id}/keyframes/{name}")

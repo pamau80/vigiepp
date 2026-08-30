@@ -10,5 +10,7 @@ export VIGIEPP_AUTH="${VIGIEPP_AUTH:-1}"
 export VIGIEPP_ADMIN_PIN="${VIGIEPP_ADMIN_PIN:-vigiepp}"
 export VIGIEPP_COMBINED_INFERENCE="${VIGIEPP_COMBINED_INFERENCE:-0}"
 PY="${ROOT}/.venv/bin/python"
-if [ ! -x "$PY" ]; then PY=python3; fi
+PIP="${ROOT}/.venv/bin/pip"
+if [ ! -x "$PY" ]; then PY=python3; PIP=pip; fi
+"$PIP" install -q -r forense/requirements.txt 2>/dev/null || true
 exec "$PY" -m uvicorn forense.app.main:app --host 0.0.0.0 --port "${VIGIEPP_FORENSE_PORT:-8001}" --reload
