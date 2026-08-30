@@ -14,11 +14,12 @@ from typing import Any
 from .comparison import compare_jobs
 from .config import BUILD, JOBS_DIR, ensure_dirs
 from .export import committee_section, export_case_bundle, push_to_ehs
+from .knowledge import apply_knowledge_insights, match_knowledge_for_job
 from .multi_source import run_multi_source_analysis
 from .pdf_export import export_report_pdf
 from .report import build_report_markdown, maybe_enrich_with_llm
 from .sampler import adaptive_sample_video
-from .templates import resolve_template
+from .templates import inference_settings, resolve_template
 
 logger = logging.getLogger("vigiepp.forense.jobs")
 _lock = threading.Lock()
@@ -157,10 +158,20 @@ def _process_job(job_id: str) -> None:
         job["status"] = "processing"
         _set_progress(job_id, 5, "Preparando fuentes de video")
 
+        inf = inference_settings(job.get("template_id"))
+        sample_kw = {
+            "base_interval_sec": inf.get("base_interval_sec", 0.45),
+            "motion_threshold": inf.get("motion_threshold", 11.0),
+            "burst_interval_sec": inf.get("burst_interval_sec", 0.1),
+            "burst_duration_sec": inf.get("burst_duration_sec", 4.5),
+            "max_frames": int(inf.get("max_frames", 5000)),
+        }
+        imgsz = int(inf.get("imgsz", 320))
+
         sources = job.get("sources") or []
         if len(sources) <= 1:
             path = sources[0]["path"] if sources else ""
-            samples, meta = adaptive_sample_video(path)
+            samples, meta = adaptive_sample_video(path, **sample_kw)
             job["meta"] = meta
             from .analyzer import run_analysis
 
@@ -174,6 +185,7 @@ def _process_job(job_id: str) -> None:
                 min_distance_m=float(job["min_distance_m"]),
                 heatmap_path=_job_dir(job_id) / "heatmap.jpg",
                 progress_cb=lambda p, m: _set_progress(job_id, p, m),
+                imgsz=imgsz,
             )
         else:
             job["meta"] = {"sources": len(sources), "multi_camera": True}
@@ -187,6 +199,8 @@ def _process_job(job_id: str) -> None:
                 min_distance_m=float(job["min_distance_m"]),
                 heatmap_path=_job_dir(job_id) / "heatmap.jpg",
                 progress_cb=lambda p, m: _set_progress(job_id, p, m),
+                sample_kw=sample_kw,
+                imgsz=imgsz,
             )
 
         kf_dir = _job_dir(job_id) / "keyframes"
@@ -215,6 +229,10 @@ def _process_job(job_id: str) -> None:
             job["comparison"] = compare_jobs(job, ref_job)
         else:
             job["comparison"] = {"available": False}
+
+        _set_progress(job_id, 90, "Consultando biblioteca de situaciones")
+        knowledge_matches = match_knowledge_for_job(job)
+        job["knowledge"] = apply_knowledge_insights(job, knowledge_matches)
 
         _set_progress(job_id, 92, "Generando informes")
 

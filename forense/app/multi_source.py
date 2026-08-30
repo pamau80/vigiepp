@@ -63,14 +63,17 @@ def run_multi_source_analysis(
     min_distance_m: float,
     heatmap_path,
     progress_cb: Callable[[int, str], None] | None = None,
+    sample_kw: dict[str, Any] | None = None,
+    imgsz: int = 320,
 ) -> dict[str, Any]:
     """sources: [{path, offset_sec, label}]"""
+    sample_kw = sample_kw or {}
     parts: list[dict[str, Any]] = []
     n = len(sources)
     for idx, src in enumerate(sources):
         label = src.get("label") or f"Cam {idx + 1}"
         offset = float(src.get("offset_sec") or 0)
-        samples, _ = adaptive_sample_video(src["path"])
+        samples, _ = adaptive_sample_video(src["path"], **sample_kw)
         for s in samples:
             s.time_sec += offset
 
@@ -95,6 +98,7 @@ def run_multi_source_analysis(
             progress_cb=_cb,
             progress_base=base,
             progress_span=span,
+            imgsz=imgsz,
         )
         parts.append(part)
     return merge_analyses(parts)

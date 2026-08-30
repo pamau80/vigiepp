@@ -29,7 +29,13 @@
     </header>
 
     <aside class="sidebar">
-      <h2>Nuevo análisis</h2>
+      <div class="sidebar-head">
+        <h2>Nuevo análisis</h2>
+        <div class="btn-row compact">
+          <button type="button" class="btn secondary" id="btnNewCase">Nuevo</button>
+          <button type="button" class="btn ghost" id="btnResetForm">Limpiar</button>
+        </div>
+      </div>
       <form id="uploadForm" class="card">
         <label>Título del caso<input type="text" id="caseTitle" placeholder="Near-miss patio bodega" /></label>
         <label>Faena / sitio<input type="text" id="caseSite" placeholder="Faena principal" /></label>
@@ -52,24 +58,50 @@
         <button type="submit" class="btn primary" id="btnStartAnalysis">Iniciar análisis</button>
       </form>
       <p class="upload-hint hidden" id="uploadHint"></p>
+
+      <div class="sidebar-head">
+        <h2>Biblioteca de aprendizaje</h2>
+        <p class="muted small" id="knowledgeStats">0 situaciones</p>
+      </div>
+      <form id="knowledgeForm" class="card knowledge-form">
+        <label>Título de la situación<input type="text" id="knTitle" placeholder="Acá ocurrió near-miss montacargas" required /></label>
+        <label>Tipo de incidente<select id="knSituationType"></select></label>
+        <label>Industria<select id="knIndustry"></select></label>
+        <label>¿Qué ocurrió?<textarea id="knDescription" rows="3" placeholder="Describí qué pasó en este punto del video o imagen…"></textarea></label>
+        <label>Imagen o video de referencia<input type="file" id="knMedia" accept="image/*,video/*" /></label>
+        <button type="submit" class="btn secondary">Agregar a biblioteca</button>
+        <p class="hint" id="knowledgeHint"></p>
+      </form>
+      <ul id="knowledgeList" class="knowledge-list"></ul>
+      <button type="button" class="btn ghost danger" id="btnResetKnowledge">Resetear biblioteca</button>
+
       <h2>Trabajos</h2>
       <ul id="jobList" class="job-list"></ul>
     </aside>
 
     <main class="main">
       <div id="emptyState" class="empty">
-        <p>Subí un video de incidente o seleccioná un trabajo de la lista.</p>
+        <p>Subí un video de incidente, enseñá situaciones a la biblioteca, o seleccioná un trabajo.</p>
         <p class="disclaimer">Informe generado por IA. No constituye peritaje legal.</p>
       </div>
       <div id="jobView" class="job-view hidden">
         <header class="job-head">
-          <h2 id="jobTitle">—</h2>
-          <p id="jobMeta" class="muted"></p>
+          <div class="job-head-row">
+            <div>
+              <h2 id="jobTitle">—</h2>
+              <p id="jobMeta" class="muted"></p>
+            </div>
+            <button type="button" class="btn ghost danger" id="btnDeleteJob">Eliminar trabajo</button>
+          </div>
           <div class="progress-wrap hidden" id="progressWrap">
             <div class="progress-bar"><div id="progressBar"></div></div>
             <p id="progressText" class="muted"></p>
           </div>
         </header>
+        <section class="card hidden" id="knowledgeSection">
+          <h3>Coincidencias con biblioteca de aprendizaje</h3>
+          <ul id="knowledgeMatches" class="knowledge-matches"></ul>
+        </section>
         <section class="card hidden" id="comparisonSection">
           <h3>Comparación vs escenario de referencia</h3>
           <p id="comparisonText" class="comparison-text"></p>
@@ -96,7 +128,7 @@
           <ul id="timeline" class="timeline"></ul>
         </section>
         <section class="card">
-          <h3>Capturas clave</h3>
+          <h3>Capturas clave <span class="muted small">— clic para guardar en biblioteca</span></h3>
           <div id="keyframes" class="keyframes"></div>
         </section>
         <section class="card">

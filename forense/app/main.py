@@ -32,6 +32,16 @@ from .jobs import (
     list_jobs,
     report_pdf_path,
 )
+from .knowledge import (
+    SITUATION_TYPES,
+    create_knowledge,
+    delete_knowledge,
+    get_knowledge,
+    knowledge_stats,
+    list_knowledge,
+    promote_job_keyframe,
+    reset_knowledge,
+)
 from .license import license_status, verify_license
 from .templates import list_templates
 
@@ -213,6 +223,7 @@ def _job_payload(job: dict) -> dict:
         "has_bundle": case_bundle_path(job["id"]) is not None,
         "has_committee": committee_md_path(job["id"]) is not None,
         "ehs_push": job.get("ehs_push"),
+        "knowledge": job.get("knowledge"),
     }
 
 
@@ -321,6 +332,121 @@ def jobs_delete(job_id: str, request: Request) -> dict:
     if not delete_job(job_id):
         raise HTTPException(404, "Trabajo no encontrado")
     return {"ok": True}
+
+
+class KnowledgeBody(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    situation_type: str = Field("other", max_length=64)
+    description: str = Field("", max_length=4000)
+    industry: str = Field("general", max_length=64)
+    labels: str = Field("", max_length=500)
+    event_types: str = Field("", max_length=500)
+
+
+class KnowledgeResetBody(BaseModel):
+    confirm: str = Field(..., min_length=1)
+
+
+class PromoteKnowledgeBody(BaseModel):
+    keyframe_name: str = Field(..., min_length=1)
+    title: str = Field(..., min_length=1, max_length=200)
+    situation_type: str = Field("other", max_length=64)
+    description: str = Field("", max_length=4000)
+
+
+@app.get("/api/forense/knowledge")
+def knowledge_list(request: Request, industry: str | None = None) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    return {
+        "ok": True,
+        "entries": list_knowledge(industry=industry),
+        "stats": knowledge_stats(),
+        "situation_types": SITUATION_TYPES,
+    }
+
+
+@app.post("/api/forense/knowledge")
+async def knowledge_create(
+    request: Request,
+    title: str = Form(...),
+    situation_type: str = Form("other"),
+    description: str = Form(""),
+    industry: str = Form("general"),
+    labels: str = Form(""),
+    event_types: str = Form(""),
+    media: UploadFile | None = File(None),
+) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    media_bytes = None
+    media_filename = None
+    if media and media.filename:
+        media_bytes = await media.read()
+        media_filename = media.filename
+    label_list = [x.strip() for x in labels.split(",") if x.strip()]
+    event_list = [x.strip() for x in event_types.split(",") if x.strip()]
+    entry = create_knowledge(
+        title=title,
+        situation_type=situation_type,
+        description=description,
+        industry=industry,
+        labels=label_list,
+        event_types=event_list,
+        media_bytes=media_bytes,
+        media_filename=media_filename,
+    )
+    return {"ok": True, "entry": entry}
+
+
+@app.delete("/api/forense/knowledge/{entry_id}")
+def knowledge_delete(entry_id: str, request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    if not delete_knowledge(entry_id):
+        raise HTTPException(404, "Situación no encontrada")
+    return {"ok": True}
+
+
+@app.post("/api/forense/knowledge/reset")
+def knowledge_reset(body: KnowledgeResetBody, request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    if body.confirm.strip().upper() != "RESETEAR":
+        raise HTTPException(400, "Escribí RESETEAR para confirmar")
+    removed = reset_knowledge()
+    return {"ok": True, "removed": removed}
+
+
+@app.get("/api/forense/knowledge/{entry_id}/thumb.jpg")
+def knowledge_thumb(entry_id: str, request: Request) -> FileResponse:
+    _require_license()
+    require_forense_admin(request)
+    from .config import KNOWLEDGE_DIR
+
+    path = KNOWLEDGE_DIR / entry_id / "thumb.jpg"
+    if not path.is_file():
+        raise HTTPException(404, "Miniatura no disponible")
+    return FileResponse(path, media_type="image/jpeg")
+
+
+@app.post("/api/forense/jobs/{job_id}/knowledge")
+def knowledge_promote_from_job(job_id: str, body: PromoteKnowledgeBody, request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(404, "Trabajo no encontrado")
+    entry = promote_job_keyframe(
+        job,
+        keyframe_name=body.keyframe_name,
+        title=body.title,
+        situation_type=body.situation_type,
+        description=body.description,
+    )
+    if not entry:
+        raise HTTPException(400, "No se pudo guardar la captura en la biblioteca")
+    return {"ok": True, "entry": entry}
 
 
 @app.on_event("startup")
