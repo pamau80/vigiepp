@@ -43,6 +43,13 @@ from .knowledge import (
     reset_knowledge,
 )
 from .license import license_status, verify_license
+from .teach_bridge import (
+    activate_custom_model,
+    ensure_custom_model_if_available,
+    promote_keyframe_to_teach,
+    start_training,
+    teach_status,
+)
 from .templates import list_templates
 
 logging.basicConfig(level=logging.INFO)
@@ -449,11 +456,65 @@ def knowledge_promote_from_job(job_id: str, body: PromoteKnowledgeBody, request:
     return {"ok": True, "entry": entry}
 
 
+class PromoteTeachBody(BaseModel):
+    keyframe_name: str = Field(..., min_length=1)
+    class_id: str = Field(..., min_length=1)
+
+
+class TrainTeachBody(BaseModel):
+    epochs: int = Field(40, ge=10, le=120)
+
+
+@app.get("/api/forense/teach/status")
+def forense_teach_status(request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    return {"ok": True, **teach_status()}
+
+
+@app.post("/api/forense/teach/activate")
+def forense_teach_activate(request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    result = activate_custom_model()
+    if not result.get("ok"):
+        raise HTTPException(400, result.get("error", "Modelo no disponible"))
+    return {"ok": True, **result}
+
+
+@app.post("/api/forense/teach/train")
+def forense_teach_train(body: TrainTeachBody, request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    result = start_training(epochs=body.epochs)
+    if not result.get("ok"):
+        raise HTTPException(400, result.get("error", "No se pudo iniciar entrenamiento"))
+    return {"ok": True, **result}
+
+
+@app.post("/api/forense/jobs/{job_id}/teach")
+def forense_promote_teach(job_id: str, body: PromoteTeachBody, request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    if not get_job(job_id):
+        raise HTTPException(404, "Trabajo no encontrado")
+    result = promote_keyframe_to_teach(job_id, body.keyframe_name, body.class_id)
+    if not result.get("ok"):
+        raise HTTPException(400, result.get("error", "No se pudo enviar a Teach"))
+    return {"ok": True, **result}
+
+
 @app.on_event("startup")
 def startup() -> None:
     ensure_dirs()
     ok, detail = verify_license()
     logger.info("VigiEPP Forense %s — licencia: %s (%s)", BUILD, ok, detail)
+    try:
+        loaded = ensure_custom_model_if_available()
+        if loaded.get("ok"):
+            logger.info("Modelo Teach activo: %s", loaded.get("model"))
+    except Exception as exc:
+        logger.info("Forense arranca con modelo base (Teach: %s)", exc)
 
 
 @app.get("/", response_class=HTMLResponse)

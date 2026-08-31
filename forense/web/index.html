@@ -59,6 +59,19 @@
       </form>
       <p class="upload-hint hidden" id="uploadHint"></p>
 
+      <section class="card teach-panel" id="teachPanel">
+        <h3 class="teach-panel-title">Motor Teach (tu faena)</h3>
+        <p class="muted small" id="teachModelLine">Modelo base</p>
+        <p class="muted small" id="teachSamplesLine">0 ejemplos en dataset</p>
+        <div class="btn-row compact">
+          <button type="button" class="btn secondary" id="btnTeachActivate" disabled>Activar modelo custom</button>
+          <button type="button" class="btn ghost" id="btnTeachTrain" disabled>Entrenar</button>
+        </div>
+        <a class="btn ghost small teach-link" id="teachOpenVigi" href="http://127.0.0.1:8000/" target="_blank" rel="noopener">Abrir Teach en VigiEPP</a>
+        <p class="hint" id="teachHint">Cargá fotos de tu EPP y maquinaria en VigiEPP → Teach. Forense usará ese modelo automáticamente.</p>
+        <label class="small">Clase para enviar capturas<select id="teachClassPick"></select></label>
+      </section>
+
       <div class="sidebar-head">
         <h2>Biblioteca de aprendizaje</h2>
         <p class="muted small" id="knowledgeStats">0 situaciones</p>
@@ -128,7 +141,10 @@
           <ul id="timeline" class="timeline"></ul>
         </section>
         <section class="card">
-          <h3>Capturas clave <span class="muted small">— clic para guardar en biblioteca</span></h3>
+          <h3>Capturas clave <span class="muted small">— clic: biblioteca · Teach: clase + botón</span></h3>
+          <div class="keyframe-actions">
+            <button type="button" class="btn ghost small" id="btnKeyframeTeach" disabled>Enviar captura a Teach</button>
+          </div>
           <div id="keyframes" class="keyframes"></div>
         </section>
         <section class="card">

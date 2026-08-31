@@ -32,6 +32,8 @@ const app = $("#app");
 
 let templatesCache = [];
 let situationTypesCache = {};
+let teachClassesCache = [];
+let selectedKeyframeName = null;
 let pollTimer = null;
 let currentJobId = null;
 
@@ -99,6 +101,45 @@ function refreshReferenceSelect(jobs) {
   if (current) sel.value = current;
 }
 
+async function loadTeachStatus() {
+  try {
+    const data = await api("/api/forense/teach/status");
+    teachClassesCache = data.teach_classes || [];
+    const pick = $("#teachClassPick");
+    if (pick) {
+      pick.innerHTML = "";
+      for (const c of teachClassesCache) {
+        const opt = document.createElement("option");
+        opt.value = c.id;
+        opt.textContent = c.name || c.id;
+        pick.appendChild(opt);
+      }
+    }
+    const modelLine = data.custom_active
+      ? `✓ ${data.model_name}`
+      : data.custom_weights_exist
+        ? `Pesos listos — activar modelo custom`
+        : `Modelo base (genérico)`;
+    $("#teachModelLine").textContent = modelLine;
+    $("#teachSamplesLine").textContent = `${data.total_samples || 0} ejemplos · ${
+      data.ready_to_train ? "listo para entrenar" : `mín. ${data.min_recommended || 30} recomendados`
+    }`;
+    const btnAct = $("#btnTeachActivate");
+    const btnTrain = $("#btnTeachTrain");
+    if (btnAct) btnAct.disabled = !data.custom_weights_exist && !data.custom_model_ready;
+    if (btnTrain) btnTrain.disabled = !data.ready_to_train || data.training_running;
+    if (data.training_running) {
+      $("#teachHint").textContent = "Entrenamiento en curso…";
+    } else if (data.custom_active) {
+      $("#teachHint").textContent = "Forense analiza con el modelo entrenado de tu faena.";
+    }
+    const link = $("#teachOpenVigi");
+    if (link && data.vigiepp_teach_url) link.href = data.vigiepp_teach_url;
+  } catch {
+  /* Teach opcional si backend compartido no está */
+  }
+}
+
 async function loadKnowledge() {
   const data = await api("/api/forense/knowledge");
   situationTypesCache = data.situation_types || {};
@@ -154,6 +195,7 @@ async function checkSession() {
       authGate.classList.add("hidden");
       app.classList.remove("hidden");
       await loadTemplates();
+      await loadTeachStatus();
       await loadKnowledge();
       await refreshJobs();
       return;
@@ -187,6 +229,56 @@ $("#btnResetForm")?.addEventListener("click", () => {
   $("#uploadForm")?.reset();
   applyTemplateDefaults($("#caseTemplate").value || "general");
   $("#uploadHint")?.classList.add("hidden");
+});
+
+$("#btnTeachActivate")?.addEventListener("click", async () => {
+  $("#teachHint").textContent = "Activando modelo…";
+  try {
+    const res = await api("/api/forense/teach/activate", { method: "POST" });
+    $("#teachHint").textContent = res.message || "Modelo activado.";
+    await loadTeachStatus();
+  } catch (err) {
+    $("#teachHint").textContent = err.message;
+  }
+});
+
+$("#btnTeachTrain")?.addEventListener("click", async () => {
+  if (!confirm("¿Iniciar entrenamiento YOLO con las fotos de Teach? Puede tardar varios minutos.")) return;
+  $("#teachHint").textContent = "Iniciando entrenamiento…";
+  try {
+    const res = await api("/api/forense/teach/train", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ epochs: 40 }),
+    });
+    $("#teachHint").textContent = res.message || "Entrenamiento iniciado.";
+    await loadTeachStatus();
+  } catch (err) {
+    $("#teachHint").textContent = err.message;
+  }
+});
+
+$("#btnKeyframeTeach")?.addEventListener("click", async () => {
+  if (!currentJobId || !selectedKeyframeName) {
+    alert("Seleccioná una captura clave primero (clic en la imagen).");
+    return;
+  }
+  const classId = $("#teachClassPick")?.value;
+  if (!classId) {
+    alert("Elegí una clase Teach.");
+    return;
+  }
+  try {
+    const res = await api(`/api/forense/jobs/${currentJobId}/teach`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ keyframe_name: selectedKeyframeName, class_id: classId }),
+    });
+    $("#teachHint").textContent = res.message || "Captura enviada a Teach.";
+    await loadTeachStatus();
+  } catch (err) {
+    alert(err.message);
+  }
 });
 
 $("#btnResetKnowledge")?.addEventListener("click", async () => {
@@ -453,12 +545,14 @@ async function loadJob(id, quiet = false) {
 
   const kf = $("#keyframes");
   kf.innerHTML = "";
+  selectedKeyframeName = null;
+  $("#btnKeyframeTeach")?.setAttribute("disabled", "disabled");
   for (const frame of j.analysis?.keyframes || []) {
     if (!frame.image) continue;
     const wrap = document.createElement("button");
     wrap.type = "button";
     wrap.className = "keyframe-btn";
-    wrap.title = "Clic para guardar en biblioteca: " + (frame.events || []).join("; ");
+    wrap.title = "Clic: seleccionar · doble clic: guardar en biblioteca";
     const img = document.createElement("img");
     img.src = `/api/forense/jobs/${id}/keyframes/${frame.image}`;
     img.alt = frame.time_label;
@@ -467,7 +561,13 @@ async function loadJob(id, quiet = false) {
     cap.className = "small muted";
     cap.textContent = frame.time_label;
     wrap.appendChild(cap);
-    wrap.onclick = () => promoteKeyframe(id, frame.image, frame.time_label);
+    wrap.onclick = () => {
+      kf.querySelectorAll(".keyframe-btn").forEach((b) => b.classList.remove("selected"));
+      wrap.classList.add("selected");
+      selectedKeyframeName = frame.image;
+      $("#btnKeyframeTeach")?.removeAttribute("disabled");
+    };
+    wrap.ondblclick = () => promoteKeyframe(id, frame.image, frame.time_label);
     kf.appendChild(wrap);
   }
 
