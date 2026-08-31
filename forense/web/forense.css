@@ -40,6 +40,8 @@ textarea { resize: vertical; min-height: 4rem; font-family: inherit; }
 .knowledge-matches { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.5rem; }
 .knowledge-matches li { padding: 0.5rem 0.65rem; background: rgba(61, 139, 253, 0.1); border-left: 3px solid var(--accent); border-radius: 0 6px 6px 0; }
 .timeline .knowledge-ev { border-color: #b794f4; background: rgba(183, 148, 244, 0.12); }
+.timeline .knowledge-conj { border-color: #f0b429; background: rgba(240, 180, 41, 0.1); }
+.kn-thumb-broken { opacity: 0.35; background: var(--bg); }
 .job-head-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
 .keyframe-btn { background: none; border: none; padding: 0; cursor: pointer; text-align: left; color: inherit; }
 .keyframe-btn img { width: 180px; border-radius: 8px; border: 1px solid var(--border); display: block; }
