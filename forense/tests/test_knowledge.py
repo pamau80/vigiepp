@@ -49,6 +49,8 @@ def test_create_and_match_knowledge():
 
     job = {
         "id": "job1",
+        "title": "Near miss montacargas",
+        "case_notes": "Operador cruzó sin mirar en pasillo de bodega",
         "template_id": "bodega",
         "analysis": {
             "timeline": [
@@ -77,7 +79,8 @@ def test_text_only_knowledge_match():
     )
     job = {
         "id": "job2",
-        "title": "Análisis patio portuario",
+        "title": "Maniobra imprudente patio portuario",
+        "case_notes": "grua de bajo tonelaje sortea entre gruas con bobina en muelle",
         "template_id": "portuario",
         "site": "Muelle",
         "analysis": {"timeline": [], "keyframes": []},
@@ -86,6 +89,59 @@ def test_text_only_knowledge_match():
     matches = match_knowledge_for_job(job)
     assert len(matches) >= 1
     assert matches[0]["title"] == "maniobra imprudente"
+
+
+def test_generic_port_job_rejects_crane_hallucination():
+    """Título genérico + video distinto no debe forzar coincidencias de grúas."""
+    create_knowledge(
+        title="maniobra imprudente",
+        situation_type="unsafe_act",
+        description="grua de bajo tonelaje sortea entre gruas de alto tonelaje con bobina",
+        industry="portuario",
+        source="user",
+        source_id="test-crane-user",
+    )
+    create_knowledge(
+        title="Acto inseguro camión basura",
+        situation_type="unsafe_act",
+        description="conductor camión retira basura LXHW32 sin señalizar",
+        industry="portuario",
+        source="seed",
+        source_id="test-truck-seed",
+    )
+    job = {
+        "id": "job-garbage",
+        "title": "Análisis forense",
+        "site": "Faena",
+        "template_id": "portuario",
+        "analysis": {"timeline": [], "keyframes": []},
+        "sources": [{"path": "/nonexistent/garbage.avi"}],
+    }
+    matches = match_knowledge_for_job(job)
+    strong = [m for m in matches if not m.get("conjecture")]
+    assert not any("grua" in (m.get("title") or "").lower() or "grúa" in (m.get("title") or "").lower() for m in strong)
+
+
+def test_case_notes_improves_truck_match():
+    create_knowledge(
+        title="Acto inseguro camión retira basura",
+        situation_type="unsafe_act",
+        description="conductor camión recolector LXHW32 retira basura sin señalizar en patio",
+        industry="portuario",
+        source="seed",
+        source_id="test-truck-match",
+    )
+    job = {
+        "id": "job2",
+        "title": "Near-miss patio",
+        "case_notes": "ACCION INSEGURA CONDUCTOR CAMION RETIRA BASURA LXHW32",
+        "template_id": "portuario",
+        "analysis": {"timeline": [], "keyframes": []},
+        "sources": [],
+    }
+    matches = match_knowledge_for_job(job)
+    assert len(matches) >= 1
+    assert "basura" in (matches[0].get("title") or "").lower() or "camión" in (matches[0].get("title") or "").lower()
 
 
 def test_reset_knowledge():
