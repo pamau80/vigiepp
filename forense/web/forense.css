@@ -44,7 +44,11 @@ textarea { resize: vertical; min-height: 4rem; font-family: inherit; }
 .keyframe-btn { background: none; border: none; padding: 0; cursor: pointer; text-align: left; color: inherit; }
 .keyframe-btn img { width: 180px; border-radius: 8px; border: 1px solid var(--border); display: block; }
 .keyframe-btn:hover img { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(61, 139, 253, 0.25); }
-.keyframe-btn span { display: block; margin-top: 0.25rem; }
+.teach-panel { margin-bottom: 1rem; }
+.teach-panel-title { margin: 0 0 0.5rem; font-size: 0.95rem; }
+.teach-link { display: inline-block; margin: 0.35rem 0; font-size: 0.85rem; }
+.keyframe-actions { margin-bottom: 0.5rem; }
+.keyframe-btn.selected { outline: 2px solid var(--accent); border-radius: 8px; }
 .template-hint { margin: -0.5rem 0 0.5rem; font-size: 0.82rem; }
 .comparison-text { font-size: 0.92rem; line-height: 1.45; }
 #speedChart { width: 100%; max-width: 720px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }

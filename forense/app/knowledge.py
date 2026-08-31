@@ -14,6 +14,7 @@ import cv2
 import numpy as np
 
 from .config import KNOWLEDGE_DIR, ensure_dirs
+from .vision_embed import cosine_similarity, embed_image_bgr
 
 logger = logging.getLogger("vigiepp.forense.knowledge")
 
@@ -62,21 +63,12 @@ def _media_path(entry_id: str, media_type: str) -> Path:
     return _entry_dir(entry_id) / f"media{ext}"
 
 
-def _histogram_signature(image_bgr: np.ndarray) -> list[float]:
-    hsv = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
-    hist = cv2.calcHist([hsv], [0, 1], None, [16, 16], [0, 180, 0, 256])
-    cv2.normalize(hist, hist)
-    return hist.flatten().tolist()
+def _signature_from_image(image_bgr: np.ndarray) -> tuple[list[float], str]:
+    return embed_image_bgr(image_bgr)
 
 
-def _histogram_similarity(a: list[float], b: list[float]) -> float:
-    if not a or not b or len(a) != len(b):
-        return 0.0
-    va, vb = np.array(a, dtype=np.float32), np.array(b, dtype=np.float32)
-    denom = float(np.linalg.norm(va) * np.linalg.norm(vb))
-    if denom <= 1e-9:
-        return 0.0
-    return float(np.clip(np.dot(va, vb) / denom, 0.0, 1.0))
+def _similarity(a: list[float], b: list[float]) -> float:
+    return cosine_similarity(a, b)
 
 
 def _extract_video_thumb(video_bytes: bytes, out_path: Path) -> bool:
@@ -148,6 +140,7 @@ def create_knowledge(
     st = situation_type if situation_type in SITUATION_TYPES else "other"
     media_type = "none"
     signature: list[float] = []
+    embedding_backend = "none"
 
     entry_dir = _entry_dir(entry_id)
     entry_dir.mkdir(parents=True, exist_ok=True)
@@ -162,7 +155,7 @@ def create_knowledge(
             if _extract_video_thumb(media_bytes, thumb):
                 img = cv2.imread(str(thumb))
                 if img is not None:
-                    signature = _histogram_signature(img)
+                    signature, embedding_backend = _signature_from_image(img)
         else:
             media_type = "image"
             media_path = _media_path(entry_id, "image")
@@ -172,7 +165,7 @@ def create_knowledge(
             img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
             if img is not None:
                 cv2.imwrite(str(thumb), img, [int(cv2.IMWRITE_JPEG_QUALITY), 82])
-                signature = _histogram_signature(img)
+                signature, embedding_backend = _signature_from_image(img)
 
     entry = {
         "id": entry_id,
@@ -186,6 +179,7 @@ def create_knowledge(
         "media_type": media_type,
         "has_thumb": _thumb_path(entry_id).is_file(),
         "signature": signature,
+        "embedding_backend": embedding_backend,
         "from_job_id": from_job_id,
         "created_at": datetime.now(UTC).isoformat(),
     }
@@ -283,7 +277,7 @@ def match_knowledge_for_job(job: dict[str, Any], *, limit: int = 5) -> list[dict
             if kp and kp.is_file():
                 img = cv2.imread(str(kp))
                 if img is not None:
-                    job_signature = _histogram_signature(img)
+                    job_signature, _ = _signature_from_image(img)
 
     scored: list[tuple[float, dict[str, Any]]] = []
     for entry in entries:
@@ -316,10 +310,10 @@ def match_knowledge_for_job(job: dict[str, Any], *, limit: int = 5) -> list[dict
             reasons.append(f"tipo {entry.get('situation_label', st)}")
 
         if job_signature and entry.get("signature"):
-            sim = _histogram_similarity(job_signature, entry["signature"])
-            score += sim * 0.25
-            if sim > 0.55:
-                reasons.append(f"similitud visual {sim:.0%}")
+            sim = _similarity(job_signature, entry["signature"])
+            score += sim * 0.3
+            if sim > 0.72:
+                reasons.append(f"similitud visual {sim:.0%} ({entry.get('embedding_backend', 'hist')})")
 
         if score >= 0.28:
             scored.append(

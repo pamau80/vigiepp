@@ -128,6 +128,13 @@ def run_analysis(
     frame_w, frame_h = 0, 0
     total = len(samples)
 
+    try:
+        from .teach_bridge import ensure_custom_model_if_available
+
+        ensure_custom_model_if_available()
+    except Exception:
+        logger.debug("Teach bridge no disponible", exc_info=True)
+
     for i, sample in enumerate(samples):
         if progress_cb:
             pct = int(progress_base + (progress_span * (i + 1) / max(total, 1)))
