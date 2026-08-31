@@ -28,6 +28,7 @@ def analyze_frame(
     source_id: str,
     profile: str = DEFAULT_PROFILE,
     meters_per_pixel: float = 0.045,
+    imgsz: int = 320,
 ) -> dict[str, Any]:
     """Ejecuta detección + compliance + zonas + acciones sobre un frame."""
     from app import actions as actions_mod
@@ -36,7 +37,7 @@ def analyze_frame(
 
     h, w = frame_bgr.shape[:2]
     det = PPEDetector.get()
-    detections, _ = det.predict(frame_bgr, annotate=False, imgsz=256)
+    detections, _ = det.predict(frame_bgr, annotate=False, imgsz=imgsz)
 
     settings = actions_mod.get_settings()
     settings["meters_per_pixel"] = meters_per_pixel
@@ -117,6 +118,7 @@ def run_analysis(
     progress_cb: Callable[[int, str], None] | None = None,
     progress_base: int = 10,
     progress_span: int = 75,
+    imgsz: int = 320,
 ) -> dict[str, Any]:
     suffix = f":{source_suffix}" if source_suffix else ""
     source_id = f"forense:{job_id}{suffix}"
@@ -125,6 +127,13 @@ def run_analysis(
     tracker = IoUTracker()
     frame_w, frame_h = 0, 0
     total = len(samples)
+
+    try:
+        from .teach_bridge import ensure_custom_model_if_available
+
+        ensure_custom_model_if_available()
+    except Exception:
+        logger.debug("Teach bridge no disponible", exc_info=True)
 
     for i, sample in enumerate(samples):
         if progress_cb:
@@ -137,6 +146,7 @@ def run_analysis(
                 source_id=source_id,
                 profile=profile,
                 meters_per_pixel=meters_per_pixel,
+                imgsz=imgsz,
             )
             frame_w = max(frame_w, int(result.get("frame_w") or 0))
             frame_h = max(frame_h, int(result.get("frame_h") or 0))

@@ -29,9 +29,16 @@
     </header>
 
     <aside class="sidebar">
-      <h2>Nuevo análisis</h2>
+      <div class="sidebar-head">
+        <h2>Nuevo análisis</h2>
+        <div class="btn-row compact">
+          <button type="button" class="btn secondary" id="btnNewCase">Nuevo</button>
+          <button type="button" class="btn ghost" id="btnResetForm">Limpiar</button>
+        </div>
+      </div>
       <form id="uploadForm" class="card">
-        <label>Título del caso<input type="text" id="caseTitle" placeholder="Near-miss patio bodega" /></label>
+        <label>Título del caso<input type="text" id="caseTitle" placeholder="Acto inseguro camión basura LXHW32" /></label>
+        <label>Descripción de lo ocurrido<textarea id="caseNotes" rows="2" placeholder="Ej.: conductor camión retira basura sin señalizar, invade zona peatonal…"></textarea></label>
         <label>Faena / sitio<input type="text" id="caseSite" placeholder="Faena principal" /></label>
         <label>Plantilla industria
           <select id="caseTemplate"></select>
@@ -49,26 +56,77 @@
         <label>Trabajo referencia (escenario seguro)
           <select id="caseReference"><option value="">— Sin referencia —</option></select>
         </label>
-        <button type="submit" class="btn primary">Iniciar análisis</button>
+        <button type="submit" class="btn primary" id="btnStartAnalysis">Iniciar análisis</button>
       </form>
+      <p class="upload-hint hidden" id="uploadHint"></p>
+
+      <section class="card teach-panel" id="teachPanel">
+        <h3 class="teach-panel-title">Motor Teach (tu faena)</h3>
+        <p class="muted small" id="teachModelLine">Modelo base</p>
+        <p class="muted small" id="teachSamplesLine">0 ejemplos en dataset</p>
+        <div class="btn-row compact">
+          <button type="button" class="btn secondary" id="btnTeachActivate" disabled>Activar modelo custom</button>
+          <button type="button" class="btn ghost" id="btnTeachTrain" disabled>Entrenar</button>
+        </div>
+        <a class="btn ghost small teach-link" id="teachOpenVigi" href="http://127.0.0.1:8000/" target="_blank" rel="noopener">Abrir Teach en VigiEPP</a>
+        <p class="hint" id="teachHint">Cargá fotos de tu EPP y maquinaria en VigiEPP → Teach. Forense usará ese modelo automáticamente.</p>
+        <label class="small">Clase para enviar capturas<select id="teachClassPick"></select></label>
+      </section>
+
+      <div class="sidebar-head">
+        <h2>Biblioteca de aprendizaje</h2>
+        <p class="muted small" id="knowledgeStats">0 situaciones</p>
+      </div>
+      <form id="knowledgeForm" class="card knowledge-form">
+        <label>Título de la situación<input type="text" id="knTitle" placeholder="Acá ocurrió near-miss montacargas" required /></label>
+        <label>Tipo de incidente<select id="knSituationType"></select></label>
+        <label>Industria<select id="knIndustry"></select></label>
+        <label>¿Qué ocurrió?<textarea id="knDescription" rows="3" placeholder="Describí qué pasó en este punto del video o imagen…"></textarea></label>
+        <label>Imagen o video de referencia<input type="file" id="knMedia" accept="image/*,video/*" /></label>
+        <button type="submit" class="btn secondary">Agregar a biblioteca</button>
+        <p class="hint" id="knowledgeHint"></p>
+      </form>
+      <ul id="knowledgeList" class="knowledge-list"></ul>
+      <section class="card knowledge-import">
+        <h3 class="import-title">Enriquecer biblioteca</h3>
+        <p class="muted small">Plantillas curadas (iSafety, HFACS, BBS) y casos OSHA reales.</p>
+        <div class="import-actions">
+          <button type="button" class="btn secondary small" id="btnImportSeeds">Cargar plantillas</button>
+          <button type="button" class="btn secondary small" id="btnImportOshaPort">OSHA grúas / puerto</button>
+          <button type="button" class="btn secondary small" id="btnImportOshaBodega">OSHA montacargas</button>
+          <button type="button" class="btn secondary small" id="btnImportOshaAll">OSHA paquete completo</button>
+        </div>
+        <p class="hint" id="importHint"></p>
+      </section>
+      <button type="button" class="btn ghost danger" id="btnResetKnowledge">Resetear biblioteca</button>
+
       <h2>Trabajos</h2>
       <ul id="jobList" class="job-list"></ul>
     </aside>
 
     <main class="main">
       <div id="emptyState" class="empty">
-        <p>Subí un video de incidente o seleccioná un trabajo de la lista.</p>
+        <p>Subí un video de incidente, enseñá situaciones a la biblioteca, o seleccioná un trabajo.</p>
         <p class="disclaimer">Informe generado por IA. No constituye peritaje legal.</p>
       </div>
       <div id="jobView" class="job-view hidden">
         <header class="job-head">
-          <h2 id="jobTitle">—</h2>
-          <p id="jobMeta" class="muted"></p>
+          <div class="job-head-row">
+            <div>
+              <h2 id="jobTitle">—</h2>
+              <p id="jobMeta" class="muted"></p>
+            </div>
+            <button type="button" class="btn ghost danger" id="btnDeleteJob">Eliminar trabajo</button>
+          </div>
           <div class="progress-wrap hidden" id="progressWrap">
             <div class="progress-bar"><div id="progressBar"></div></div>
             <p id="progressText" class="muted"></p>
           </div>
         </header>
+        <section class="card hidden" id="knowledgeSection">
+          <h3>Coincidencias con biblioteca de aprendizaje</h3>
+          <ul id="knowledgeMatches" class="knowledge-matches"></ul>
+        </section>
         <section class="card hidden" id="comparisonSection">
           <h3>Comparación vs escenario de referencia</h3>
           <p id="comparisonText" class="comparison-text"></p>
@@ -95,7 +153,10 @@
           <ul id="timeline" class="timeline"></ul>
         </section>
         <section class="card">
-          <h3>Capturas clave</h3>
+          <h3>Capturas clave <span class="muted small">— clic: biblioteca · Teach: clase + botón</span></h3>
+          <div class="keyframe-actions">
+            <button type="button" class="btn ghost small" id="btnKeyframeTeach" disabled>Enviar captura a Teach</button>
+          </div>
           <div id="keyframes" class="keyframes"></div>
         </section>
         <section class="card">

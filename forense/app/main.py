@@ -15,6 +15,7 @@ from .config import (
     DEFAULT_MAX_MACHINERY_KMH,
     DEFAULT_MAX_PERSON_KMH,
     DEFAULT_MIN_DISTANCE_M,
+    DOL_API_KEY,
     MAX_UPLOAD_MB,
     ROOT,
     WEB_DIR,
@@ -32,7 +33,25 @@ from .jobs import (
     list_jobs,
     report_pdf_path,
 )
+from .knowledge import (
+    SITUATION_TYPES,
+    create_knowledge,
+    delete_knowledge,
+    get_knowledge,
+    knowledge_stats,
+    list_knowledge,
+    promote_job_keyframe,
+    reset_knowledge,
+)
+from .knowledge_import import import_osha, import_seeds, list_import_catalog
 from .license import license_status, verify_license
+from .teach_bridge import (
+    activate_custom_model,
+    ensure_custom_model_if_available,
+    promote_keyframe_to_teach,
+    start_training,
+    teach_status,
+)
 from .templates import list_templates
 
 logging.basicConfig(level=logging.INFO)
@@ -144,6 +163,7 @@ async def jobs_create(
     video3: UploadFile | None = File(None),
     title: str = Form(""),
     site: str = Form(""),
+    case_notes: str = Form(""),
     template_id: str = Form("general"),
     profile: str = Form(""),
     meters_per_pixel: float | None = Form(None),
@@ -175,6 +195,7 @@ async def jobs_create(
         filename=primary["filename"] or "video.mp4",
         title=title,
         site=site,
+        case_notes=case_notes,
         template_id=template_id,
         profile=profile or None,
         meters_per_pixel=max(0.01, min(0.5, meters_per_pixel)) if meters_per_pixel is not None else None,
@@ -193,6 +214,7 @@ def _job_payload(job: dict) -> dict:
         "id": job["id"],
         "title": job.get("title"),
         "site": job.get("site"),
+        "case_notes": job.get("case_notes"),
         "status": job.get("status"),
         "progress": job.get("progress"),
         "progress_message": job.get("progress_message"),
@@ -213,6 +235,7 @@ def _job_payload(job: dict) -> dict:
         "has_bundle": case_bundle_path(job["id"]) is not None,
         "has_committee": committee_md_path(job["id"]) is not None,
         "ehs_push": job.get("ehs_push"),
+        "knowledge": job.get("knowledge"),
     }
 
 
@@ -323,11 +346,234 @@ def jobs_delete(job_id: str, request: Request) -> dict:
     return {"ok": True}
 
 
+class KnowledgeBody(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    situation_type: str = Field("other", max_length=64)
+    description: str = Field("", max_length=4000)
+    industry: str = Field("general", max_length=64)
+    labels: str = Field("", max_length=500)
+    event_types: str = Field("", max_length=500)
+
+
+class KnowledgeResetBody(BaseModel):
+    confirm: str = Field(..., min_length=1)
+
+
+class PromoteKnowledgeBody(BaseModel):
+    keyframe_name: str = Field(..., min_length=1)
+    title: str = Field(..., min_length=1, max_length=200)
+    situation_type: str = Field("other", max_length=64)
+    description: str = Field("", max_length=4000)
+
+
+@app.get("/api/forense/knowledge")
+def knowledge_list(request: Request, industry: str | None = None) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    return {
+        "ok": True,
+        "entries": list_knowledge(industry=industry),
+        "stats": knowledge_stats(),
+        "situation_types": SITUATION_TYPES,
+    }
+
+
+@app.post("/api/forense/knowledge")
+async def knowledge_create(
+    request: Request,
+    title: str = Form(...),
+    situation_type: str = Form("other"),
+    description: str = Form(""),
+    industry: str = Form("general"),
+    labels: str = Form(""),
+    event_types: str = Form(""),
+    media: UploadFile | None = File(None),
+) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    media_bytes = None
+    media_filename = None
+    if media and media.filename:
+        media_bytes = await media.read()
+        media_filename = media.filename
+    label_list = [x.strip() for x in labels.split(",") if x.strip()]
+    event_list = [x.strip() for x in event_types.split(",") if x.strip()]
+    entry = create_knowledge(
+        title=title,
+        situation_type=situation_type,
+        description=description,
+        industry=industry,
+        labels=label_list,
+        event_types=event_list,
+        media_bytes=media_bytes,
+        media_filename=media_filename,
+    )
+    return {"ok": True, "entry": entry}
+
+
+@app.delete("/api/forense/knowledge/{entry_id}")
+def knowledge_delete(entry_id: str, request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    if not delete_knowledge(entry_id):
+        raise HTTPException(404, "Situación no encontrada")
+    return {"ok": True}
+
+
+@app.post("/api/forense/knowledge/reset")
+def knowledge_reset(body: KnowledgeResetBody, request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    if body.confirm.strip().upper() != "RESETEAR":
+        raise HTTPException(400, "Escribí RESETEAR para confirmar")
+    removed = reset_knowledge()
+    return {"ok": True, "removed": removed}
+
+
+class KnowledgeImportSeedsBody(BaseModel):
+    pack_id: str | None = None
+    industry: str | None = None
+    limit: int | None = Field(None, ge=1, le=200)
+    skip_existing: bool = True
+
+
+class KnowledgeImportOshaBody(BaseModel):
+    keywords: list[str] = Field(default_factory=lambda: ["CRANE", "HOIST", "MARITIME"])
+    limit_per_keyword: int = Field(10, ge=1, le=50)
+    default_industry: str = "portuario"
+    fatality_only: bool = False
+    skip_existing: bool = True
+
+
+@app.get("/api/forense/knowledge/import/catalog")
+def knowledge_import_catalog(request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    return {
+        "ok": True,
+        "catalog": list_import_catalog(),
+        "dol_api_configured": bool(DOL_API_KEY),
+    }
+
+
+@app.post("/api/forense/knowledge/import/seeds")
+def knowledge_import_seeds(body: KnowledgeImportSeedsBody, request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    result = import_seeds(
+        pack_id=body.pack_id,
+        industry=body.industry,
+        limit=body.limit,
+        skip_existing=body.skip_existing,
+    )
+    return {"ok": True, **result, "stats": knowledge_stats()}
+
+
+@app.post("/api/forense/knowledge/import/osha")
+def knowledge_import_osha(body: KnowledgeImportOshaBody, request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    result = import_osha(
+        keywords=body.keywords,
+        limit_per_keyword=body.limit_per_keyword,
+        default_industry=body.default_industry,
+        fatality_only=body.fatality_only,
+        skip_existing=body.skip_existing,
+        dol_api_key=DOL_API_KEY or None,
+    )
+    return {"ok": True, **result, "stats": knowledge_stats()}
+
+
+@app.get("/api/forense/knowledge/{entry_id}/thumb.jpg")
+def knowledge_thumb(entry_id: str, request: Request) -> FileResponse:
+    _require_license()
+    require_forense_admin(request)
+    from .config import KNOWLEDGE_DIR
+
+    path = KNOWLEDGE_DIR / entry_id / "thumb.jpg"
+    if not path.is_file():
+        raise HTTPException(404, "Miniatura no disponible")
+    return FileResponse(path, media_type="image/jpeg")
+
+
+@app.post("/api/forense/jobs/{job_id}/knowledge")
+def knowledge_promote_from_job(job_id: str, body: PromoteKnowledgeBody, request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(404, "Trabajo no encontrado")
+    entry = promote_job_keyframe(
+        job,
+        keyframe_name=body.keyframe_name,
+        title=body.title,
+        situation_type=body.situation_type,
+        description=body.description,
+    )
+    if not entry:
+        raise HTTPException(400, "No se pudo guardar la captura en la biblioteca")
+    return {"ok": True, "entry": entry}
+
+
+class PromoteTeachBody(BaseModel):
+    keyframe_name: str = Field(..., min_length=1)
+    class_id: str = Field(..., min_length=1)
+
+
+class TrainTeachBody(BaseModel):
+    epochs: int = Field(40, ge=10, le=120)
+
+
+@app.get("/api/forense/teach/status")
+def forense_teach_status(request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    return {"ok": True, **teach_status()}
+
+
+@app.post("/api/forense/teach/activate")
+def forense_teach_activate(request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    result = activate_custom_model()
+    if not result.get("ok"):
+        raise HTTPException(400, result.get("error", "Modelo no disponible"))
+    return {"ok": True, **result}
+
+
+@app.post("/api/forense/teach/train")
+def forense_teach_train(body: TrainTeachBody, request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    result = start_training(epochs=body.epochs)
+    if not result.get("ok"):
+        raise HTTPException(400, result.get("error", "No se pudo iniciar entrenamiento"))
+    return {"ok": True, **result}
+
+
+@app.post("/api/forense/jobs/{job_id}/teach")
+def forense_promote_teach(job_id: str, body: PromoteTeachBody, request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    if not get_job(job_id):
+        raise HTTPException(404, "Trabajo no encontrado")
+    result = promote_keyframe_to_teach(job_id, body.keyframe_name, body.class_id)
+    if not result.get("ok"):
+        raise HTTPException(400, result.get("error", "No se pudo enviar a Teach"))
+    return {"ok": True, **result}
+
+
 @app.on_event("startup")
 def startup() -> None:
     ensure_dirs()
     ok, detail = verify_license()
     logger.info("VigiEPP Forense %s — licencia: %s (%s)", BUILD, ok, detail)
+    try:
+        loaded = ensure_custom_model_if_available()
+        if loaded.get("ok"):
+            logger.info("Modelo Teach activo: %s", loaded.get("model"))
+    except Exception as exc:
+        logger.info("Forense arranca con modelo base (Teach: %s)", exc)
 
 
 @app.get("/", response_class=HTMLResponse)

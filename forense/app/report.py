@@ -66,6 +66,7 @@ def build_report_markdown(job: dict[str, Any]) -> str:
     timeline = analysis.get("timeline") or []
     kin = analysis.get("kinematics") or {}
     comp = job.get("comparison") or {}
+    knowledge = job.get("knowledge") or {}
     tpl_name = job.get("template_name") or "General"
     title = job.get("title") or "Incidente sin título"
     site = job.get("site") or "Faena"
@@ -104,6 +105,10 @@ Se detectaron **{analysis.get('event_count', 0)} eventos** relevantes.
 ## 2. Comparación vs escenario de referencia
 
 {_section_comparison(comp)}
+
+## 2b. Coincidencias con biblioteca de situaciones
+
+{_section_knowledge(knowledge)}
 
 ## 3. Cinemática y velocidades
 
@@ -166,7 +171,36 @@ def _narrative_block(job: dict[str, Any]) -> str:
         parts.append("- Posible factor: tránsito por zona no autorizada o de riesgo.")
     if comp.get("available"):
         parts.append("- Posible factor: desviación respecto al escenario de referencia analizado.")
+    knowledge = job.get("knowledge") or {}
+    for m in (knowledge.get("matches") or [])[:3]:
+        parts.append(
+            f"- Posible factor (biblioteca): patrón «{m.get('title')}» — {m.get('description') or m.get('situation_label')}."
+        )
     return "\n".join(parts) if parts else "_Revisar secuencia cronológica manualmente._"
+
+
+def _section_knowledge(knowledge: dict[str, Any]) -> str:
+    matches = knowledge.get("matches") or []
+    if not matches:
+        return "_Sin coincidencias en la biblioteca de situaciones etiquetadas._\n"
+    lines = [
+        f"Se encontraron **{len(matches)}** situaciones similares en la biblioteca de aprendizaje:",
+        "",
+    ]
+    for m in matches:
+        reasons = ", ".join(m.get("reasons") or [])
+        lines.append(
+            f"- **{m.get('title')}** ({m.get('situation_label')}) — confianza {m.get('confidence_pct', 0)}%"
+        )
+        if m.get("description"):
+            lines.append(f"  - _{m.get('description')}_")
+        if reasons:
+            lines.append(f"  - Motivos: {reasons}")
+    boosted = knowledge.get("boosted_events") or 0
+    conjectures = knowledge.get("conjectures") or 0
+    if conjectures:
+        lines.append(f"\n_{conjectures} conjetura(s) de aprendizaje (similitud parcial)._")
+    return "\n".join(lines) + "\n"
 
 
 def _section_comparison(comp: dict[str, Any]) -> str:
@@ -203,6 +237,14 @@ def maybe_enrich_with_llm(job: dict[str, Any]) -> str | None:
     if not api_key:
         return None
     timeline = (job.get("analysis") or {}).get("timeline") or []
+    knowledge_examples = [
+        {
+            "titulo": m.get("title"),
+            "tipo": m.get("situation_label"),
+            "descripcion": m.get("description"),
+        }
+        for m in (job.get("knowledge") or {}).get("matches") or []
+    ]
     payload = {
         "model": model,
         "messages": [
@@ -210,8 +252,9 @@ def maybe_enrich_with_llm(job: dict[str, Any]) -> str | None:
                 "role": "system",
                 "content": (
                     "Eres analista senior en prevención de riesgos industriales en Chile. "
-                    "Redactas hipótesis contribuyentes SOLO a partir del JSON de eventos. "
-                    "Usa condicional (podría, se observó). Nunca concluyas negligencia ni culpa legal."
+                    "Redactas hipótesis contribuyentes SOLO a partir del JSON de eventos y ejemplos "
+                    "de la biblioteca de situaciones. Usa condicional (podría, se observó). "
+                    "Nunca concluyas negligencia ni culpa legal."
                 ),
             },
             {
@@ -220,7 +263,9 @@ def maybe_enrich_with_llm(job: dict[str, Any]) -> str | None:
                     {
                         "titulo": job.get("title"),
                         "sitio": job.get("site"),
+                        "plantilla": job.get("template_name"),
                         "eventos": timeline[:120],
+                        "situaciones_similares": knowledge_examples[:5],
                     },
                     ensure_ascii=False,
                 ),
