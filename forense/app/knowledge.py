@@ -40,6 +40,25 @@ SITUATION_TYPES: dict[str, str] = {
 _INDEX_PATH = KNOWLEDGE_DIR / "index.json"
 _lock = __import__("threading").Lock()
 
+_STOPWORDS = {
+    "para", "con", "sin", "por", "del", "las", "los", "una", "uno", "que", "como",
+    "the", "and", "for", "with", "from", "this", "that", "were", "was", "are",
+    "analisis", "análisis", "forense", "faena", "sitio", "caso", "video", "near",
+    "miss", "patio", "principal", "general",
+}
+
+_DOMAIN_TERMS = {
+    "grua", "grúa", "crane", "spreader", "bobina", "contenedor", "montacargas",
+    "forklift", "reach", "stacker", "izaje", "estiba", "muelle", "portuario",
+    "camion", "camión", "truck", "basura", "residuo", "recolector", "lxhw32",
+    "andamio", "scaffold", "arnes", "arnés", "casco", "ppe", "soldadura",
+    "mineria", "mina", "pala", "retroexcavadora", "excavadora", "vehiculo",
+    "vehículo", "peaton", "peatón", "colision", "colisión", "atropello",
+}
+
+_MATCH_STRONG_MIN = 0.58
+_MATCH_CONJECTURE_MIN = 0.36
+
 
 def _load_index() -> list[dict[str, Any]]:
     ensure_dirs()
@@ -71,11 +90,39 @@ def _media_path(entry_id: str, media_type: str) -> Path:
 
 
 def _keyword_overlap(text_a: str, text_b: str) -> float:
-    wa = set(re.findall(r"[a-záéíóúñ0-9]+", (text_a or "").lower()))
-    wb = set(re.findall(r"[a-záéíóúñ0-9]+", (text_b or "").lower()))
+    wa = _significant_tokens(text_a)
+    wb = _significant_tokens(text_b)
     if not wa or not wb:
         return 0.0
     return len(wa & wb) / len(wa | wb)
+
+
+def _significant_tokens(text: str) -> set[str]:
+    words = set(re.findall(r"[a-záéíóúñ0-9]+", (text or "").lower()))
+    return {w for w in words if len(w) > 2 and w not in _STOPWORDS}
+
+
+def _domain_tokens(text: str) -> set[str]:
+    return _significant_tokens(text) & _DOMAIN_TERMS
+
+
+def _job_text_blob(job: dict[str, Any]) -> str:
+    timeline = (job.get("analysis") or {}).get("timeline") or []
+    detector_msgs = " ".join(
+        (e.get("message") or "")
+        for e in timeline[:30]
+        if e.get("type") not in ("knowledge_match", "knowledge_conjecture")
+    )
+    return " ".join(
+        x
+        for x in (
+            job.get("title"),
+            job.get("site"),
+            job.get("case_notes"),
+            detector_msgs,
+        )
+        if x
+    )
 
 
 def _entry_text_blob(entry: dict[str, Any]) -> str:
@@ -91,10 +138,57 @@ def _entry_text_blob(entry: dict[str, Any]) -> str:
     )
 
 
-def _job_text_blob(job: dict[str, Any]) -> str:
-    timeline = (job.get("analysis") or {}).get("timeline") or []
-    msgs = " ".join((e.get("message") or "") for e in timeline[:30])
-    return " ".join(x for x in (job.get("title"), job.get("site"), msgs) if x)
+def _classify_match_strength(
+    *,
+    score: float,
+    kw: float,
+    tsim: float,
+    vis: float,
+    job_tokens: set[str],
+    entry_tokens: set[str],
+    job_domain: set[str],
+    entry_domain: set[str],
+    entry: dict[str, Any],
+) -> tuple[str, list[str]]:
+    """Retorna ('match'|'conjecture'|'reject', reasons_adjusted)."""
+    reasons: list[str] = []
+    source = (entry.get("source") or "user").lower()
+    user_trained = source == "user"
+
+    if entry_domain and job_domain and not (entry_domain & job_domain):
+        if vis < 0.84 and not (user_trained and vis >= 0.62):
+            return "reject", ["contexto distinto (sin términos de situación en común)"]
+
+    if entry_domain and not job_domain and kw < 0.08:
+        if not (user_trained and vis >= 0.70):
+            return "reject", ["situación de biblioteca no relacionada con el caso descrito"]
+
+    if len(job_tokens) < 4 and not user_trained:
+        if vis < 0.78 and kw < 0.10:
+            return "reject", ["título del caso muy genérico — describí qué ocurrió"]
+
+    strong = False
+    if score >= _MATCH_STRONG_MIN:
+        if kw >= 0.14:
+            strong = True
+            reasons.append("texto del caso alineado")
+        elif user_trained and vis >= 0.62 and kw >= 0.05:
+            strong = True
+            reasons.append("entrenamiento propio + similitud visual")
+        elif vis >= 0.72 and (kw >= 0.06 or (entry_domain & job_domain)):
+            strong = True
+            reasons.append("video muy similar + contexto compatible")
+        elif tsim >= 0.84 and kw >= 0.08:
+            strong = True
+            reasons.append("semántica fuerte + palabras clave")
+
+    if strong:
+        return "match", reasons
+
+    if score >= _MATCH_CONJECTURE_MIN and (kw >= 0.08 or (entry_domain & job_domain)) and (kw >= 0.05 or vis >= 0.55 or tsim >= 0.72):
+        return "conjecture", ["similitud parcial — validar con el video"]
+
+    return "reject", []
 
 
 def _resize_and_save_thumb(img: np.ndarray, thumb: Path, max_w: int = 320) -> None:
@@ -460,9 +554,11 @@ def match_knowledge_for_job(job: dict[str, Any], *, limit: int = 5) -> list[dict
     entries = [_ensure_entry_embeddings(dict(e)) for e in raw_entries]
     template_id = (job.get("template_id") or "general").lower()
     timeline = (job.get("analysis") or {}).get("timeline") or []
-    job_types = {e.get("type") for e in timeline if e.get("type")}
+    job_types = {e.get("type") for e in timeline if e.get("type") and e.get("type") not in ("knowledge_match", "knowledge_conjecture")}
     job_labels = {e.get("severity") for e in timeline if e.get("severity")}
     job_text = _job_text_blob(job)
+    job_tokens = _significant_tokens(job_text)
+    job_domain = _domain_tokens(job_text)
     job_text_sig, _ = embed_text(job_text) if job_text else ([], "none")
     job_visual_sigs = _collect_job_visual_signatures(job)
 
@@ -471,67 +567,91 @@ def match_knowledge_for_job(job: dict[str, Any], *, limit: int = 5) -> list[dict
         score = 0.0
         reasons: list[str] = []
         entry_text = _entry_text_blob(entry)
+        entry_tokens = _significant_tokens(entry_text)
+        entry_domain = _domain_tokens(entry_text)
 
         entry_industry = (entry.get("industry") or "general").lower()
         if entry_industry == template_id:
-            score += 0.2
+            score += 0.06
             reasons.append("misma industria")
 
         kw = _keyword_overlap(job_text, entry_text)
         if kw > 0.05:
-            score += min(0.45, kw * 0.9)
+            score += min(0.42, kw * 1.1)
             reasons.append(f"texto relacionado ({kw:.0%})")
 
+        tsim = 0.0
         if job_text_sig and entry.get("text_signature"):
             tsim = _similarity(job_text_sig, entry["text_signature"])
-            score += tsim * 0.35
-            if tsim > 0.25:
+            clip_w = 0.18 if len(job_tokens) < 5 else 0.28
+            score += tsim * clip_w
+            if tsim > 0.30:
                 reasons.append(f"semántica CLIP {tsim:.0%}")
 
         entry_types = set(entry.get("event_types") or [])
         if entry_types and job_types:
             overlap = len(entry_types & job_types) / max(len(entry_types | job_types), 1)
-            score += overlap * 0.25
+            score += overlap * 0.15
             if overlap > 0:
                 reasons.append(f"eventos ({', '.join(sorted(entry_types & job_types))})")
 
         entry_labels = set(entry.get("labels") or [])
         if entry_labels and job_labels and (entry_labels & job_labels):
-            score += 0.08
-            reasons.append("severidad similar")
+            score += 0.05
 
-        entry_sigs = list(entry.get("frame_signatures") or [])
-        if entry.get("signature") and entry["signature"] not in entry_sigs:
-            entry_sigs.append(entry["signature"])
+        vis = 0.0
+        entry_sigs: list[list[float]] = []
+        if entry.get("media_type") in ("video", "image"):
+            entry_sigs = list(entry.get("frame_signatures") or [])
+            if entry.get("signature") and entry["signature"] not in entry_sigs:
+                entry_sigs.append(entry["signature"])
         if job_visual_sigs and entry_sigs:
             vis = max_visual_similarity(job_visual_sigs, entry_sigs)
-            score += vis * 0.45
-            if vis > 0.55:
+            score += vis * 0.38
+            if vis > 0.62:
                 reasons.append(f"video/imagen similar {vis:.0%}")
-            elif vis > 0.38:
+            elif vis > 0.48:
                 reasons.append(f"posible similitud visual {vis:.0%}")
 
-        if score >= 0.18:
-            conjecture = score < 0.42
-            scored.append(
-                (
-                    score,
-                    {
-                        "id": entry["id"],
-                        "title": entry.get("title"),
-                        "situation_type": entry.get("situation_type"),
-                        "situation_label": entry.get("situation_label"),
-                        "description": entry.get("description"),
-                        "industry": entry.get("industry"),
-                        "score": round(score, 3),
-                        "confidence_pct": int(min(99, max(15, score * 100))),
-                        "reasons": reasons,
-                        "has_thumb": entry.get("has_thumb"),
-                        "conjecture": conjecture,
-                        "reinforce_count": entry.get("reinforce_count", 0),
-                    },
-                )
+        if entry_domain and job_domain and not (entry_domain & job_domain) and vis < 0.80:
+            score -= 0.28
+
+        strength, extra_reasons = _classify_match_strength(
+            score=score,
+            kw=kw,
+            tsim=tsim,
+            vis=vis,
+            job_tokens=job_tokens,
+            entry_tokens=entry_tokens,
+            job_domain=job_domain,
+            entry_domain=entry_domain,
+            entry=entry,
+        )
+        if strength == "reject":
+            continue
+
+        conjecture = strength == "conjecture"
+        all_reasons = reasons + extra_reasons
+        scored.append(
+            (
+                score,
+                {
+                    "id": entry["id"],
+                    "title": entry.get("title"),
+                    "situation_type": entry.get("situation_type"),
+                    "situation_label": entry.get("situation_label"),
+                    "description": entry.get("description"),
+                    "industry": entry.get("industry"),
+                    "score": round(max(0.0, score), 3),
+                    "confidence_pct": int(min(99, max(12, score * 100))),
+                    "reasons": all_reasons,
+                    "has_thumb": entry.get("has_thumb"),
+                    "conjecture": conjecture,
+                    "match_strength": strength,
+                    "reinforce_count": entry.get("reinforce_count", 0),
+                },
             )
+        )
 
     scored.sort(key=lambda x: x[0], reverse=True)
     return [item for _, item in scored[:limit]]
@@ -549,19 +669,19 @@ def apply_knowledge_insights(job: dict[str, Any], matches: list[dict[str, Any]])
 
     for m in matches[:5]:
         score = m.get("score", 0)
-        is_conjecture = m.get("conjecture", score < 0.42)
-        if score < 0.18:
+        is_conjecture = m.get("conjecture", m.get("match_strength") == "conjecture")
+        if m.get("match_strength") == "reject" or score < _MATCH_CONJECTURE_MIN:
             continue
 
         if is_conjecture:
-            prefix = "Conjetura (aprendizaje)"
+            prefix = "Conjetura (revisar manualmente)"
             ev_type = "knowledge_conjecture"
             severity = "medium"
             conjectures += 1
         else:
             prefix = "Coincidencia entrenada"
             ev_type = "knowledge_match"
-            severity = "high" if score < 0.65 else "critical"
+            severity = "high" if score < 0.72 else "critical"
             boosted += 1
 
         timeline.append(
@@ -600,12 +720,14 @@ def reinforce_knowledge_from_job(job: dict[str, Any], matches: list[dict[str, An
         id_map = {e["id"]: i for i, e in enumerate(entries)}
 
         for m in matches:
-            if m.get("score", 0) < 0.22:
+            if m.get("score", 0) < 0.45 or m.get("match_strength") != "match":
                 continue
             idx = id_map.get(m.get("id"))
             if idx is None:
                 continue
             entry = entries[idx]
+            if entry.get("media_type") not in ("video", "image") and (entry.get("source") or "user") != "user":
+                continue
             frames = list(entry.get("frame_signatures") or [])
             if entry.get("signature"):
                 frames.append(entry["signature"])

@@ -47,6 +47,16 @@
           "event_types": ["action", "zone"]
         },
         {
+          "source_id": "seed:portuario:camion-basura-inseguro",
+          "title": "Acto inseguro conductor camión retira basura",
+          "situation_type": "unsafe_act",
+          "industry": "portuario",
+          "description": "Camión recolector (ej. patente LXHW32) realiza maniobra de retiro de basura sin señalizar, invade zona de tránsito o retrocede sin spotter. Riesgo de atropello y colisión con equipos o peatones en patio.",
+          "tags": ["camion", "basura", "residuo", "conductor", "acto inseguro"],
+          "labels": ["BBS", "iSafety"],
+          "event_types": ["action", "proximity"]
+        },
+        {
           "source_id": "seed:portuario:twistlock-manual",
           "title": "Enganche manual de twistlocks bajo contenedor",
           "situation_type": "unsafe_act",

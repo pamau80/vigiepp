@@ -569,6 +569,14 @@ async function loadJob(id, quiet = false) {
   knUl.innerHTML = "";
   if (knMatches.length) {
     knSec.classList.remove("hidden");
+    const strong = knMatches.filter((m) => !m.conjecture);
+    if (!strong.length && knMatches.length) {
+      const warn = document.createElement("p");
+      warn.className = "hint";
+      warn.textContent =
+        "Solo conjeturas débiles — no hay coincidencia confiable. Describí el caso en el título o enseñá esta situación a la biblioteca.";
+      knUl.appendChild(warn);
+    }
     for (const m of knMatches) {
       const li = document.createElement("li");
       const tag = m.conjecture ? "Conjetura" : "Coincidencia";
@@ -765,6 +773,7 @@ $("#uploadForm")?.addEventListener("submit", async (e) => {
   if (v3) fd.append("video3", v3);
   fd.append("title", $("#caseTitle").value);
   fd.append("site", $("#caseSite").value);
+  fd.append("case_notes", $("#caseNotes")?.value || "");
   fd.append("template_id", $("#caseTemplate").value);
   fd.append("meters_per_pixel", $("#caseMpp").value);
   fd.append("max_machinery_kmh", $("#caseMachKmh").value);
