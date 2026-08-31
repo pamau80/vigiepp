@@ -197,8 +197,9 @@ def _section_knowledge(knowledge: dict[str, Any]) -> str:
         if reasons:
             lines.append(f"  - Motivos: {reasons}")
     boosted = knowledge.get("boosted_events") or 0
-    if boosted:
-        lines.append(f"\n_{boosted} evento(s) enriquecido(s) por coincidencia con la biblioteca._")
+    conjectures = knowledge.get("conjectures") or 0
+    if conjectures:
+        lines.append(f"\n_{conjectures} conjetura(s) de aprendizaje (similitud parcial)._")
     return "\n".join(lines) + "\n"
 
 

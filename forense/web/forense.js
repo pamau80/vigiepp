@@ -160,24 +160,55 @@ async function loadKnowledge() {
   for (const e of data.entries || []) {
     const li = document.createElement("li");
     li.className = "knowledge-item";
-    const thumb = e.has_thumb
-      ? `<img src="/api/forense/knowledge/${e.id}/thumb.jpg" alt="" class="kn-thumb" />`
-      : `<span class="kn-thumb placeholder">📷</span>`;
-    li.innerHTML = `
-      ${thumb}
-      <div class="kn-body">
+    const thumbWrap = document.createElement("div");
+    thumbWrap.className = "kn-thumb-wrap";
+    if (e.has_thumb) {
+      const img = document.createElement("img");
+      img.alt = "";
+      img.className = "kn-thumb";
+      img.loading = "lazy";
+      loadKnowledgeThumb(e.id, img);
+      thumbWrap.appendChild(img);
+    } else {
+      thumbWrap.innerHTML = '<span class="kn-thumb placeholder">📷</span>';
+    }
+    const body = document.createElement("div");
+    body.className = "kn-body";
+    body.innerHTML = `
         <strong>${e.title}</strong>
-        <span class="muted small">${e.situation_label || e.situation_type} · ${e.industry}</span>
+        <span class="muted small">${e.situation_label || e.situation_type} · ${e.industry}${e.reinforce_count ? ` · ×${e.reinforce_count}` : ""}</span>
         <p class="small">${e.description || ""}</p>
-      </div>
-      <button type="button" class="btn ghost small" data-del="${e.id}">✕</button>
-    `;
-    li.querySelector("[data-del]")?.addEventListener("click", async () => {
+      `;
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "btn ghost small";
+    delBtn.textContent = "✕";
+    delBtn.onclick = async () => {
       if (!confirm(`¿Eliminar «${e.title}» de la biblioteca?`)) return;
       await api(`/api/forense/knowledge/${e.id}`, { method: "DELETE" });
       await loadKnowledge();
-    });
+    };
+    li.appendChild(thumbWrap);
+    li.appendChild(body);
+    li.appendChild(delBtn);
     ul.appendChild(li);
+  }
+}
+
+async function loadKnowledgeThumb(entryId, imgEl) {
+  try {
+    const token = sessionStorage.getItem("forense.token");
+    const headers = token ? { "X-VigiEPP-Key": token } : {};
+    const res = await fetch(`/api/forense/knowledge/${entryId}/thumb.jpg`, {
+      credentials: "include",
+      headers,
+    });
+    if (!res.ok) throw new Error("thumb");
+    const blob = await res.blob();
+    imgEl.src = URL.createObjectURL(blob);
+  } catch {
+    imgEl.classList.add("kn-thumb-broken");
+    imgEl.alt = "sin vista previa";
   }
 }
 
@@ -473,7 +504,8 @@ async function loadJob(id, quiet = false) {
     knSec.classList.remove("hidden");
     for (const m of knMatches) {
       const li = document.createElement("li");
-      li.innerHTML = `<strong>${m.title}</strong> (${m.situation_label}) — ${m.confidence_pct}% · ${(m.reasons || []).join(", ")}`;
+      const tag = m.conjecture ? "Conjetura" : "Coincidencia";
+      li.innerHTML = `<strong>${tag}: ${m.title}</strong> (${m.situation_label}) — ${m.confidence_pct}% · ${(m.reasons || []).join(", ")}`;
       if (m.description) {
         const p = document.createElement("p");
         p.className = "muted small";
@@ -534,7 +566,7 @@ async function loadJob(id, quiet = false) {
   tl.innerHTML = "";
   for (const ev of j.analysis?.timeline || []) {
     const li = document.createElement("li");
-    li.className = `sev-${ev.severity || "medium"}${ev.type === "knowledge_match" ? " knowledge-ev" : ""}`;
+    li.className = `sev-${ev.severity || "medium"}${ev.type === "knowledge_match" ? " knowledge-ev" : ""}${ev.type === "knowledge_conjecture" ? " knowledge-conj" : ""}`;
     const cam = ev.camera ? ` [${ev.camera}]` : "";
     li.textContent = `${ev.time_label}${cam} · ${ev.type}: ${ev.message}`;
     tl.appendChild(li);

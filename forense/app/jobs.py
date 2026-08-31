@@ -14,7 +14,7 @@ from typing import Any
 from .comparison import compare_jobs
 from .config import BUILD, JOBS_DIR, ensure_dirs
 from .export import committee_section, export_case_bundle, push_to_ehs
-from .knowledge import apply_knowledge_insights, match_knowledge_for_job
+from .knowledge import apply_knowledge_insights, match_knowledge_for_job, reinforce_knowledge_from_job
 from .multi_source import run_multi_source_analysis
 from .pdf_export import export_report_pdf
 from .report import build_report_markdown, maybe_enrich_with_llm
@@ -233,6 +233,9 @@ def _process_job(job_id: str) -> None:
         _set_progress(job_id, 90, "Consultando biblioteca de situaciones")
         knowledge_matches = match_knowledge_for_job(job)
         job["knowledge"] = apply_knowledge_insights(job, knowledge_matches)
+        reinforced = reinforce_knowledge_from_job(job, knowledge_matches)
+        if reinforced:
+            job["knowledge"]["reinforced_entries"] = reinforced
 
         _set_progress(job_id, 92, "Generando informes")
 

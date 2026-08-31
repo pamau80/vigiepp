@@ -63,9 +63,29 @@ def test_create_and_match_knowledge():
     assert matches[0]["title"] == "Near miss montacargas"
 
     insights = apply_knowledge_insights(job, matches)
-    assert insights["boosted_events"] >= 1
+    assert (insights["boosted_events"] + insights.get("conjectures", 0)) >= 1
     types = {e["type"] for e in job["analysis"]["timeline"]}
-    assert "knowledge_match" in types
+    assert "knowledge_match" in types or "knowledge_conjecture" in types
+
+
+def test_text_only_knowledge_match():
+    create_knowledge(
+        title="maniobra imprudente",
+        situation_type="unsafe_act",
+        description="grua de bajo tonelaje sortea entre gruas de alto tonelaje con bobina",
+        industry="portuario",
+    )
+    job = {
+        "id": "job2",
+        "title": "Análisis patio portuario",
+        "template_id": "portuario",
+        "site": "Muelle",
+        "analysis": {"timeline": [], "keyframes": []},
+        "sources": [],
+    }
+    matches = match_knowledge_for_job(job)
+    assert len(matches) >= 1
+    assert matches[0]["title"] == "maniobra imprudente"
 
 
 def test_reset_knowledge():
