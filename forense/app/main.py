@@ -15,6 +15,7 @@ from .config import (
     DEFAULT_MAX_MACHINERY_KMH,
     DEFAULT_MAX_PERSON_KMH,
     DEFAULT_MIN_DISTANCE_M,
+    DOL_API_KEY,
     MAX_UPLOAD_MB,
     ROOT,
     WEB_DIR,
@@ -42,6 +43,7 @@ from .knowledge import (
     promote_job_keyframe,
     reset_knowledge,
 )
+from .knowledge_import import import_osha, import_seeds, list_import_catalog
 from .license import license_status, verify_license
 from .teach_bridge import (
     activate_custom_model,
@@ -423,6 +425,60 @@ def knowledge_reset(body: KnowledgeResetBody, request: Request) -> dict:
         raise HTTPException(400, "Escribí RESETEAR para confirmar")
     removed = reset_knowledge()
     return {"ok": True, "removed": removed}
+
+
+class KnowledgeImportSeedsBody(BaseModel):
+    pack_id: str | None = None
+    industry: str | None = None
+    limit: int | None = Field(None, ge=1, le=200)
+    skip_existing: bool = True
+
+
+class KnowledgeImportOshaBody(BaseModel):
+    keywords: list[str] = Field(default_factory=lambda: ["CRANE", "HOIST", "MARITIME"])
+    limit_per_keyword: int = Field(10, ge=1, le=50)
+    default_industry: str = "portuario"
+    fatality_only: bool = False
+    skip_existing: bool = True
+
+
+@app.get("/api/forense/knowledge/import/catalog")
+def knowledge_import_catalog(request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    return {
+        "ok": True,
+        "catalog": list_import_catalog(),
+        "dol_api_configured": bool(DOL_API_KEY),
+    }
+
+
+@app.post("/api/forense/knowledge/import/seeds")
+def knowledge_import_seeds(body: KnowledgeImportSeedsBody, request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    result = import_seeds(
+        pack_id=body.pack_id,
+        industry=body.industry,
+        limit=body.limit,
+        skip_existing=body.skip_existing,
+    )
+    return {"ok": True, **result, "stats": knowledge_stats()}
+
+
+@app.post("/api/forense/knowledge/import/osha")
+def knowledge_import_osha(body: KnowledgeImportOshaBody, request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    result = import_osha(
+        keywords=body.keywords,
+        limit_per_keyword=body.limit_per_keyword,
+        default_industry=body.default_industry,
+        fatality_only=body.fatality_only,
+        skip_existing=body.skip_existing,
+        dol_api_key=DOL_API_KEY or None,
+    )
+    return {"ok": True, **result, "stats": knowledge_stats()}
 
 
 @app.get("/api/forense/knowledge/{entry_id}/thumb.jpg")

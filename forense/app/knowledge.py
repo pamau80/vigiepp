@@ -227,17 +227,32 @@ def knowledge_stats() -> dict[str, Any]:
     entries = list_knowledge()
     by_type: dict[str, int] = {}
     by_industry: dict[str, int] = {}
+    by_source: dict[str, int] = {}
     for e in entries:
         st = e.get("situation_type") or "other"
         by_type[st] = by_type.get(st, 0) + 1
         ind = e.get("industry") or "general"
         by_industry[ind] = by_industry.get(ind, 0) + 1
+        src = e.get("source") or "user"
+        by_source[src] = by_source.get(src, 0) + 1
     return {
         "total": len(entries),
         "by_situation_type": by_type,
         "by_industry": by_industry,
+        "by_source": by_source,
         "situation_types": SITUATION_TYPES,
     }
+
+
+def find_by_source_id(source: str, source_id: str) -> dict[str, Any] | None:
+    source = (source or "").strip().lower()
+    source_id = (source_id or "").strip()
+    if not source or not source_id:
+        return None
+    for e in list_knowledge():
+        if (e.get("source") or "").lower() == source and (e.get("source_id") or "") == source_id:
+            return e
+    return None
 
 
 def create_knowledge(
@@ -251,6 +266,9 @@ def create_knowledge(
     media_bytes: bytes | None = None,
     media_filename: str | None = None,
     from_job_id: str | None = None,
+    source: str = "user",
+    source_id: str | None = None,
+    tags: list[str] | None = None,
 ) -> dict[str, Any]:
     ensure_dirs()
     entry_id = f"kn-{uuid.uuid4().hex[:10]}"
@@ -315,6 +333,9 @@ def create_knowledge(
         "embedding_backend": embedding_backend,
         "reinforce_count": 0,
         "from_job_id": from_job_id,
+        "source": (source or "user").strip().lower(),
+        "source_id": (source_id or "").strip() or None,
+        "tags": [x.strip() for x in (tags or []) if x.strip()],
         "created_at": datetime.now(UTC).isoformat(),
     }
     with _lock:
@@ -322,6 +343,50 @@ def create_knowledge(
         entries.append(entry)
         _save_index(entries)
     return entry
+
+
+def bulk_import_knowledge(
+    records: list[dict[str, Any]],
+    *,
+    skip_existing: bool = True,
+) -> dict[str, Any]:
+    """Importa entradas textuales; omite duplicados por source+source_id."""
+    imported: list[dict[str, Any]] = []
+    skipped = 0
+    errors: list[str] = []
+
+    for i, rec in enumerate(records):
+        src = (rec.get("source") or "import").strip().lower()
+        sid = (rec.get("source_id") or "").strip()
+        if skip_existing and sid and find_by_source_id(src, sid):
+            skipped += 1
+            continue
+        title = (rec.get("title") or "").strip()
+        if not title:
+            errors.append(f"registro {i}: sin título")
+            continue
+        try:
+            entry = create_knowledge(
+                title=title[:200],
+                situation_type=rec.get("situation_type") or "other",
+                description=(rec.get("description") or "")[:4000],
+                industry=rec.get("industry") or "general",
+                labels=rec.get("labels"),
+                event_types=rec.get("event_types"),
+                source=src,
+                source_id=sid or None,
+                tags=rec.get("tags"),
+            )
+            imported.append(entry)
+        except Exception as exc:
+            errors.append(f"registro {i}: {exc}")
+
+    return {
+        "imported": len(imported),
+        "skipped": skipped,
+        "errors": errors[:20],
+        "entries": [{"id": e["id"], "title": e["title"], "source": e.get("source")} for e in imported[:50]],
+    }
 
 
 def delete_knowledge(entry_id: str) -> bool:

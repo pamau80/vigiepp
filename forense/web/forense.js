@@ -154,7 +154,10 @@ async function loadKnowledge() {
     }
   }
   const stats = data.stats || {};
-  $("#knowledgeStats").textContent = `${stats.total || 0} situación(es) en biblioteca`;
+  const srcParts = stats.by_source
+    ? Object.entries(stats.by_source).map(([k, v]) => `${k}: ${v}`).join(" · ")
+    : "";
+  $("#knowledgeStats").textContent = `${stats.total || 0} situación(es)${srcParts ? ` (${srcParts})` : ""}`;
   const ul = $("#knowledgeList");
   ul.innerHTML = "";
   for (const e of data.entries || []) {
@@ -174,8 +177,9 @@ async function loadKnowledge() {
     }
     const body = document.createElement("div");
     body.className = "kn-body";
+    const src = e.source && e.source !== "user" ? `<span class="kn-source-badge">${e.source}</span>` : "";
     body.innerHTML = `
-        <strong>${e.title}</strong>
+        <strong>${e.title}${src}</strong>
         <span class="muted small">${e.situation_label || e.situation_type} · ${e.industry}${e.reinforce_count ? ` · ×${e.reinforce_count}` : ""}</span>
         <p class="small">${e.description || ""}</p>
       `;
@@ -327,6 +331,69 @@ $("#btnResetKnowledge")?.addEventListener("click", async () => {
     alert(err.message);
   }
 });
+
+async function runKnowledgeImport(endpoint, body, label) {
+  const hint = $("#importHint");
+  hint.textContent = `Importando ${label}…`;
+  try {
+    const res = await api(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    hint.textContent =
+      `${label}: ${res.imported} nuevas, ${res.skipped || 0} ya existían` +
+      (res.fetched ? ` (consultadas ${res.fetched} en OSHA)` : "") +
+      (res.candidates ? ` de ${res.candidates} candidatas` : "") +
+      ".";
+    await loadKnowledge();
+  } catch (err) {
+    hint.textContent = err.message;
+  }
+}
+
+$("#btnImportSeeds")?.addEventListener("click", () =>
+  runKnowledgeImport("/api/forense/knowledge/import/seeds", { skip_existing: true }, "Plantillas")
+);
+
+$("#btnImportOshaPort")?.addEventListener("click", () =>
+  runKnowledgeImport(
+    "/api/forense/knowledge/import/osha",
+    {
+      keywords: ["CRANE", "HOIST", "MARITIME", "DOCK", "STEVEDORE"],
+      default_industry: "portuario",
+      limit_per_keyword: 8,
+      skip_existing: true,
+    },
+    "OSHA portuario"
+  )
+);
+
+$("#btnImportOshaBodega")?.addEventListener("click", () =>
+  runKnowledgeImport(
+    "/api/forense/knowledge/import/osha",
+    {
+      keywords: ["FORKLIFT", "PALLET", "WAREHOUSE"],
+      default_industry: "bodega",
+      limit_per_keyword: 8,
+      skip_existing: true,
+    },
+    "OSHA bodega"
+  )
+);
+
+$("#btnImportOshaAll")?.addEventListener("click", () =>
+  runKnowledgeImport(
+    "/api/forense/knowledge/import/osha",
+    {
+      keywords: ["CRANE", "FORKLIFT", "FALL", "SCAFFOLD", "HELMET", "MARITIME"],
+      default_industry: "general",
+      limit_per_keyword: 6,
+      skip_existing: true,
+    },
+    "OSHA completo"
+  )
+);
 
 $("#knowledgeForm")?.addEventListener("submit", async (e) => {
   e.preventDefault();
