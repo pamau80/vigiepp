@@ -12,6 +12,41 @@ def _signing_secret() -> str:
     return os.getenv("VIGIEPP_FORENSE_SIGNING_KEY", "vigiepp-forense-dev-key-change-in-prod")
 
 
+def sign_license(site_id: str, expires_unix: int, *, secret: str | None = None) -> str:
+    """Genera licencia producción: site_id.unix_exp.sig_hex."""
+    site = (site_id or "").strip()
+    if not site or "." in site:
+        raise ValueError("site_id inválido (sin puntos)")
+    if expires_unix <= int(time.time()):
+        raise ValueError("La expiración debe ser futura")
+    key = (secret or _signing_secret()).encode()
+    payload = f"{site}.{expires_unix}"
+    sig = hmac.new(key, payload.encode(), hashlib.sha256).hexdigest()[:32]
+    return f"{payload}.{sig}"
+
+
+def parse_license_key(key: str) -> dict:
+    """Parsea licencia sin validar firma (útil para inspección)."""
+    raw = (key or "").strip()
+    if raw == "dev":
+        return {"mode": "dev", "site_id": "dev", "expires_unix": None, "valid": True}
+    parts = raw.split(".")
+    if len(parts) != 3:
+        return {"mode": "invalid", "valid": False, "detail": "formato inválido"}
+    site_id, exp_s, sig = parts
+    try:
+        exp = int(exp_s)
+    except ValueError:
+        return {"mode": "invalid", "valid": False, "detail": "expiración inválida"}
+    return {
+        "mode": "production",
+        "site_id": site_id,
+        "expires_unix": exp,
+        "signature": sig,
+        "expired": exp < int(time.time()),
+    }
+
+
 def license_enabled() -> bool:
     return os.getenv("VIGIEPP_FORENSE", "").strip().lower() in ("1", "true", "yes")
 

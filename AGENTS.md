@@ -81,6 +81,8 @@ Demo automatizado de punta a punta:
 bash forense/scripts/demo_caso_completo.sh
 ```
 
+Licencia edge producción: `docs/FORENSE_LICENSE_EDGE.md` + `forense/scripts/issue_forense_license.py`.
+
 ## Qué NO construir
 
 - Organizaciones / billing SaaS
