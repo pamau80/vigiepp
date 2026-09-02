@@ -1,11 +1,6 @@
+import { statusLabel, kindLabel, eventTypeLabel, sourceLabel } from "./i18n-es-cl.js";
+
 const API = "";
-const TEMPLATE_DEFAULTS = {
-  general: { meters_per_pixel: 0.045, max_machinery_kmh: 15, max_person_kmh: 8, min_distance_m: 2 },
-  mineria: { meters_per_pixel: 0.05, max_machinery_kmh: 12, max_person_kmh: 6, min_distance_m: 3 },
-  portuario: { meters_per_pixel: 0.045, max_machinery_kmh: 18, max_person_kmh: 8, min_distance_m: 2.5 },
-  bodega: { meters_per_pixel: 0.04, max_machinery_kmh: 15, max_person_kmh: 8, min_distance_m: 2 },
-  construccion: { meters_per_pixel: 0.048, max_machinery_kmh: 10, max_person_kmh: 6, min_distance_m: 2.5 },
-};
 
 async function api(path, opts = {}) {
   const token = sessionStorage.getItem("forense.token");
@@ -38,30 +33,312 @@ const authGate = $("#authGate");
 const app = $("#app");
 
 let templatesCache = [];
+let situationTypesCache = {};
+let teachClassesCache = [];
+let selectedKeyframeName = null;
+let pollTimer = null;
+let currentJobId = null;
+let frameCache = [];
+let lastFrameFetchSec = -1;
+let overlayRaf = null;
+let videoSyncBound = false;
+
+function formatTs(sec) {
+  const s = Math.max(0, Math.floor(sec));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+}
+
+function nearestCachedFrame(timeSec) {
+  if (!frameCache.length) return null;
+  let best = frameCache[0];
+  let bestDt = Math.abs((best.time_sec || 0) - timeSec);
+  for (const fr of frameCache) {
+    const dt = Math.abs((fr.time_sec || 0) - timeSec);
+    if (dt < bestDt) {
+      bestDt = dt;
+      best = fr;
+    }
+  }
+  return bestDt <= 1.5 ? best : null;
+}
+
+function resizeOverlayCanvas() {
+  const video = $("#forenseVideo");
+  const canvas = $("#forenseOverlay");
+  if (!video || !canvas || !video.videoWidth) return;
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+}
+
+function drawFrameOverlay(frameRec) {
+  const video = $("#forenseVideo");
+  const canvas = $("#forenseOverlay");
+  if (!video || !canvas || !frameRec) return;
+  resizeOverlayCanvas();
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const fw = frameRec.frame_w || canvas.width;
+  const fh = frameRec.frame_h || canvas.height;
+  const sx = canvas.width / fw;
+  const sy = canvas.height / fh;
+
+  for (const det of frameRec.detections || []) {
+    const [x1, y1, x2, y2] = det.box || [];
+    if (x1 == null) continue;
+    const kind = det.kind || "other";
+    ctx.strokeStyle = kind === "person" ? "#3ecf8e" : kind === "machinery" ? "#f0b429" : "#8fa3bf";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x1 * sx, y1 * sy, (x2 - x1) * sx, (y2 - y1) * sy);
+    const label = `${det.label || kind} ${Math.round((det.confidence || 0) * 100)}%`;
+    ctx.font = "12px system-ui,sans-serif";
+    const tw = ctx.measureText(label).width + 8;
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.fillRect(x1 * sx, Math.max(0, y1 * sy - 18), tw, 16);
+    ctx.fillStyle = "#0b1220";
+    ctx.fillText(label, x1 * sx + 4, Math.max(12, y1 * sy - 5));
+  }
+
+  const speedByTrack = new Map((frameRec.speeds || []).map((s) => [s.track_id, s]));
+  for (const tr of frameRec.tracks || []) {
+    const sp = speedByTrack.get(tr.track_id);
+    if (!sp) continue;
+    const cx = (tr.cx || 0) * sx;
+    const cy = (tr.cy || 0) * sy;
+    ctx.fillStyle = tr.kind === "machinery" ? "#f0b429" : "#3ecf8e";
+    ctx.font = "bold 11px system-ui,sans-serif";
+    ctx.fillText(`${sp.speed_kmh} km/h`, cx + 6, cy - 8);
+  }
+
+  for (const prox of frameRec.proximity || []) {
+    const pTr = (frameRec.tracks || []).find((t) => t.track_id === prox.person_track);
+    const mTr = (frameRec.tracks || []).find((t) => t.track_id === prox.machinery_track);
+    if (!pTr || !mTr) continue;
+    const px = pTr.cx * sx;
+    const py = pTr.cy * sy;
+    const mx = mTr.cx * sx;
+    const my = mTr.cy * sy;
+    ctx.strokeStyle = prox.alert ? "#f07178" : "#8fa3bf";
+    ctx.setLineDash(prox.alert ? [] : [4, 4]);
+    ctx.lineWidth = prox.alert ? 2 : 1;
+    ctx.beginPath();
+    ctx.moveTo(px, py);
+    ctx.lineTo(mx, my);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const midX = (px + mx) / 2;
+    const midY = (py + my) / 2;
+    ctx.fillStyle = prox.alert ? "#f07178" : "#8fa3bf";
+    ctx.font = "10px system-ui,sans-serif";
+    ctx.fillText(`${prox.distance_m} m`, midX + 4, midY - 4);
+  }
+}
+
+function updateLiveStats(frameRec, totalStored) {
+  const timeEl = $("#liveTime");
+  const countsEl = $("#liveCounts");
+  const speedsEl = $("#liveSpeeds");
+  const proxEl = $("#liveProximity");
+  const framesEl = $("#liveFrames");
+  if (!frameRec) {
+    if (timeEl) timeEl.textContent = "—";
+    if (countsEl) countsEl.textContent = "Esperando análisis…";
+    if (speedsEl) speedsEl.textContent = "";
+    if (proxEl) proxEl.textContent = "";
+    if (framesEl) framesEl.textContent = totalStored ? `${totalStored} fotogramas` : "";
+    return;
+  }
+  if (timeEl) timeEl.textContent = frameRec.time_label || formatTs(frameRec.time_sec || 0);
+  const c = frameRec.counts || {};
+  if (countsEl) {
+    countsEl.textContent = `👤 ${c.persons || 0} · 🚛 ${c.vehicles || 0} objetos`;
+  }
+  const speeds = (frameRec.speeds || []).map((s) => `#${s.track_id} ${s.speed_kmh} km/h`).join(" · ");
+  if (speedsEl) speedsEl.textContent = speeds ? `Vel.: ${speeds}` : "Vel.: —";
+  const prox = frameRec.proximity || [];
+  const closest = prox[0];
+  if (proxEl) {
+    if (!closest) {
+      proxEl.textContent = "Dist.: —";
+      proxEl.classList.remove("alert");
+    } else {
+      proxEl.textContent = `Dist. mín.: ${closest.distance_m} m (persona #${closest.person_track} – máq. #${closest.machinery_track})`;
+      proxEl.classList.toggle("alert", !!closest.alert);
+    }
+  }
+  if (framesEl) framesEl.textContent = `${totalStored || frameCache.length} fotogramas analizados`;
+}
+
+function onVideoTimeUpdate() {
+  const video = $("#forenseVideo");
+  if (!video) return;
+  const t = video.currentTime || 0;
+  const fr = nearestCachedFrame(t);
+  drawFrameOverlay(fr);
+  updateLiveStats(fr, frameCache.length);
+}
+
+function bindVideoSync() {
+  if (videoSyncBound) return;
+  const video = $("#forenseVideo");
+  if (!video) return;
+  videoSyncBound = true;
+  video.addEventListener("loadedmetadata", resizeOverlayCanvas);
+  video.addEventListener("timeupdate", onVideoTimeUpdate);
+  video.addEventListener("seeked", onVideoTimeUpdate);
+  video.addEventListener("play", () => {
+    const tick = () => {
+      if (!video.paused) {
+        onVideoTimeUpdate();
+        overlayRaf = requestAnimationFrame(tick);
+      }
+    };
+    overlayRaf = requestAnimationFrame(tick);
+  });
+  video.addEventListener("pause", () => {
+    if (overlayRaf) cancelAnimationFrame(overlayRaf);
+    onVideoTimeUpdate();
+  });
+}
+
+async function fetchIncrementalFrames(jobId) {
+  const fromSec = Math.max(0, lastFrameFetchSec);
+  try {
+    const data = await api(
+      `/api/forense/jobs/${jobId}/analysis/frames?from_sec=${fromSec.toFixed(2)}&limit=400`,
+    );
+    const frames = data.frames || [];
+    if (frames.length) {
+      const seen = new Set(frameCache.map((f) => f.time_sec));
+      for (const fr of frames) {
+        if (!seen.has(fr.time_sec)) {
+          frameCache.push(fr);
+          seen.add(fr.time_sec);
+        }
+      }
+      frameCache.sort((a, b) => (a.time_sec || 0) - (b.time_sec || 0));
+      lastFrameFetchSec = frameCache[frameCache.length - 1].time_sec || fromSec;
+    }
+    const total = data.total_stored ?? frameCache.length;
+    const video = $("#forenseVideo");
+    if (video && !video.paused) onVideoTimeUpdate();
+    else updateLiveStats(nearestCachedFrame(video?.currentTime || 0), total);
+    return total;
+  } catch {
+    return frameCache.length;
+  }
+}
+
+function setupVideoViewer(job, jobId) {
+  const section = $("#videoSection");
+  const video = $("#forenseVideo");
+  if (!section || !video) return;
+  if (!job.has_video) {
+    section.classList.add("hidden");
+    video.removeAttribute("src");
+    frameCache = [];
+    lastFrameFetchSec = -1;
+    return;
+  }
+  section.classList.remove("hidden");
+  const src = `/api/forense/jobs/${jobId}/video`;
+  if (video.getAttribute("data-src") !== src) {
+    video.setAttribute("data-src", src);
+    video.src = `${src}?t=${Date.now()}`;
+    frameCache = [];
+    lastFrameFetchSec = -1;
+  }
+  bindVideoSync();
+  fetchIncrementalFrames(jobId);
+}
+
+$("#btnLearnMoment")?.addEventListener("click", async () => {
+  if (!currentJobId) return;
+  const video = $("#forenseVideo");
+  const timeSec = video?.currentTime || 0;
+  const timeLabel = formatTs(timeSec);
+  const title = prompt("Título de la situación:", `Evento en ${timeLabel}`);
+  if (!title) return;
+  const description = prompt("¿Qué ocurrió en este instante?", "") || "";
+  const situationType = $("#knSituationType")?.value || "other";
+  const industry = $("#knIndustry")?.value || "general";
+  try {
+    await api(`/api/forense/jobs/${currentJobId}/events/learn`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        time_sec: timeSec,
+        title,
+        description,
+        situation_type: situationType,
+        industry,
+      }),
+    });
+    await loadKnowledge();
+    alert("Momento guardado en la biblioteca de aprendizaje.");
+  } catch (err) {
+    alert(err.message);
+  }
+});
 
 function applyTemplateDefaults(templateId) {
-  const d = TEMPLATE_DEFAULTS[templateId] || TEMPLATE_DEFAULTS.general;
-  $("#caseMpp").value = d.meters_per_pixel;
-  $("#caseMachKmh").value = d.max_machinery_kmh;
-  $("#casePersonKmh").value = d.max_person_kmh;
-  $("#caseMinDist").value = d.min_distance_m;
-  const tpl = templatesCache.find((t) => t.id === templateId);
-  $("#templateHint").textContent = tpl ? `Perfil: ${tpl.profile}` : "";
+  const tpl = templatesCache.find((t) => t.id === templateId) || templatesCache.find((t) => t.id === "general");
+  if (!tpl) return;
+  $("#caseMpp").value = tpl.meters_per_pixel;
+  $("#caseMachKmh").value = tpl.max_machinery_kmh;
+  $("#casePersonKmh").value = tpl.max_person_kmh;
+  $("#caseMinDist").value = tpl.min_distance_m;
+  const focus = (tpl.situation_focus || []).join(", ");
+  $("#templateHint").textContent = tpl.intro
+    ? `${tpl.intro}${focus ? ` · Foco: ${focus}` : ""}`
+    : `Perfil: ${tpl.profile}`;
 }
 
 async function loadTemplates() {
   const data = await api("/api/forense/templates");
   templatesCache = data.templates || [];
   const sel = $("#caseTemplate");
+  const knIndustry = $("#knIndustry");
   sel.innerHTML = "";
+  knIndustry.innerHTML = "";
   for (const t of templatesCache) {
     const opt = document.createElement("option");
     opt.value = t.id;
     opt.textContent = t.name;
     sel.appendChild(opt);
+    const opt2 = document.createElement("option");
+    opt2.value = t.id;
+    opt2.textContent = t.name;
+    knIndustry.appendChild(opt2);
   }
   sel.onchange = () => applyTemplateDefaults(sel.value);
   applyTemplateDefaults(sel.value || "general");
+}
+
+function resetNewCaseForm() {
+  $("#uploadForm")?.reset();
+  $("#caseTemplate").value = "general";
+  applyTemplateDefaults("general");
+  $("#caseReference").value = "";
+  $("#uploadHint")?.classList.add("hidden");
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+  currentJobId = null;
+  frameCache = [];
+  lastFrameFetchSec = -1;
+  const video = $("#forenseVideo");
+  if (video) {
+    video.removeAttribute("src");
+    video.removeAttribute("data-src");
+  }
+  $("#jobView")?.classList.add("hidden");
+  $("#emptyState")?.classList.remove("hidden");
+  refreshJobs();
 }
 
 function refreshReferenceSelect(jobs) {
@@ -72,23 +349,145 @@ function refreshReferenceSelect(jobs) {
     if (j.status !== "done") continue;
     const opt = document.createElement("option");
     opt.value = j.id;
-    opt.textContent = `${j.title || j.id} (${j.event_count || 0} ev.)`;
+    opt.textContent = `${j.title || j.id} (${j.event_count || 0} eventos)`;
     sel.appendChild(opt);
   }
   if (current) sel.value = current;
+}
+
+async function loadTeachStatus() {
+  try {
+    const data = await api("/api/forense/teach/status");
+    teachClassesCache = data.teach_classes || [];
+    const pick = $("#teachClassPick");
+    if (pick) {
+      pick.innerHTML = "";
+      for (const c of teachClassesCache) {
+        const opt = document.createElement("option");
+        opt.value = c.id;
+        opt.textContent = c.name || c.id;
+        pick.appendChild(opt);
+      }
+    }
+    const modelLine = data.custom_active
+      ? `✓ ${data.model_name}`
+      : data.custom_weights_exist
+        ? `Pesos listos — activar modelo personalizado`
+        : `Modelo base (genérico)`;
+    $("#teachModelLine").textContent = modelLine;
+    $("#teachSamplesLine").textContent = `${data.total_samples || 0} fotos · ${
+      data.ready_to_train ? "listo para entrenar" : `mín. ${data.min_recommended || 30} recomendadas`
+    }`;
+    const btnAct = $("#btnTeachActivate");
+    const btnTrain = $("#btnTeachTrain");
+    if (btnAct) btnAct.disabled = !data.custom_weights_exist && !data.custom_model_ready;
+    if (btnTrain) btnTrain.disabled = !data.ready_to_train || data.training_running;
+    if (data.training_running) {
+      $("#teachHint").textContent = "Entrenamiento en curso…";
+    } else if (data.custom_active) {
+      $("#teachHint").textContent = "Forense analiza con el modelo entrenado de tu faena.";
+    }
+    const link = $("#teachOpenVigi");
+    if (link && data.vigiepp_teach_url) link.href = data.vigiepp_teach_url;
+  } catch {
+  /* Teach opcional si backend compartido no está */
+  }
+}
+
+async function loadKnowledge() {
+  const data = await api("/api/forense/knowledge");
+  situationTypesCache = data.situation_types || {};
+  const typeSel = $("#knSituationType");
+  if (typeSel && !typeSel.options.length) {
+    typeSel.innerHTML = "";
+    for (const [id, label] of Object.entries(situationTypesCache)) {
+      const opt = document.createElement("option");
+      opt.value = id;
+      opt.textContent = label;
+      typeSel.appendChild(opt);
+    }
+  }
+  const stats = data.stats || {};
+  const srcParts = stats.by_source
+    ? Object.entries(stats.by_source).map(([k, v]) => `${k}: ${v}`).join(" · ")
+    : "";
+  $("#knowledgeStats").textContent = `${stats.total || 0} situación(es)${srcParts ? ` (${srcParts})` : ""}`;
+  const ul = $("#knowledgeList");
+  ul.innerHTML = "";
+  for (const e of data.entries || []) {
+    const li = document.createElement("li");
+    li.className = "knowledge-item";
+    const thumbWrap = document.createElement("div");
+    thumbWrap.className = "kn-thumb-wrap";
+    if (e.has_thumb) {
+      const img = document.createElement("img");
+      img.alt = "";
+      img.className = "kn-thumb";
+      img.loading = "lazy";
+      loadKnowledgeThumb(e.id, img);
+      thumbWrap.appendChild(img);
+    } else {
+      thumbWrap.innerHTML = '<span class="kn-thumb placeholder">📷</span>';
+    }
+    const body = document.createElement("div");
+    body.className = "kn-body";
+    const src = e.source && e.source !== "user"
+      ? `<span class="kn-source-badge">${sourceLabel(e.source) || e.source}</span>`
+      : "";
+    body.innerHTML = `
+        <strong>${e.title}${src}</strong>
+        <span class="muted small">${e.situation_label || e.situation_type} · ${e.industry}${e.reinforce_count ? ` · ×${e.reinforce_count}` : ""}</span>
+        <p class="small">${e.description || ""}</p>
+      `;
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "btn ghost small";
+    delBtn.textContent = "✕";
+    delBtn.onclick = async () => {
+      if (!confirm(`¿Eliminar «${e.title}» de la biblioteca?`)) return;
+      await api(`/api/forense/knowledge/${e.id}`, { method: "DELETE" });
+      await loadKnowledge();
+    };
+    li.appendChild(thumbWrap);
+    li.appendChild(body);
+    li.appendChild(delBtn);
+    ul.appendChild(li);
+  }
+}
+
+async function loadKnowledgeThumb(entryId, imgEl) {
+  try {
+    const token = sessionStorage.getItem("forense.token");
+    const headers = token ? { "X-VigiEPP-Key": token } : {};
+    const res = await fetch(`/api/forense/knowledge/${entryId}/thumb.jpg`, {
+      credentials: "include",
+      headers,
+    });
+    if (!res.ok) throw new Error("thumb");
+    const blob = await res.blob();
+    imgEl.src = URL.createObjectURL(blob);
+  } catch {
+    imgEl.classList.add("kn-thumb-broken");
+    imgEl.alt = "sin vista previa";
+  }
 }
 
 async function checkSession() {
   try {
     const h = await api("/api/forense/health");
     $("#licenseLine").textContent = h.license?.valid
-      ? `Licencia activa · ${h.build}`
+      ? `Licencia activa · ${h.build} · IA + aprendizaje`
       : `Sin licencia: ${h.license?.detail || "—"}`;
-    const st = await fetch("/api/forense/auth/status", { credentials: "include", headers: sessionStorage.getItem("forense.token") ? { "X-VigiEPP-Key": sessionStorage.getItem("forense.token") } : {} }).then((r) => r.json());
+    const st = await fetch("/api/forense/auth/status", {
+      credentials: "include",
+      headers: sessionStorage.getItem("forense.token") ? { "X-VigiEPP-Key": sessionStorage.getItem("forense.token") } : {},
+    }).then((r) => r.json());
     if (st.can_access) {
       authGate.classList.add("hidden");
       app.classList.remove("hidden");
       await loadTemplates();
+      await loadTeachStatus();
+      await loadKnowledge();
       await refreshJobs();
       return;
     }
@@ -116,8 +515,161 @@ $("#authForm")?.addEventListener("submit", async (e) => {
   }
 });
 
-let pollTimer = null;
-let currentJobId = null;
+$("#btnNewCase")?.addEventListener("click", resetNewCaseForm);
+$("#btnResetForm")?.addEventListener("click", () => {
+  $("#uploadForm")?.reset();
+  applyTemplateDefaults($("#caseTemplate").value || "general");
+  $("#uploadHint")?.classList.add("hidden");
+});
+
+$("#btnTeachActivate")?.addEventListener("click", async () => {
+  $("#teachHint").textContent = "Activando modelo…";
+  try {
+    const res = await api("/api/forense/teach/activate", { method: "POST" });
+    $("#teachHint").textContent = res.message || "Modelo activado.";
+    await loadTeachStatus();
+  } catch (err) {
+    $("#teachHint").textContent = err.message;
+  }
+});
+
+$("#btnTeachTrain")?.addEventListener("click", async () => {
+  if (!confirm("¿Iniciar entrenamiento YOLO con las fotos de Teach? Puede tardar varios minutos.")) return;
+  $("#teachHint").textContent = "Iniciando entrenamiento…";
+  try {
+    const res = await api("/api/forense/teach/train", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ epochs: 40 }),
+    });
+    $("#teachHint").textContent = res.message || "Entrenamiento iniciado.";
+    await loadTeachStatus();
+  } catch (err) {
+    $("#teachHint").textContent = err.message;
+  }
+});
+
+$("#btnKeyframeTeach")?.addEventListener("click", async () => {
+  if (!currentJobId || !selectedKeyframeName) {
+    alert("Seleccioná una captura clave primero (clic en la imagen).");
+    return;
+  }
+  const classId = $("#teachClassPick")?.value;
+  if (!classId) {
+    alert("Elegí una clase de enseñanza.");
+    return;
+  }
+  try {
+    const res = await api(`/api/forense/jobs/${currentJobId}/teach`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ keyframe_name: selectedKeyframeName, class_id: classId }),
+    });
+    $("#teachHint").textContent = res.message || "Captura enviada a enseñanza.";
+    await loadTeachStatus();
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+$("#btnResetKnowledge")?.addEventListener("click", async () => {
+  const confirm = prompt("Esto borra TODA la biblioteca de aprendizaje. Escribí RESETEAR para confirmar:");
+  if (confirm?.trim().toUpperCase() !== "RESETEAR") return;
+  try {
+    const res = await api("/api/forense/knowledge/reset", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirm: "RESETEAR" }),
+    });
+    $("#knowledgeHint").textContent = `Biblioteca reseteada (${res.removed} entradas eliminadas).`;
+    await loadKnowledge();
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+async function runKnowledgeImport(endpoint, body, label) {
+  const hint = $("#importHint");
+  hint.textContent = `Importando ${label}…`;
+  try {
+    const res = await api(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    hint.textContent =
+      `${label}: ${res.imported} nuevas, ${res.skipped || 0} ya existían` +
+      (res.fetched ? ` (consultadas ${res.fetched} en OSHA)` : "") +
+      (res.candidates ? ` de ${res.candidates} candidatas` : "") +
+      ".";
+    await loadKnowledge();
+  } catch (err) {
+    hint.textContent = err.message;
+  }
+}
+
+$("#btnImportSeeds")?.addEventListener("click", () =>
+  runKnowledgeImport("/api/forense/knowledge/import/seeds", { skip_existing: true }, "Plantillas")
+);
+
+$("#btnImportOshaPort")?.addEventListener("click", () =>
+  runKnowledgeImport(
+    "/api/forense/knowledge/import/osha",
+    {
+      keywords: ["CRANE", "HOIST", "MARITIME", "DOCK", "STEVEDORE"],
+      default_industry: "portuario",
+      limit_per_keyword: 8,
+      skip_existing: true,
+    },
+    "OSHA portuario"
+  )
+);
+
+$("#btnImportOshaBodega")?.addEventListener("click", () =>
+  runKnowledgeImport(
+    "/api/forense/knowledge/import/osha",
+    {
+      keywords: ["FORKLIFT", "PALLET", "WAREHOUSE"],
+      default_industry: "bodega",
+      limit_per_keyword: 8,
+      skip_existing: true,
+    },
+    "OSHA bodega"
+  )
+);
+
+$("#btnImportOshaAll")?.addEventListener("click", () =>
+  runKnowledgeImport(
+    "/api/forense/knowledge/import/osha",
+    {
+      keywords: ["CRANE", "FORKLIFT", "FALL", "SCAFFOLD", "HELMET", "MARITIME"],
+      default_industry: "general",
+      limit_per_keyword: 6,
+      skip_existing: true,
+    },
+    "OSHA completo"
+  )
+);
+
+$("#knowledgeForm")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  $("#knowledgeHint").textContent = "Guardando…";
+  const fd = new FormData();
+  fd.append("title", $("#knTitle").value);
+  fd.append("situation_type", $("#knSituationType").value);
+  fd.append("industry", $("#knIndustry").value);
+  fd.append("description", $("#knDescription").value);
+  const media = $("#knMedia").files?.[0];
+  if (media) fd.append("media", media);
+  try {
+    await api("/api/forense/knowledge", { method: "POST", body: fd });
+    $("#knowledgeForm").reset();
+    $("#knowledgeHint").textContent = "Situación agregada. Se usará en futuros análisis.";
+    await loadKnowledge();
+  } catch (err) {
+    $("#knowledgeHint").textContent = err.message;
+  }
+});
 
 async function refreshJobs() {
   const data = await api("/api/forense/jobs");
@@ -128,8 +680,10 @@ async function refreshJobs() {
     const li = document.createElement("li");
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.textContent = `${j.title || j.id} · ${j.status} (${j.progress || 0}%)`;
+    const label = j.status === "error" ? "error" : statusLabel(j.status);
+    btn.textContent = `${j.title || j.id} · ${label} (${j.progress || 0}%)`;
     btn.classList.toggle("active", j.id === currentJobId);
+    if (j.status === "error") btn.classList.add("job-error");
     btn.onclick = () => selectJob(j.id);
     li.appendChild(btn);
     ul.appendChild(li);
@@ -183,7 +737,7 @@ function drawSpeedChart(series) {
   const legend = [];
   series.slice(0, 5).forEach((s, idx) => {
     const color = colors[idx % colors.length];
-    legend.push(`#${s.track_id} ${s.kind} (${s.max_kmh} km/h)`);
+    legend.push(`#${s.track_id} ${kindLabel(s.kind)} (${s.max_kmh} km/h)`);
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -213,26 +767,91 @@ async function selectJob(id) {
   pollTimer = setInterval(() => loadJob(id, true), 2000);
 }
 
+async function promoteKeyframe(jobId, keyframeName, timeLabel) {
+  const title = prompt("Título de la situación:", `Incidente en ${timeLabel}`);
+  if (!title) return;
+  const description = prompt("¿Qué ocurrió acá?", "") || "";
+  const situationType = $("#knSituationType")?.value || "other";
+  try {
+    await api(`/api/forense/jobs/${jobId}/knowledge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        keyframe_name: keyframeName,
+        title,
+        situation_type: situationType,
+        description,
+      }),
+    });
+    await loadKnowledge();
+    alert("Captura guardada en la biblioteca de aprendizaje.");
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
 async function loadJob(id, quiet = false) {
   const data = await api(`/api/forense/jobs/${id}`);
   const j = data.job;
   $("#jobTitle").textContent = j.title || id;
   const srcCount = j.sources?.length || j.analysis?.sources_count || 1;
   $("#jobMeta").textContent =
-    `${j.site || ""} · ${j.template_name || j.template_id || ""} · ${j.status} · ` +
-    `${j.analysis?.event_count || 0} eventos · ${srcCount} cámara(s)`;
+    `${j.site || ""} · ${j.template_name || j.template_id || ""} · ${statusLabel(j.status)} · ` +
+    `${j.analysis?.event_count || 0} eventos · ${j.frames_analyzed || 0} fotogramas · ${srcCount} cámara(s)`;
+
+  setupVideoViewer(j, id);
+  if (j.status === "processing" || j.status === "queued") {
+    await fetchIncrementalFrames(id);
+  }
 
   const pw = $("#progressWrap");
   if (j.status === "processing" || j.status === "queued") {
     pw.classList.remove("hidden");
     $("#progressBar").style.width = `${j.progress || 0}%`;
     $("#progressText").textContent = j.progress_message || "";
+    $("#progressText").style.color = "";
+  } else if (j.status === "error") {
+    pw.classList.remove("hidden");
+    $("#progressBar").style.width = `${j.progress || 0}%`;
+    $("#progressText").textContent = `Error: ${j.error || j.progress_message || "Falló el análisis"}`;
+    $("#progressText").style.color = "#f07178";
   } else {
     pw.classList.add("hidden");
+    $("#progressText").style.color = "";
     if (j.status === "done" && pollTimer) {
       clearInterval(pollTimer);
       pollTimer = null;
     }
+  }
+
+  const knSec = $("#knowledgeSection");
+  const knMatches = j.knowledge?.matches || [];
+  const knUl = $("#knowledgeMatches");
+  knUl.innerHTML = "";
+  if (knMatches.length) {
+    knSec.classList.remove("hidden");
+    const strong = knMatches.filter((m) => !m.conjecture);
+    if (!strong.length && knMatches.length) {
+      const warn = document.createElement("p");
+      warn.className = "hint";
+      warn.textContent =
+        "Solo conjeturas débiles — no hay coincidencia confiable. Describí el caso en el título o enseñá esta situación a la biblioteca.";
+      knUl.appendChild(warn);
+    }
+    for (const m of knMatches) {
+      const li = document.createElement("li");
+      const tag = m.conjecture ? "Conjetura" : "Coincidencia";
+      li.innerHTML = `<strong>${tag}: ${m.title}</strong> (${m.situation_label}) — ${m.confidence_pct}% · ${(m.reasons || []).join(", ")}`;
+      if (m.description) {
+        const p = document.createElement("p");
+        p.className = "muted small";
+        p.textContent = m.description;
+        li.appendChild(p);
+      }
+      knUl.appendChild(li);
+    }
+  } else {
+    knSec.classList.add("hidden");
   }
 
   const compSec = $("#comparisonSection");
@@ -250,11 +869,11 @@ async function loadJob(id, quiet = false) {
   tbody.innerHTML = "";
   for (const row of kin.track_speeds || []) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>#${row.track_id}</td><td>${row.kind}</td><td>${row.max_kmh}</td><td>${row.avg_kmh}</td>`;
+    tr.innerHTML = `<td>#${row.track_id}</td><td>${kindLabel(row.kind)}</td><td>${row.max_kmh}</td><td>${row.avg_kmh}</td>`;
     tbody.appendChild(tr);
   }
   if (!tbody.children.length) {
-    tbody.innerHTML = "<tr><td colspan='4' class='muted'>Sin tracks suficientes</td></tr>";
+    tbody.innerHTML = "<tr><td colspan='4' class='muted'>Sin seguimientos suficientes</td></tr>";
   }
   const viol = $("#kinViolations");
   viol.innerHTML = "";
@@ -283,9 +902,9 @@ async function loadJob(id, quiet = false) {
   tl.innerHTML = "";
   for (const ev of j.analysis?.timeline || []) {
     const li = document.createElement("li");
-    li.className = `sev-${ev.severity || "medium"}`;
+    li.className = `sev-${ev.severity || "medium"}${ev.type === "knowledge_match" ? " knowledge-ev" : ""}${ev.type === "knowledge_conjecture" ? " knowledge-conj" : ""}`;
     const cam = ev.camera ? ` [${ev.camera}]` : "";
-    li.textContent = `${ev.time_label}${cam} · ${ev.type}: ${ev.message}`;
+    li.textContent = `${ev.time_label}${cam} · ${eventTypeLabel(ev.type)}: ${ev.message}`;
     tl.appendChild(li);
   }
   if (!tl.children.length) {
@@ -294,13 +913,30 @@ async function loadJob(id, quiet = false) {
 
   const kf = $("#keyframes");
   kf.innerHTML = "";
+  selectedKeyframeName = null;
+  $("#btnKeyframeTeach")?.setAttribute("disabled", "disabled");
   for (const frame of j.analysis?.keyframes || []) {
     if (!frame.image) continue;
+    const wrap = document.createElement("button");
+    wrap.type = "button";
+    wrap.className = "keyframe-btn";
+    wrap.title = "Clic: seleccionar · doble clic: guardar en biblioteca";
     const img = document.createElement("img");
     img.src = `/api/forense/jobs/${id}/keyframes/${frame.image}`;
     img.alt = frame.time_label;
-    img.title = (frame.events || []).join("; ");
-    kf.appendChild(img);
+    wrap.appendChild(img);
+    const cap = document.createElement("span");
+    cap.className = "small muted";
+    cap.textContent = frame.time_label;
+    wrap.appendChild(cap);
+    wrap.onclick = () => {
+      kf.querySelectorAll(".keyframe-btn").forEach((b) => b.classList.remove("selected"));
+      wrap.classList.add("selected");
+      selectedKeyframeName = frame.image;
+      $("#btnKeyframeTeach")?.removeAttribute("disabled");
+    };
+    wrap.ondblclick = () => promoteKeyframe(id, frame.image, frame.time_label);
+    kf.appendChild(wrap);
   }
 
   const pdf = $("#downloadPdf");
@@ -338,7 +974,7 @@ async function loadJob(id, quiet = false) {
     ehsBtn.classList.remove("hidden");
     const ehs = j.ehs_push;
     $("#ehsStatus").textContent = ehs?.length
-      ? `Último push EHS: ${ehs.map((r) => (r.ok ? "OK" : r.error || "error")).join(", ")}`
+      ? `Último envío a EHS: ${ehs.map((r) => (r.ok ? "listo" : r.error || "error")).join(", ")}`
       : "";
   } else {
     if (!quiet) $("#reportMd").textContent = "Informe disponible al completar el análisis…";
@@ -349,12 +985,23 @@ async function loadJob(id, quiet = false) {
   }
 }
 
+$("#btnDeleteJob")?.addEventListener("click", async () => {
+  if (!currentJobId) return;
+  if (!confirm("¿Eliminar este trabajo y todos sus archivos?")) return;
+  try {
+    await api(`/api/forense/jobs/${currentJobId}`, { method: "DELETE" });
+    resetNewCaseForm();
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
 $("#exportEhs")?.addEventListener("click", async () => {
   if (!currentJobId) return;
   $("#ehsStatus").textContent = "Exportando…";
   try {
     const res = await api(`/api/forense/jobs/${currentJobId}/export-ehs`, { method: "POST" });
-    const msg = (res.results || []).map((r) => (r.ok ? "OK" : r.error || "error")).join(", ");
+    const msg = (res.results || []).map((r) => (r.ok ? "listo" : r.error || "error")).join(", ");
     $("#ehsStatus").textContent = `EHS: ${msg || "sin respuesta"}`;
   } catch (err) {
     $("#ehsStatus").textContent = err.message;
@@ -364,7 +1011,21 @@ $("#exportEhs")?.addEventListener("click", async () => {
 $("#uploadForm")?.addEventListener("submit", async (e) => {
   e.preventDefault();
   const file = $("#caseVideo").files?.[0];
-  if (!file) return;
+  if (!file) {
+    alert("Seleccioná un video principal (MP4 o MOV) antes de iniciar el análisis.");
+    return;
+  }
+  const btn = $("#btnStartAnalysis");
+  const hint = $("#uploadHint");
+  const prevLabel = btn?.textContent || "Iniciar análisis";
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Subiendo video…";
+  }
+  if (hint) {
+    hint.textContent = `Procesando «${file.name}» — análisis optimizado por plantilla.`;
+    hint.classList.remove("hidden");
+  }
   const fd = new FormData();
   fd.append("video", file);
   const v2 = $("#caseVideo2").files?.[0];
@@ -373,6 +1034,7 @@ $("#uploadForm")?.addEventListener("submit", async (e) => {
   if (v3) fd.append("video3", v3);
   fd.append("title", $("#caseTitle").value);
   fd.append("site", $("#caseSite").value);
+  fd.append("case_notes", $("#caseNotes")?.value || "");
   fd.append("template_id", $("#caseTemplate").value);
   fd.append("meters_per_pixel", $("#caseMpp").value);
   fd.append("max_machinery_kmh", $("#caseMachKmh").value);
@@ -383,10 +1045,20 @@ $("#uploadForm")?.addEventListener("submit", async (e) => {
   fd.append("offset3", $("#caseOffset3").value);
   try {
     const res = await api("/api/forense/jobs", { method: "POST", body: fd });
+    if (hint) hint.textContent = "Análisis iniciado con biblioteca de aprendizaje activa.";
     await refreshJobs();
-    selectJob(res.job.id);
+    await selectJob(res.job.id);
   } catch (err) {
-    alert(err.message);
+    if (hint) {
+      hint.textContent = err.message;
+      hint.style.color = "#f07178";
+    }
+    alert(err.message || "No se pudo iniciar el análisis");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = prevLabel;
+    }
   }
 });
 
