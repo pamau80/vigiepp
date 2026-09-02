@@ -131,6 +131,24 @@
           <h3>Comparación vs escenario de referencia</h3>
           <p id="comparisonText" class="comparison-text"></p>
         </section>
+        <section class="card hidden" id="videoSection">
+          <h3>Reproductor forense — análisis en vivo</h3>
+          <p class="muted small">Personas, vehículos, velocidades y distancias persona–maquinaria mientras avanza el video.</p>
+          <div class="video-stage">
+            <video id="forenseVideo" controls playsinline preload="metadata"></video>
+            <canvas id="forenseOverlay" aria-hidden="true"></canvas>
+          </div>
+          <div class="live-stats" id="liveStats">
+            <span id="liveTime">00:00:00</span>
+            <span id="liveCounts">—</span>
+            <span id="liveSpeeds">—</span>
+            <span id="liveProximity">—</span>
+            <span id="liveFrames">—</span>
+          </div>
+          <div class="btn-row">
+            <button type="button" class="btn secondary small" id="btnLearnMoment">Enseñar este momento</button>
+          </div>
+        </section>
         <section class="card">
           <h3>Cinemática y velocidades</h3>
           <table class="data-table" id="kinematicsTable">

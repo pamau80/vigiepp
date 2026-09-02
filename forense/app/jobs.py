@@ -220,6 +220,8 @@ def _process_job(job_id: str) -> None:
             "event_count": analysis.get("event_count", 0),
             "kinematics": analysis.get("kinematics") or {},
             "speed_series": analysis.get("speed_series") or [],
+            "tracks": analysis.get("tracks") or [],
+            "frames_analyzed": analysis.get("frames_analyzed", 0),
             "heatmap": analysis.get("heatmap", False),
             "frame_size": analysis.get("frame_size") or {},
             "sources_count": analysis.get("sources_count", len(sources)),
@@ -319,3 +321,63 @@ def case_bundle_path(job_id: str) -> Path | None:
 def committee_md_path(job_id: str) -> Path | None:
     p = _job_dir(job_id) / "committee.md"
     return p if p.is_file() else None
+
+
+def job_video_path(job_id: str, cam: int = 0) -> Path | None:
+    d = _job_dir(job_id) / "sources"
+    if not d.is_dir():
+        return None
+    for ext in (".mp4", ".avi", ".mov", ".webm", ".mkv"):
+        p = d / f"cam{cam}{ext}"
+        if p.is_file():
+            return p
+    return None
+
+
+def learn_event_at_timestamp(
+    job_id: str,
+    time_sec: float,
+    *,
+    title: str,
+    description: str = "",
+    situation_type: str = "other",
+    industry: str = "general",
+) -> dict[str, Any]:
+    """Guarda en biblioteca un evento aprendido desde el instante del video."""
+    from .knowledge import create_knowledge
+
+    jpeg = extract_frame_jpeg(job_id, time_sec)
+    if not jpeg:
+        raise FileNotFoundError("No se pudo extraer frame del video")
+    job = get_job(job_id)
+    ind = (industry or "").strip() or (job.get("template_id") if job else "") or "general"
+    return create_knowledge(
+        title=title,
+        situation_type=situation_type,
+        description=description,
+        industry=ind,
+        media_bytes=jpeg,
+        media_filename=f"frame_{int(time_sec)}.jpg",
+        from_job_id=job_id,
+        source="live",
+        source_id=f"{job_id}:{time_sec:.2f}",
+    )
+
+
+def extract_frame_jpeg(job_id: str, time_sec: float, *, cam: int = 0) -> bytes | None:
+    import cv2
+
+    path = job_video_path(job_id, cam)
+    if not path:
+        return None
+    cap = cv2.VideoCapture(str(path))
+    if not cap.isOpened():
+        return None
+    fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+    cap.set(cv2.CAP_PROP_POS_FRAMES, int(time_sec * fps))
+    ok, frame = cap.read()
+    cap.release()
+    if not ok or frame is None:
+        return None
+    ok2, buf = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+    return buf.tobytes() if ok2 else None

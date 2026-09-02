@@ -36,6 +36,251 @@ let teachClassesCache = [];
 let selectedKeyframeName = null;
 let pollTimer = null;
 let currentJobId = null;
+let frameCache = [];
+let lastFrameFetchSec = -1;
+let overlayRaf = null;
+let videoSyncBound = false;
+
+function formatTs(sec) {
+  const s = Math.max(0, Math.floor(sec));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+}
+
+function nearestCachedFrame(timeSec) {
+  if (!frameCache.length) return null;
+  let best = frameCache[0];
+  let bestDt = Math.abs((best.time_sec || 0) - timeSec);
+  for (const fr of frameCache) {
+    const dt = Math.abs((fr.time_sec || 0) - timeSec);
+    if (dt < bestDt) {
+      bestDt = dt;
+      best = fr;
+    }
+  }
+  return bestDt <= 1.5 ? best : null;
+}
+
+function resizeOverlayCanvas() {
+  const video = $("#forenseVideo");
+  const canvas = $("#forenseOverlay");
+  if (!video || !canvas || !video.videoWidth) return;
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+}
+
+function drawFrameOverlay(frameRec) {
+  const video = $("#forenseVideo");
+  const canvas = $("#forenseOverlay");
+  if (!video || !canvas || !frameRec) return;
+  resizeOverlayCanvas();
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const fw = frameRec.frame_w || canvas.width;
+  const fh = frameRec.frame_h || canvas.height;
+  const sx = canvas.width / fw;
+  const sy = canvas.height / fh;
+
+  for (const det of frameRec.detections || []) {
+    const [x1, y1, x2, y2] = det.box || [];
+    if (x1 == null) continue;
+    const kind = det.kind || "other";
+    ctx.strokeStyle = kind === "person" ? "#3ecf8e" : kind === "machinery" ? "#f0b429" : "#8fa3bf";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x1 * sx, y1 * sy, (x2 - x1) * sx, (y2 - y1) * sy);
+    const label = `${det.label || kind} ${Math.round((det.confidence || 0) * 100)}%`;
+    ctx.font = "12px system-ui,sans-serif";
+    const tw = ctx.measureText(label).width + 8;
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.fillRect(x1 * sx, Math.max(0, y1 * sy - 18), tw, 16);
+    ctx.fillStyle = "#0b1220";
+    ctx.fillText(label, x1 * sx + 4, Math.max(12, y1 * sy - 5));
+  }
+
+  const speedByTrack = new Map((frameRec.speeds || []).map((s) => [s.track_id, s]));
+  for (const tr of frameRec.tracks || []) {
+    const sp = speedByTrack.get(tr.track_id);
+    if (!sp) continue;
+    const cx = (tr.cx || 0) * sx;
+    const cy = (tr.cy || 0) * sy;
+    ctx.fillStyle = tr.kind === "machinery" ? "#f0b429" : "#3ecf8e";
+    ctx.font = "bold 11px system-ui,sans-serif";
+    ctx.fillText(`${sp.speed_kmh} km/h`, cx + 6, cy - 8);
+  }
+
+  for (const prox of frameRec.proximity || []) {
+    const pTr = (frameRec.tracks || []).find((t) => t.track_id === prox.person_track);
+    const mTr = (frameRec.tracks || []).find((t) => t.track_id === prox.machinery_track);
+    if (!pTr || !mTr) continue;
+    const px = pTr.cx * sx;
+    const py = pTr.cy * sy;
+    const mx = mTr.cx * sx;
+    const my = mTr.cy * sy;
+    ctx.strokeStyle = prox.alert ? "#f07178" : "#8fa3bf";
+    ctx.setLineDash(prox.alert ? [] : [4, 4]);
+    ctx.lineWidth = prox.alert ? 2 : 1;
+    ctx.beginPath();
+    ctx.moveTo(px, py);
+    ctx.lineTo(mx, my);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const midX = (px + mx) / 2;
+    const midY = (py + my) / 2;
+    ctx.fillStyle = prox.alert ? "#f07178" : "#8fa3bf";
+    ctx.font = "10px system-ui,sans-serif";
+    ctx.fillText(`${prox.distance_m} m`, midX + 4, midY - 4);
+  }
+}
+
+function updateLiveStats(frameRec, totalStored) {
+  const timeEl = $("#liveTime");
+  const countsEl = $("#liveCounts");
+  const speedsEl = $("#liveSpeeds");
+  const proxEl = $("#liveProximity");
+  const framesEl = $("#liveFrames");
+  if (!frameRec) {
+    if (timeEl) timeEl.textContent = "—";
+    if (countsEl) countsEl.textContent = "Esperando análisis…";
+    if (speedsEl) speedsEl.textContent = "";
+    if (proxEl) proxEl.textContent = "";
+    if (framesEl) framesEl.textContent = totalStored ? `${totalStored} frames` : "";
+    return;
+  }
+  if (timeEl) timeEl.textContent = frameRec.time_label || formatTs(frameRec.time_sec || 0);
+  const c = frameRec.counts || {};
+  if (countsEl) {
+    countsEl.textContent = `👤 ${c.persons || 0} · 🚛 ${c.vehicles || 0} objetos`;
+  }
+  const speeds = (frameRec.speeds || []).map((s) => `#${s.track_id} ${s.speed_kmh} km/h`).join(" · ");
+  if (speedsEl) speedsEl.textContent = speeds ? `Vel: ${speeds}` : "Vel: —";
+  const prox = frameRec.proximity || [];
+  const closest = prox[0];
+  if (proxEl) {
+    if (!closest) {
+      proxEl.textContent = "Dist: —";
+      proxEl.classList.remove("alert");
+    } else {
+      proxEl.textContent = `Dist mín: ${closest.distance_m} m (P#${closest.person_track}–M#${closest.machinery_track})`;
+      proxEl.classList.toggle("alert", !!closest.alert);
+    }
+  }
+  if (framesEl) framesEl.textContent = `${totalStored || frameCache.length} frames analizados`;
+}
+
+function onVideoTimeUpdate() {
+  const video = $("#forenseVideo");
+  if (!video) return;
+  const t = video.currentTime || 0;
+  const fr = nearestCachedFrame(t);
+  drawFrameOverlay(fr);
+  updateLiveStats(fr, frameCache.length);
+}
+
+function bindVideoSync() {
+  if (videoSyncBound) return;
+  const video = $("#forenseVideo");
+  if (!video) return;
+  videoSyncBound = true;
+  video.addEventListener("loadedmetadata", resizeOverlayCanvas);
+  video.addEventListener("timeupdate", onVideoTimeUpdate);
+  video.addEventListener("seeked", onVideoTimeUpdate);
+  video.addEventListener("play", () => {
+    const tick = () => {
+      if (!video.paused) {
+        onVideoTimeUpdate();
+        overlayRaf = requestAnimationFrame(tick);
+      }
+    };
+    overlayRaf = requestAnimationFrame(tick);
+  });
+  video.addEventListener("pause", () => {
+    if (overlayRaf) cancelAnimationFrame(overlayRaf);
+    onVideoTimeUpdate();
+  });
+}
+
+async function fetchIncrementalFrames(jobId) {
+  const fromSec = Math.max(0, lastFrameFetchSec);
+  try {
+    const data = await api(
+      `/api/forense/jobs/${jobId}/analysis/frames?from_sec=${fromSec.toFixed(2)}&limit=400`,
+    );
+    const frames = data.frames || [];
+    if (frames.length) {
+      const seen = new Set(frameCache.map((f) => f.time_sec));
+      for (const fr of frames) {
+        if (!seen.has(fr.time_sec)) {
+          frameCache.push(fr);
+          seen.add(fr.time_sec);
+        }
+      }
+      frameCache.sort((a, b) => (a.time_sec || 0) - (b.time_sec || 0));
+      lastFrameFetchSec = frameCache[frameCache.length - 1].time_sec || fromSec;
+    }
+    const total = data.total_stored ?? frameCache.length;
+    const video = $("#forenseVideo");
+    if (video && !video.paused) onVideoTimeUpdate();
+    else updateLiveStats(nearestCachedFrame(video?.currentTime || 0), total);
+    return total;
+  } catch {
+    return frameCache.length;
+  }
+}
+
+function setupVideoViewer(job, jobId) {
+  const section = $("#videoSection");
+  const video = $("#forenseVideo");
+  if (!section || !video) return;
+  if (!job.has_video) {
+    section.classList.add("hidden");
+    video.removeAttribute("src");
+    frameCache = [];
+    lastFrameFetchSec = -1;
+    return;
+  }
+  section.classList.remove("hidden");
+  const src = `/api/forense/jobs/${jobId}/video`;
+  if (video.getAttribute("data-src") !== src) {
+    video.setAttribute("data-src", src);
+    video.src = `${src}?t=${Date.now()}`;
+    frameCache = [];
+    lastFrameFetchSec = -1;
+  }
+  bindVideoSync();
+  fetchIncrementalFrames(jobId);
+}
+
+$("#btnLearnMoment")?.addEventListener("click", async () => {
+  if (!currentJobId) return;
+  const video = $("#forenseVideo");
+  const timeSec = video?.currentTime || 0;
+  const timeLabel = formatTs(timeSec);
+  const title = prompt("Título de la situación:", `Evento en ${timeLabel}`);
+  if (!title) return;
+  const description = prompt("¿Qué ocurrió en este instante?", "") || "";
+  const situationType = $("#knSituationType")?.value || "other";
+  const industry = $("#knIndustry")?.value || "general";
+  try {
+    await api(`/api/forense/jobs/${currentJobId}/events/learn`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        time_sec: timeSec,
+        title,
+        description,
+        situation_type: situationType,
+        industry,
+      }),
+    });
+    await loadKnowledge();
+    alert("Momento guardado en la biblioteca de aprendizaje.");
+  } catch (err) {
+    alert(err.message);
+  }
+});
 
 function applyTemplateDefaults(templateId) {
   const tpl = templatesCache.find((t) => t.id === templateId) || templatesCache.find((t) => t.id === "general");
@@ -82,6 +327,13 @@ function resetNewCaseForm() {
     pollTimer = null;
   }
   currentJobId = null;
+  frameCache = [];
+  lastFrameFetchSec = -1;
+  const video = $("#forenseVideo");
+  if (video) {
+    video.removeAttribute("src");
+    video.removeAttribute("data-src");
+  }
   $("#jobView")?.classList.add("hidden");
   $("#emptyState")?.classList.remove("hidden");
   refreshJobs();
@@ -541,7 +793,12 @@ async function loadJob(id, quiet = false) {
   const srcCount = j.sources?.length || j.analysis?.sources_count || 1;
   $("#jobMeta").textContent =
     `${j.site || ""} · ${j.template_name || j.template_id || ""} · ${j.status} · ` +
-    `${j.analysis?.event_count || 0} eventos · ${srcCount} cámara(s)`;
+    `${j.analysis?.event_count || 0} eventos · ${j.frames_analyzed || 0} frames · ${srcCount} cámara(s)`;
+
+  setupVideoViewer(j, id);
+  if (j.status === "processing" || j.status === "queued") {
+    await fetchIncrementalFrames(id);
+  }
 
   const pw = $("#progressWrap");
   if (j.status === "processing" || j.status === "queued") {

@@ -114,3 +114,65 @@ def find_proximity_events(
                     }
                 )
     return events
+
+
+def snapshot_track_speeds(
+    tracks: list[Track],
+    time_sec: float,
+    *,
+    meters_per_pixel: float,
+    window_sec: float = 0.8,
+) -> list[dict[str, Any]]:
+    """Velocidad instantánea (km/h) por track cerca de time_sec."""
+    out: list[dict[str, Any]] = []
+    for tr in tracks:
+        pts = [p for p in tr.points if abs(p.time_sec - time_sec) <= window_sec]
+        if len(pts) < 2:
+            continue
+        p0, p1 = pts[-2], pts[-1]
+        dt = p1.time_sec - p0.time_sec
+        if dt <= 0.05:
+            continue
+        dm = _dist_m(p0, p1, meters_per_pixel)
+        kmh = (dm / dt) * 3.6
+        out.append(
+            {
+                "track_id": tr.track_id,
+                "kind": tr.kind,
+                "label": tr.label,
+                "speed_kmh": round(kmh, 2),
+            }
+        )
+    return out
+
+
+def snapshot_proximity(
+    tracks: list[Track],
+    time_sec: float,
+    *,
+    meters_per_pixel: float,
+    min_distance_m: float,
+    tolerance: float = 0.6,
+) -> list[dict[str, Any]]:
+    """Distancias persona–maquinaria en un instante."""
+    persons = [t for t in tracks if t.kind == "person"]
+    machines = [t for t in tracks if t.kind == "machinery"]
+    events: list[dict[str, Any]] = []
+    for p in persons:
+        pp = next((x for x in reversed(p.points) if abs(x.time_sec - time_sec) <= tolerance), None)
+        if not pp:
+            continue
+        for m in machines:
+            mp = next((x for x in reversed(m.points) if abs(x.time_sec - time_sec) <= tolerance), None)
+            if not mp:
+                continue
+            d = _dist_m(pp, mp, meters_per_pixel)
+            events.append(
+                {
+                    "person_track": p.track_id,
+                    "machinery_track": m.track_id,
+                    "distance_m": round(d, 2),
+                    "alert": d < min_distance_m,
+                }
+            )
+    return sorted(events, key=lambda x: x["distance_m"])
