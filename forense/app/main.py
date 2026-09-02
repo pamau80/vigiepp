@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
@@ -21,6 +21,7 @@ from .config import (
     WEB_DIR,
     ensure_dirs,
 )
+from .frame_store import count_frames, nearest_frame, read_frames
 from .jobs import (
     case_bundle_path,
     committee_md_path,
@@ -29,7 +30,9 @@ from .jobs import (
     export_job_ehs,
     get_job,
     heatmap_path,
+    job_video_path,
     keyframe_path,
+    learn_event_at_timestamp,
     list_jobs,
     report_pdf_path,
 )
@@ -234,6 +237,8 @@ def _job_payload(job: dict) -> dict:
         "has_pdf": report_pdf_path(job["id"]) is not None,
         "has_bundle": case_bundle_path(job["id"]) is not None,
         "has_committee": committee_md_path(job["id"]) is not None,
+        "has_video": job_video_path(job["id"]) is not None,
+        "frames_analyzed": count_frames(job["id"]),
         "ehs_push": job.get("ehs_push"),
         "knowledge": job.get("knowledge"),
     }
@@ -247,6 +252,86 @@ def jobs_get(job_id: str, request: Request) -> dict:
     if not job:
         raise HTTPException(404, "Trabajo no encontrado")
     return {"ok": True, "job": _job_payload(job)}
+
+
+@app.get("/api/forense/jobs/{job_id}/video")
+def jobs_video(job_id: str, request: Request) -> FileResponse:
+    _require_license()
+    require_forense_admin(request)
+    if not get_job(job_id):
+        raise HTTPException(404, "Trabajo no encontrado")
+    path = job_video_path(job_id)
+    if not path:
+        raise HTTPException(404, "Video no disponible")
+    return FileResponse(path, media_type="video/mp4", filename=path.name)
+
+
+@app.get("/api/forense/jobs/{job_id}/analysis/frames")
+def jobs_analysis_frames(
+    job_id: str,
+    request: Request,
+    from_sec: float = Query(0.0, ge=0),
+    until_sec: float | None = Query(None, ge=0),
+    limit: int = Query(500, ge=1, le=2000),
+) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    if not get_job(job_id):
+        raise HTTPException(404, "Trabajo no encontrado")
+    frames = read_frames(job_id, from_sec=from_sec, until_sec=until_sec, limit=limit)
+    return {
+        "ok": True,
+        "job_id": job_id,
+        "from_sec": from_sec,
+        "until_sec": until_sec,
+        "count": len(frames),
+        "frames": frames,
+        "total_stored": count_frames(job_id),
+    }
+
+
+@app.get("/api/forense/jobs/{job_id}/analysis/frame-at")
+def jobs_frame_at(
+    job_id: str,
+    request: Request,
+    time_sec: float = Query(..., ge=0),
+) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    if not get_job(job_id):
+        raise HTTPException(404, "Trabajo no encontrado")
+    rec = nearest_frame(job_id, time_sec)
+    if not rec:
+        raise HTTPException(404, "Sin frames analizados aún")
+    return {"ok": True, "frame": rec}
+
+
+class LearnEventBody(BaseModel):
+    time_sec: float = Field(..., ge=0)
+    title: str = Field(..., min_length=1, max_length=200)
+    description: str = Field("", max_length=4000)
+    situation_type: str = Field("other", max_length=64)
+    industry: str = Field("general", max_length=64)
+
+
+@app.post("/api/forense/jobs/{job_id}/events/learn")
+def jobs_learn_event(job_id: str, body: LearnEventBody, request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    if not get_job(job_id):
+        raise HTTPException(404, "Trabajo no encontrado")
+    try:
+        entry = learn_event_at_timestamp(
+            job_id,
+            body.time_sec,
+            title=body.title,
+            description=body.description,
+            situation_type=body.situation_type,
+            industry=body.industry,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {"ok": True, "entry": entry}
 
 
 @app.get("/api/forense/jobs/{job_id}/charts")

@@ -6,7 +6,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 PERSON_KW = ("person", "human", "persona", "worker")
-MACHINERY_KW = ("forklift", "montacargas", "lift", "pallet", "crane", "grua", "grúa", "truck", "vehicle")
+MACHINERY_KW = (
+    "forklift", "montacargas", "lift", "pallet", "crane", "grua", "grúa", "truck", "vehicle",
+    "camion", "camión", "bus", "auto", "van", "trailer", "semi", "recolector", "basura",
+    "garbage", "machinery", "maquinaria", "excavadora", "retro", "reach", "stacker",
+)
 
 
 def _iou(a: list[float], b: list[float]) -> float:
@@ -115,3 +119,25 @@ class IoUTracker:
 
     def all_tracks(self) -> list[Track]:
         return list(self._tracks.values())
+
+    def active_snapshot(self, time_sec: float) -> list[dict[str, Any]]:
+        """Estado actual de tracks activos en un instante."""
+        out: list[dict[str, Any]] = []
+        for tr in self._tracks.values():
+            if not tr.points:
+                continue
+            p = tr.points[-1]
+            if abs(p.time_sec - time_sec) > 2.5:
+                continue
+            out.append(
+                {
+                    "track_id": tr.track_id,
+                    "kind": tr.kind,
+                    "label": tr.label,
+                    "cx": round(p.cx, 1),
+                    "cy": round(p.cy, 1),
+                    "confidence": round(p.confidence, 3),
+                    "time_sec": p.time_sec,
+                }
+            )
+        return out
