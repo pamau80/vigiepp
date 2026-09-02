@@ -1,12 +1,93 @@
 import { statusLabel, kindLabel, eventTypeLabel, sourceLabel } from "./i18n-es-cl.js";
 
 const API = "";
+const TOKEN_KEY = "forense.token";
 
-async function api(path, opts = {}) {
-  const token = sessionStorage.getItem("forense.token");
-  const headers = { ...(opts.headers || {}) };
+function getForenseToken() {
+  return sessionStorage.getItem(TOKEN_KEY) || "";
+}
+
+function setForenseToken(token) {
+  if (token) sessionStorage.setItem(TOKEN_KEY, token);
+  else sessionStorage.removeItem(TOKEN_KEY);
+}
+
+function clearForenseToken() {
+  sessionStorage.removeItem(TOKEN_KEY);
+}
+
+function authHeaders(extra = {}) {
+  const headers = { ...extra };
+  const token = getForenseToken();
   if (token) headers["X-VigiEPP-Key"] = token;
-  const res = await fetch(`${API}${path}`, { credentials: "include", ...opts, headers });
+  return headers;
+}
+
+function showToast(message, type = "info") {
+  const host = $("#toastHost");
+  if (!host || !message) return;
+  const el = document.createElement("div");
+  el.className = `toast toast-${type}`;
+  el.textContent = message;
+  host.appendChild(el);
+  requestAnimationFrame(() => el.classList.add("visible"));
+  setTimeout(() => {
+    el.classList.remove("visible");
+    setTimeout(() => el.remove(), 280);
+  }, type === "error" ? 5200 : 3600);
+}
+
+function showAuthGate(message = "") {
+  authGate?.classList.remove("hidden");
+  app?.classList.add("hidden");
+  $("#sessionBadge")?.classList.add("hidden");
+  $("#btnLogout")?.classList.add("hidden");
+  if (message && $("#authHint")) $("#authHint").textContent = message;
+}
+
+function showAppShell() {
+  authGate?.classList.add("hidden");
+  app?.classList.remove("hidden");
+  $("#sessionBadge")?.classList.remove("hidden");
+  $("#btnLogout")?.classList.remove("hidden");
+}
+
+function updateSessionBadge(st) {
+  const badge = $("#sessionBadge");
+  if (!badge) return;
+  const role = st?.role === "admin" ? "Administrador" : "Sesión activa";
+  badge.textContent = role;
+  badge.title = st?.auth_enabled === false ? "Autenticación desactivada (desarrollo)" : "Sesión Forense válida";
+}
+
+function hydrateTokenFromStatus(st) {
+  if (st?.token) setForenseToken(st.token);
+}
+
+async function fetchAuthStatus() {
+  const res = await fetch(`${API}/api/forense/auth/status`, {
+    credentials: "include",
+    headers: authHeaders(),
+  });
+  if (!res.ok) return { can_access: false };
+  return res.json();
+}
+
+async function api(path, opts = {}, allowRetry = true) {
+  const res = await fetch(`${API}${path}`, {
+    credentials: "include",
+    ...opts,
+    headers: authHeaders(opts.headers || {}),
+  });
+  if (res.status === 401 && allowRetry) {
+    clearForenseToken();
+    const st = await fetchAuthStatus();
+    hydrateTokenFromStatus(st);
+    if (st.can_access) return api(path, opts, false);
+    showAuthGate("Sesión expirada. Ingresá de nuevo con PIN administrador.");
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "No autorizado");
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.detail || err.message || res.statusText);
@@ -20,7 +101,7 @@ function captureBridgeToken() {
   const params = new URLSearchParams(window.location.search);
   const key = params.get("key");
   if (key) {
-    sessionStorage.setItem("forense.token", key);
+    setForenseToken(key);
     params.delete("key");
     const qs = params.toString();
     const clean = `${window.location.pathname}${qs ? `?${qs}` : ""}`;
@@ -422,7 +503,7 @@ function renderSourceButtons() {
     btn.className = "btn secondary small";
     btn.title = src.description || "";
     btn.textContent = src.name;
-    btn.onclick = () => syncKnowledgeSource(src.id, src.name);
+    btn.onclick = () => syncKnowledgeSource(src.id, src.name, btn);
     wrap.appendChild(btn);
   }
   if (!filtered.length) {
@@ -430,19 +511,25 @@ function renderSourceButtons() {
   }
 }
 
-async function syncKnowledgeSource(sourceId, label) {
+async function syncKnowledgeSource(sourceId, label, btn) {
   const hint = $("#sourcesHint");
   hint.textContent = `Sincronizando ${label}…`;
+  if (btn) btn.disabled = true;
   try {
     const res = await api("/api/forense/knowledge/sources/sync", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ source_id: sourceId, skip_existing: true }),
     });
-    hint.textContent = `${label}: ${res.imported ?? 0} nuevas, ${res.skipped ?? 0} ya existían.`;
+    const msg = `${label}: ${res.imported ?? 0} nuevas, ${res.skipped ?? 0} ya existían.`;
+    hint.textContent = msg;
+    showToast(msg, "ok");
     await loadKnowledge();
   } catch (err) {
     hint.textContent = err.message;
+    showToast(err.message, "error");
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -451,17 +538,24 @@ $("#sourceIndustry")?.addEventListener("change", renderSourceButtons);
 $("#btnSyncIndustry")?.addEventListener("click", async () => {
   const industry = $("#sourceIndustry")?.value || "general";
   const hint = $("#sourcesHint");
+  const btn = $("#btnSyncIndustry");
   hint.textContent = `Sincronizando industria ${industry}…`;
+  if (btn) btn.disabled = true;
   try {
     const res = await api("/api/forense/knowledge/sources/sync-industry", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ industry, limit_per_source: 12, skip_existing: true }),
     });
-    hint.textContent = `Industria ${industry}: ${res.total_imported ?? 0} situaciones importadas en total.`;
+    const msg = `Industria ${industry}: ${res.total_imported ?? 0} situaciones importadas en total.`;
+    hint.textContent = msg;
+    showToast(msg, "ok");
     await loadKnowledge();
   } catch (err) {
     hint.textContent = err.message;
+    showToast(err.message, "error");
+  } finally {
+    if (btn) btn.disabled = false;
   }
 });
 
@@ -556,11 +650,9 @@ async function loadKnowledge() {
 
 async function loadKnowledgeThumb(entryId, imgEl) {
   try {
-    const token = sessionStorage.getItem("forense.token");
-    const headers = token ? { "X-VigiEPP-Key": token } : {};
     const res = await fetch(`/api/forense/knowledge/${entryId}/thumb.jpg`, {
       credentials: "include",
-      headers,
+      headers: authHeaders(),
     });
     if (!res.ok) throw new Error("thumb");
     const blob = await res.blob();
@@ -571,19 +663,25 @@ async function loadKnowledgeThumb(entryId, imgEl) {
   }
 }
 
+function updateVigiEppLink() {
+  const a = $("#lnkVigiEpp");
+  if (!a) return;
+  a.href = `${window.location.protocol}//${window.location.hostname}:8000/`;
+}
+
 async function checkSession() {
+  captureBridgeToken();
+  updateVigiEppLink();
   try {
     const h = await api("/api/forense/health");
     $("#licenseLine").textContent = h.license?.valid
       ? `Licencia activa · ${h.build} · IA + aprendizaje`
       : `Sin licencia: ${h.license?.detail || "—"}`;
-    const st = await fetch("/api/forense/auth/status", {
-      credentials: "include",
-      headers: sessionStorage.getItem("forense.token") ? { "X-VigiEPP-Key": sessionStorage.getItem("forense.token") } : {},
-    }).then((r) => r.json());
+    const st = await fetchAuthStatus();
+    hydrateTokenFromStatus(st);
     if (st.can_access) {
-      authGate.classList.add("hidden");
-      app.classList.remove("hidden");
+      showAppShell();
+      updateSessionBadge(st);
       await loadTemplates();
       await loadTeachStatus();
       await loadKnowledge();
@@ -594,9 +692,19 @@ async function checkSession() {
   } catch {
     /* mostrar gate */
   }
-  authGate.classList.remove("hidden");
-  app.classList.add("hidden");
+  showAuthGate();
 }
+
+$("#btnLogout")?.addEventListener("click", async () => {
+  try {
+    await api("/api/forense/auth/logout", { method: "POST" });
+  } catch {
+    /* ignorar */
+  }
+  clearForenseToken();
+  showAuthGate();
+  if ($("#authHint")) $("#authHint").textContent = "Sesión cerrada.";
+});
 
 $("#authForm")?.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -608,8 +716,9 @@ $("#authForm")?.addEventListener("submit", async (e) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ pin }),
     });
-    if (res.token) sessionStorage.setItem("forense.token", res.token);
+    if (res.token) setForenseToken(res.token);
     await checkSession();
+    showToast("Sesión Forense iniciada", "ok");
   } catch (err) {
     $("#authHint").textContent = err.message;
   }
