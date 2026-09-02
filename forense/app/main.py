@@ -47,6 +47,7 @@ from .knowledge import (
     reset_knowledge,
 )
 from .knowledge_import import import_osha, import_seeds, list_import_catalog
+from .sources import ingest_url, list_sources_catalog, sync_source, validate_records
 from .license import license_status, verify_license
 from .teach_bridge import (
     activate_custom_model,
@@ -528,6 +529,98 @@ class KnowledgeImportOshaBody(BaseModel):
     default_industry: str = "portuario"
     fatality_only: bool = False
     skip_existing: bool = True
+
+
+class KnowledgeSourceSyncBody(BaseModel):
+    source_id: str = Field(..., min_length=1, max_length=64)
+    limit: int | None = Field(None, ge=1, le=200)
+    skip_existing: bool = True
+    fatality_only: bool = False
+
+
+class KnowledgeSourceSyncIndustryBody(BaseModel):
+    industry: str = Field(..., min_length=1, max_length=64)
+    limit_per_source: int = Field(15, ge=1, le=50)
+    skip_existing: bool = True
+
+
+class KnowledgeIngestUrlBody(BaseModel):
+    url: str = Field(..., min_length=8, max_length=2000)
+    title: str = Field("", max_length=200)
+    industry: str = Field("general", max_length=64)
+    situation_type: str = Field("other", max_length=64)
+    tags: list[str] = Field(default_factory=list)
+    save: bool = True
+
+
+class KnowledgeBulkValidateBody(BaseModel):
+    records: list[dict] = Field(default_factory=list)
+    default_industry: str = Field("general", max_length=64)
+    check_duplicates: bool = True
+
+
+@app.get("/api/forense/knowledge/sources/catalog")
+def knowledge_sources_catalog(request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    return {"ok": True, **list_sources_catalog(), "dol_api_configured": bool(DOL_API_KEY)}
+
+
+@app.post("/api/forense/knowledge/sources/sync")
+def knowledge_sources_sync(body: KnowledgeSourceSyncBody, request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    result = sync_source(
+        body.source_id,
+        limit=body.limit,
+        skip_existing=body.skip_existing,
+        fatality_only=body.fatality_only,
+    )
+    if not result.get("ok"):
+        raise HTTPException(400, result.get("error", "Sincronización falló"))
+    return {"ok": True, **result, "stats": knowledge_stats()}
+
+
+@app.post("/api/forense/knowledge/sources/sync-industry")
+def knowledge_sources_sync_industry(body: KnowledgeSourceSyncIndustryBody, request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    from .sources.sync import sync_all_by_industry
+
+    result = sync_all_by_industry(
+        body.industry,
+        limit_per_source=body.limit_per_source,
+        skip_existing=body.skip_existing,
+    )
+    return {"ok": True, **result, "stats": knowledge_stats()}
+
+
+@app.post("/api/forense/knowledge/sources/ingest-url")
+def knowledge_sources_ingest_url(body: KnowledgeIngestUrlBody, request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    result = ingest_url(
+        body.url,
+        title=body.title,
+        industry=body.industry,
+        situation_type=body.situation_type,
+        tags=body.tags,
+        save=body.save,
+    )
+    if not result.get("ok"):
+        raise HTTPException(400, result.get("error", "Ingesta falló"))
+    return {"ok": True, **result, "stats": knowledge_stats()}
+
+
+@app.post("/api/forense/knowledge/bulk-validate")
+def knowledge_bulk_validate(body: KnowledgeBulkValidateBody, request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    return validate_records(
+        body.records,
+        default_industry=body.default_industry,
+        check_duplicates=body.check_duplicates,
+    )
 
 
 @app.get("/api/forense/knowledge/import/catalog")

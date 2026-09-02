@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "source": "parking_curated",
+  "note": "Situaciones típicas en parking, patios logísticos y estacionamientos de faena (es-CL).",
+  "records": [
+    {
+      "source_id": "parking:reverse-no-spotter",
+      "title": "Retroceso en parking sin guía ni cono",
+      "situation_type": "unsafe_act",
+      "industry": "parking",
+      "description": "Vehículo de servicio retrocede en rampa de estacionamiento sin spotter. Peatón cruza por detrás del vehículo.",
+      "tags": ["retroceso", "parking", "rampa", "spotter"],
+      "labels": ["patio", "transito"]
+    },
+    {
+      "source_id": "parking:pedestrian-crossing",
+      "title": "Peatón cruza patio sin paso elevado ni demarcación",
+      "situation_type": "proximity",
+      "industry": "parking",
+      "description": "Trabajadores atraviesan patio de carga caminando entre filas de vehículos estacionados. Sin pasarela ni señalización.",
+      "tags": ["peaton", "patio", "cruce", "demarcacion"],
+      "labels": ["parking"]
+    },
+    {
+      "source_id": "parking:speed-ramp",
+      "title": "Exceso de velocidad en rampa de acceso",
+      "situation_type": "speed_excess",
+      "industry": "parking",
+      "description": "Camión ingresa a subterráneo o patio a velocidad inadecuada. Visibilidad reducida en curva de rampa.",
+      "tags": ["velocidad", "rampa", "parking", "camion"],
+      "labels": ["parking"]
+    },
+    {
+      "source_id": "parking:garbage-truck-maneuver",
+      "title": "Maniobra de camión recolector en vía pública adyacente",
+      "situation_type": "unsafe_act",
+      "industry": "parking",
+      "description": "Camión de residuos realiza maniobra bloqueando tránsito peatonal sin señalización ni conos. Zona de trabajo no delimitada.",
+      "tags": ["camion recolector", "residuos", "maniobra", "senalizacion"],
+      "labels": ["parking", "servicios"]
+    },
+    {
+      "source_id": "parking:loading-zone-intrusion",
+      "title": "Vehículo particular en zona de carga/descarga",
+      "situation_type": "zone_intrusion",
+      "industry": "parking",
+      "description": "Auto estacionado en zona reservada para montacargas o carga. Obstruye maniobra y genera conflicto peatón–equipo.",
+      "tags": ["zona carga", "estacionamiento", "obstruccion"],
+      "labels": ["parking"]
+    },
+    {
+      "source_id": "parking:night-poor-lighting",
+      "title": "Tránsito nocturno con iluminación insuficiente",
+      "situation_type": "proximity",
+      "industry": "parking",
+      "description": "Patio de logística operado de noche sin luxes adecuados. Peatón no visible para operador de equipo móvil.",
+      "tags": ["iluminacion", "noche", "patio", "visibilidad"],
+      "labels": ["parking"]
+    }
+  ]
+}

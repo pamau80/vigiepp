@@ -394,6 +394,105 @@ async function loadTeachStatus() {
   }
 }
 
+let sourcesCatalogCache = [];
+
+async function loadSourcesCatalog() {
+  try {
+    const data = await api("/api/forense/knowledge/sources/catalog");
+    sourcesCatalogCache = data.sources || [];
+    const line = $("#sourcesCatalogLine");
+    if (line) {
+      line.textContent = `${sourcesCatalogCache.length} fuentes · DOL API: ${data.dol_api_configured ? "configurada" : "no configurada"}`;
+    }
+    renderSourceButtons();
+  } catch {
+    $("#sourcesCatalogLine").textContent = "Catálogo de fuentes no disponible";
+  }
+}
+
+function renderSourceButtons() {
+  const wrap = $("#sourceButtons");
+  const industry = $("#sourceIndustry")?.value || "general";
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  const filtered = sourcesCatalogCache.filter((s) => (s.industry || "general") === industry);
+  for (const src of filtered) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn secondary small";
+    btn.title = src.description || "";
+    btn.textContent = src.name;
+    btn.onclick = () => syncKnowledgeSource(src.id, src.name);
+    wrap.appendChild(btn);
+  }
+  if (!filtered.length) {
+    wrap.innerHTML = '<span class="muted small">Sin fuentes para esta industria</span>';
+  }
+}
+
+async function syncKnowledgeSource(sourceId, label) {
+  const hint = $("#sourcesHint");
+  hint.textContent = `Sincronizando ${label}…`;
+  try {
+    const res = await api("/api/forense/knowledge/sources/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source_id: sourceId, skip_existing: true }),
+    });
+    hint.textContent = `${label}: ${res.imported ?? 0} nuevas, ${res.skipped ?? 0} ya existían.`;
+    await loadKnowledge();
+  } catch (err) {
+    hint.textContent = err.message;
+  }
+}
+
+$("#sourceIndustry")?.addEventListener("change", renderSourceButtons);
+
+$("#btnSyncIndustry")?.addEventListener("click", async () => {
+  const industry = $("#sourceIndustry")?.value || "general";
+  const hint = $("#sourcesHint");
+  hint.textContent = `Sincronizando industria ${industry}…`;
+  try {
+    const res = await api("/api/forense/knowledge/sources/sync-industry", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ industry, limit_per_source: 12, skip_existing: true }),
+    });
+    hint.textContent = `Industria ${industry}: ${res.total_imported ?? 0} situaciones importadas en total.`;
+    await loadKnowledge();
+  } catch (err) {
+    hint.textContent = err.message;
+  }
+});
+
+$("#btnIngestUrl")?.addEventListener("click", async () => {
+  const url = $("#sourceUrl")?.value?.trim();
+  if (!url) {
+    alert("Ingresá una URL de informe oficial.");
+    return;
+  }
+  const hint = $("#sourcesHint");
+  hint.textContent = "Descargando e importando URL…";
+  try {
+    const res = await api("/api/forense/knowledge/sources/ingest-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url,
+        title: $("#sourceUrlTitle")?.value || "",
+        industry: $("#sourceIndustry")?.value || "general",
+        save: true,
+      }),
+    });
+    hint.textContent = res.saved
+      ? `Importado: ${res.entry?.title || "informe"}`
+      : "Vista previa generada (no guardado).";
+    await loadKnowledge();
+  } catch (err) {
+    hint.textContent = err.message;
+  }
+});
+
 async function loadKnowledge() {
   const data = await api("/api/forense/knowledge");
   situationTypesCache = data.situation_types || {};
@@ -488,6 +587,7 @@ async function checkSession() {
       await loadTemplates();
       await loadTeachStatus();
       await loadKnowledge();
+      await loadSourcesCatalog();
       await refreshJobs();
       return;
     }

@@ -182,6 +182,49 @@
       ]
     },
     {
+      "id": "parking",
+      "name": "Parking / patios logísticos",
+      "description": "Estacionamientos, rampas, patios de carga y tránsito mixto.",
+      "entries": [
+        {
+          "source_id": "seed:parking:retroceso-rampa",
+          "title": "Retroceso en rampa sin guía",
+          "situation_type": "unsafe_act",
+          "industry": "parking",
+          "description": "Vehículo retrocede en rampa de parking o subterráneo sin spotter ni conos de delimitación.",
+          "tags": ["retroceso", "rampa", "parking"],
+          "event_types": ["action", "proximity"]
+        },
+        {
+          "source_id": "seed:parking:transito-mixto",
+          "title": "Tránsito mixto peatón–vehículo en patio",
+          "situation_type": "proximity",
+          "industry": "parking",
+          "description": "Peatones y vehículos comparten patio sin barreras ni pasarelas demarcadas.",
+          "tags": ["patio", "peaton", "vehiculo"],
+          "event_types": ["proximity"]
+        },
+        {
+          "source_id": "seed:parking:zona-carga",
+          "title": "Obstrucción de zona de carga/descarga",
+          "situation_type": "zone_intrusion",
+          "industry": "parking",
+          "description": "Vehículo estacionado en zona reservada para montacargas o carga, generando maniobra insegura.",
+          "tags": ["zona carga", "estacionamiento"],
+          "event_types": ["zone"]
+        },
+        {
+          "source_id": "seed:parking:velocidad-patio",
+          "title": "Velocidad inadecuada en patio de logística",
+          "situation_type": "speed_excess",
+          "industry": "parking",
+          "description": "Camión o equipo móvil circula a velocidad superior al límite interno del patio.",
+          "tags": ["velocidad", "patio", "logistica"],
+          "event_types": ["speed_violation"]
+        }
+      ]
+    },
+    {
       "id": "isafety_hazards",
       "name": "iSafety — peligros frecuentes",
       "description": "Categorías de riesgo de iSafetyBench adaptadas a español.",

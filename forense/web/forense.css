@@ -33,7 +33,10 @@ textarea { resize: vertical; min-height: 4rem; font-family: inherit; }
 .btn.danger:hover { background: rgba(240, 113, 120, 0.12); }
 .knowledge-list { list-style: none; padding: 0; margin: 0 0 1rem; display: grid; gap: 0.5rem; max-height: 220px; overflow: auto; }
 .knowledge-item { display: flex; gap: 0.5rem; align-items: flex-start; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem; }
-.knowledge-import { margin: 0.5rem 0 1rem; padding: 0.65rem; }
+.knowledge-sources { margin: 0.5rem 0 1rem; padding: 0.65rem; }
+.knowledge-sources .url-ingest { margin-top: 0.5rem; font-size: 0.88rem; }
+.knowledge-sources .url-ingest label { margin-top: 0.35rem; }
+.knowledge-sources details summary { cursor: pointer; color: var(--accent); margin-bottom: 0.35rem; }
 .knowledge-import .import-title { margin: 0 0 0.35rem; font-size: 0.95rem; }
 .import-actions { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 .kn-source-badge { display: inline-block; font-size: 0.65rem; padding: 0.1rem 0.35rem; border-radius: 4px; background: rgba(61,139,253,0.2); color: var(--accent); margin-left: 0.25rem; vertical-align: middle; }

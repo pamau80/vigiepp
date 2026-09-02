@@ -89,7 +89,7 @@
       <ul id="knowledgeList" class="knowledge-list"></ul>
       <section class="card knowledge-import">
         <h3 class="import-title">Enriquecer biblioteca</h3>
-        <p class="muted small">Plantillas curadas (iSafety, HFACS, BBS) y casos reales de OSHA (EE.UU.).</p>
+        <p class="muted small">Plantillas, OSHA, EMCIP, SERNAGEOMIN, HSE y fuentes por industria.</p>
         <div class="import-actions">
           <button type="button" class="btn secondary small" id="btnImportSeeds">Cargar plantillas</button>
           <button type="button" class="btn secondary small" id="btnImportOshaPort">OSHA grúas / puerto</button>
@@ -97,6 +97,29 @@
           <button type="button" class="btn secondary small" id="btnImportOshaAll">OSHA paquete completo</button>
         </div>
         <p class="hint" id="importHint"></p>
+      </section>
+      <section class="card knowledge-sources">
+        <h3 class="import-title">Fuentes mundiales por industria</h3>
+        <p class="muted small" id="sourcesCatalogLine">Cargando catálogo…</p>
+        <label class="small">Industria
+          <select id="sourceIndustry">
+            <option value="mineria">Minería</option>
+            <option value="portuario">Portuario</option>
+            <option value="bodega">Bodega / CD</option>
+            <option value="parking">Parking / patio</option>
+            <option value="construccion">Construcción</option>
+            <option value="general">General</option>
+          </select>
+        </label>
+        <div class="import-actions" id="sourceButtons"></div>
+        <button type="button" class="btn ghost small" id="btnSyncIndustry">Sincronizar toda la industria</button>
+        <details class="url-ingest">
+          <summary>Importar informe desde URL oficial</summary>
+          <label>URL<input type="url" id="sourceUrl" placeholder="https://www.osha.gov/…" /></label>
+          <label>Título (opcional)<input type="text" id="sourceUrlTitle" /></label>
+          <button type="button" class="btn secondary small" id="btnIngestUrl">Importar URL</button>
+        </details>
+        <p class="hint" id="sourcesHint"></p>
       </section>
       <button type="button" class="btn ghost danger" id="btnResetKnowledge">Resetear biblioteca</button>
 

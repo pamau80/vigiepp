@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from forense.app.i18n_es_cl import label_event_type, label_kind, label_severity, statusLabel
+from forense.app.i18n_es_cl import label_event_type, label_kind, label_severity
 
 
 def test_event_type_labels_es_cl():
