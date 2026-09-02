@@ -1,0 +1,123 @@
+{
+  "version": 1,
+  "scenes": [
+    {
+      "id": "sim_atropello",
+      "file": "01_atropello_camion_peaton.png",
+      "title": "Atropello — camión vs peatón",
+      "situation_type": "collision",
+      "industry": "general",
+      "description": "Camión en movimiento con peatón en trayectoria de impacto. Simulación para prueba de proximidad y velocidad.",
+      "tags": [
+        "atropello",
+        "camion",
+        "peaton",
+        "colision"
+      ],
+      "path": "fixtures/accident_simulations/01_atropello_camion_peaton.png",
+      "width": 960,
+      "height": 540
+    },
+    {
+      "id": "sim_caida_altura",
+      "file": "02_caida_desde_altura.png",
+      "title": "Caída desde altura sin arnés",
+      "situation_type": "fall_risk",
+      "industry": "construccion",
+      "description": "Trabajador en borde de losa sin línea de vida. Trayectoria de caída simulada.",
+      "tags": [
+        "caida",
+        "altura",
+        "arnes",
+        "construccion"
+      ],
+      "path": "fixtures/accident_simulations/02_caida_desde_altura.png",
+      "width": 960,
+      "height": 540
+    },
+    {
+      "id": "sim_caida_nivel",
+      "file": "03_caida_mismo_nivel.png",
+      "title": "Caída mismo nivel — resbalón",
+      "situation_type": "fall_risk",
+      "industry": "general",
+      "description": "Resbalón en superficie mojada sin señalización.",
+      "tags": [
+        "caida",
+        "resbalon",
+        "piso mojado"
+      ],
+      "path": "fixtures/accident_simulations/03_caida_mismo_nivel.png",
+      "width": 960,
+      "height": 540
+    },
+    {
+      "id": "sim_maniobra_temeraria",
+      "file": "04_maniobra_temeraria_montacargas.png",
+      "title": "Maniobra temeraria — retroceso montacargas",
+      "situation_type": "unsafe_act",
+      "industry": "bodega",
+      "description": "Montacargas retrocede en punto ciego hacia peatón sin spotter.",
+      "tags": [
+        "montacargas",
+        "retroceso",
+        "punto ciego",
+        "maniobra temeraria"
+      ],
+      "path": "fixtures/accident_simulations/04_maniobra_temeraria_montacargas.png",
+      "width": 960,
+      "height": 540
+    },
+    {
+      "id": "sim_proximidad_grua",
+      "file": "05_proximidad_carga_suspendida.png",
+      "title": "Proximidad crítica bajo carga suspendida",
+      "situation_type": "proximity",
+      "industry": "portuario",
+      "description": "Personal bajo carga de grúa sin zona de exclusión delimitada.",
+      "tags": [
+        "grua",
+        "carga suspendida",
+        "linea de fuego",
+        "portuario"
+      ],
+      "path": "fixtures/accident_simulations/05_proximidad_carga_suspendida.png",
+      "width": 960,
+      "height": 540
+    },
+    {
+      "id": "sim_colision",
+      "file": "06_colision_interseccion_patio.png",
+      "title": "Colisión en intersección de patio",
+      "situation_type": "collision",
+      "industry": "general",
+      "description": "Dos equipos convergen en cruce sin señalero ni prioridad definida.",
+      "tags": [
+        "colision",
+        "interseccion",
+        "patio",
+        "vehiculos"
+      ],
+      "path": "fixtures/accident_simulations/06_colision_interseccion_patio.png",
+      "width": 960,
+      "height": 540
+    },
+    {
+      "id": "sim_atrapamiento",
+      "file": "07_atrapamiento_vehiculo_mamparo.png",
+      "title": "Atrapamiento vehículo–estructura",
+      "situation_type": "collision",
+      "industry": "portuario",
+      "description": "Persona atrapada entre vehículo y mamparo en patio cerrado.",
+      "tags": [
+        "atrapamiento",
+        "ro-ro",
+        "vehiculo",
+        "estructura"
+      ],
+      "path": "fixtures/accident_simulations/07_atrapamiento_vehiculo_mamparo.png",
+      "width": 960,
+      "height": 540
+    }
+  ]
+}
