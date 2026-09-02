@@ -1,3 +1,5 @@
+import { statusLabel, kindLabel, eventTypeLabel, sourceLabel } from "./i18n-es-cl.js";
+
 const API = "";
 
 async function api(path, opts = {}) {
@@ -146,7 +148,7 @@ function updateLiveStats(frameRec, totalStored) {
     if (countsEl) countsEl.textContent = "Esperando análisis…";
     if (speedsEl) speedsEl.textContent = "";
     if (proxEl) proxEl.textContent = "";
-    if (framesEl) framesEl.textContent = totalStored ? `${totalStored} frames` : "";
+    if (framesEl) framesEl.textContent = totalStored ? `${totalStored} fotogramas` : "";
     return;
   }
   if (timeEl) timeEl.textContent = frameRec.time_label || formatTs(frameRec.time_sec || 0);
@@ -155,19 +157,19 @@ function updateLiveStats(frameRec, totalStored) {
     countsEl.textContent = `👤 ${c.persons || 0} · 🚛 ${c.vehicles || 0} objetos`;
   }
   const speeds = (frameRec.speeds || []).map((s) => `#${s.track_id} ${s.speed_kmh} km/h`).join(" · ");
-  if (speedsEl) speedsEl.textContent = speeds ? `Vel: ${speeds}` : "Vel: —";
+  if (speedsEl) speedsEl.textContent = speeds ? `Vel.: ${speeds}` : "Vel.: —";
   const prox = frameRec.proximity || [];
   const closest = prox[0];
   if (proxEl) {
     if (!closest) {
-      proxEl.textContent = "Dist: —";
+      proxEl.textContent = "Dist.: —";
       proxEl.classList.remove("alert");
     } else {
-      proxEl.textContent = `Dist mín: ${closest.distance_m} m (P#${closest.person_track}–M#${closest.machinery_track})`;
+      proxEl.textContent = `Dist. mín.: ${closest.distance_m} m (persona #${closest.person_track} – máq. #${closest.machinery_track})`;
       proxEl.classList.toggle("alert", !!closest.alert);
     }
   }
-  if (framesEl) framesEl.textContent = `${totalStored || frameCache.length} frames analizados`;
+  if (framesEl) framesEl.textContent = `${totalStored || frameCache.length} fotogramas analizados`;
 }
 
 function onVideoTimeUpdate() {
@@ -347,7 +349,7 @@ function refreshReferenceSelect(jobs) {
     if (j.status !== "done") continue;
     const opt = document.createElement("option");
     opt.value = j.id;
-    opt.textContent = `${j.title || j.id} (${j.event_count || 0} ev.)`;
+    opt.textContent = `${j.title || j.id} (${j.event_count || 0} eventos)`;
     sel.appendChild(opt);
   }
   if (current) sel.value = current;
@@ -370,11 +372,11 @@ async function loadTeachStatus() {
     const modelLine = data.custom_active
       ? `✓ ${data.model_name}`
       : data.custom_weights_exist
-        ? `Pesos listos — activar modelo custom`
+        ? `Pesos listos — activar modelo personalizado`
         : `Modelo base (genérico)`;
     $("#teachModelLine").textContent = modelLine;
-    $("#teachSamplesLine").textContent = `${data.total_samples || 0} ejemplos · ${
-      data.ready_to_train ? "listo para entrenar" : `mín. ${data.min_recommended || 30} recomendados`
+    $("#teachSamplesLine").textContent = `${data.total_samples || 0} fotos · ${
+      data.ready_to_train ? "listo para entrenar" : `mín. ${data.min_recommended || 30} recomendadas`
     }`;
     const btnAct = $("#btnTeachActivate");
     const btnTrain = $("#btnTeachTrain");
@@ -429,7 +431,9 @@ async function loadKnowledge() {
     }
     const body = document.createElement("div");
     body.className = "kn-body";
-    const src = e.source && e.source !== "user" ? `<span class="kn-source-badge">${e.source}</span>` : "";
+    const src = e.source && e.source !== "user"
+      ? `<span class="kn-source-badge">${sourceLabel(e.source) || e.source}</span>`
+      : "";
     body.innerHTML = `
         <strong>${e.title}${src}</strong>
         <span class="muted small">${e.situation_label || e.situation_type} · ${e.industry}${e.reinforce_count ? ` · ×${e.reinforce_count}` : ""}</span>
@@ -552,7 +556,7 @@ $("#btnKeyframeTeach")?.addEventListener("click", async () => {
   }
   const classId = $("#teachClassPick")?.value;
   if (!classId) {
-    alert("Elegí una clase Teach.");
+    alert("Elegí una clase de enseñanza.");
     return;
   }
   try {
@@ -561,7 +565,7 @@ $("#btnKeyframeTeach")?.addEventListener("click", async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ keyframe_name: selectedKeyframeName, class_id: classId }),
     });
-    $("#teachHint").textContent = res.message || "Captura enviada a Teach.";
+    $("#teachHint").textContent = res.message || "Captura enviada a enseñanza.";
     await loadTeachStatus();
   } catch (err) {
     alert(err.message);
@@ -676,7 +680,7 @@ async function refreshJobs() {
     const li = document.createElement("li");
     const btn = document.createElement("button");
     btn.type = "button";
-    const label = j.status === "error" ? "error" : j.status;
+    const label = j.status === "error" ? "error" : statusLabel(j.status);
     btn.textContent = `${j.title || j.id} · ${label} (${j.progress || 0}%)`;
     btn.classList.toggle("active", j.id === currentJobId);
     if (j.status === "error") btn.classList.add("job-error");
@@ -733,7 +737,7 @@ function drawSpeedChart(series) {
   const legend = [];
   series.slice(0, 5).forEach((s, idx) => {
     const color = colors[idx % colors.length];
-    legend.push(`#${s.track_id} ${s.kind} (${s.max_kmh} km/h)`);
+    legend.push(`#${s.track_id} ${kindLabel(s.kind)} (${s.max_kmh} km/h)`);
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -792,8 +796,8 @@ async function loadJob(id, quiet = false) {
   $("#jobTitle").textContent = j.title || id;
   const srcCount = j.sources?.length || j.analysis?.sources_count || 1;
   $("#jobMeta").textContent =
-    `${j.site || ""} · ${j.template_name || j.template_id || ""} · ${j.status} · ` +
-    `${j.analysis?.event_count || 0} eventos · ${j.frames_analyzed || 0} frames · ${srcCount} cámara(s)`;
+    `${j.site || ""} · ${j.template_name || j.template_id || ""} · ${statusLabel(j.status)} · ` +
+    `${j.analysis?.event_count || 0} eventos · ${j.frames_analyzed || 0} fotogramas · ${srcCount} cámara(s)`;
 
   setupVideoViewer(j, id);
   if (j.status === "processing" || j.status === "queued") {
@@ -809,7 +813,7 @@ async function loadJob(id, quiet = false) {
   } else if (j.status === "error") {
     pw.classList.remove("hidden");
     $("#progressBar").style.width = `${j.progress || 0}%`;
-    $("#progressText").textContent = `Error: ${j.error || j.progress_message || "Análisis falló"}`;
+    $("#progressText").textContent = `Error: ${j.error || j.progress_message || "Falló el análisis"}`;
     $("#progressText").style.color = "#f07178";
   } else {
     pw.classList.add("hidden");
@@ -865,11 +869,11 @@ async function loadJob(id, quiet = false) {
   tbody.innerHTML = "";
   for (const row of kin.track_speeds || []) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>#${row.track_id}</td><td>${row.kind}</td><td>${row.max_kmh}</td><td>${row.avg_kmh}</td>`;
+    tr.innerHTML = `<td>#${row.track_id}</td><td>${kindLabel(row.kind)}</td><td>${row.max_kmh}</td><td>${row.avg_kmh}</td>`;
     tbody.appendChild(tr);
   }
   if (!tbody.children.length) {
-    tbody.innerHTML = "<tr><td colspan='4' class='muted'>Sin tracks suficientes</td></tr>";
+    tbody.innerHTML = "<tr><td colspan='4' class='muted'>Sin seguimientos suficientes</td></tr>";
   }
   const viol = $("#kinViolations");
   viol.innerHTML = "";
@@ -900,7 +904,7 @@ async function loadJob(id, quiet = false) {
     const li = document.createElement("li");
     li.className = `sev-${ev.severity || "medium"}${ev.type === "knowledge_match" ? " knowledge-ev" : ""}${ev.type === "knowledge_conjecture" ? " knowledge-conj" : ""}`;
     const cam = ev.camera ? ` [${ev.camera}]` : "";
-    li.textContent = `${ev.time_label}${cam} · ${ev.type}: ${ev.message}`;
+    li.textContent = `${ev.time_label}${cam} · ${eventTypeLabel(ev.type)}: ${ev.message}`;
     tl.appendChild(li);
   }
   if (!tl.children.length) {
@@ -970,7 +974,7 @@ async function loadJob(id, quiet = false) {
     ehsBtn.classList.remove("hidden");
     const ehs = j.ehs_push;
     $("#ehsStatus").textContent = ehs?.length
-      ? `Último push EHS: ${ehs.map((r) => (r.ok ? "OK" : r.error || "error")).join(", ")}`
+      ? `Último envío a EHS: ${ehs.map((r) => (r.ok ? "listo" : r.error || "error")).join(", ")}`
       : "";
   } else {
     if (!quiet) $("#reportMd").textContent = "Informe disponible al completar el análisis…";
@@ -997,7 +1001,7 @@ $("#exportEhs")?.addEventListener("click", async () => {
   $("#ehsStatus").textContent = "Exportando…";
   try {
     const res = await api(`/api/forense/jobs/${currentJobId}/export-ehs`, { method: "POST" });
-    const msg = (res.results || []).map((r) => (r.ok ? "OK" : r.error || "error")).join(", ");
+    const msg = (res.results || []).map((r) => (r.ok ? "listo" : r.error || "error")).join(", ");
     $("#ehsStatus").textContent = `EHS: ${msg || "sin respuesta"}`;
   } catch (err) {
     $("#ehsStatus").textContent = err.message;

@@ -1,7 +1,7 @@
 {
   "version": 2,
   "source": "photorealistic_reference",
-  "note": "Imágenes fotorrealistas estilo CCTV/seguridad industrial para pruebas Forense. Escenas de near-miss sin lesiones gráficas.",
+  "note": "Imágenes fotorrealistas estilo CCTV/seguridad industrial para pruebas Forense. Escenas de casi accidente sin lesiones gráficas.",
   "scenes": [
     {
       "id": "sim_atropello",
@@ -48,7 +48,7 @@
       "title": "Maniobra temeraria — retroceso montacargas",
       "situation_type": "unsafe_act",
       "industry": "bodega",
-      "description": "Montacargas retrocede en punto ciego hacia peatón sin spotter. Ángulo CCTV.",
+      "description": "Montacargas retrocede en punto ciego hacia peatón sin señalero. Ángulo CCTV.",
       "tags": ["montacargas", "retroceso", "punto ciego", "maniobra temeraria"],
       "path": "fixtures/accident_simulations/04_maniobra_temeraria_montacargas.png",
       "width": 960,
