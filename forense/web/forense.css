@@ -29,6 +29,9 @@ input[type="text"], input[type="password"], input[type="number"], input[type="fi
 .chart-legend { margin-top: 0.5rem; font-size: 0.82rem; }
 .btn { border: none; border-radius: 8px; padding: 0.55rem 1rem; cursor: pointer; font-weight: 600; text-decoration: none; display: inline-block; text-align: center; }
 .btn.primary { background: var(--accent); color: #fff; }
+.btn.primary:disabled { opacity: 0.6; cursor: wait; }
+.upload-hint { font-size: 0.88rem; color: var(--ok); margin: 0 0 1rem; }
+.job-list button.job-error { border-color: var(--bad); color: var(--bad); }
 .btn.secondary { background: var(--accent2); color: var(--text); border: 1px solid var(--border); }
 .btn.ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
 .app { display: grid; grid-template-columns: 320px 1fr; min-height: 100vh; }

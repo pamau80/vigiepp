@@ -128,8 +128,10 @@ async function refreshJobs() {
     const li = document.createElement("li");
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.textContent = `${j.title || j.id} · ${j.status} (${j.progress || 0}%)`;
+    const label = j.status === "error" ? "error" : j.status;
+    btn.textContent = `${j.title || j.id} · ${label} (${j.progress || 0}%)`;
     btn.classList.toggle("active", j.id === currentJobId);
+    if (j.status === "error") btn.classList.add("job-error");
     btn.onclick = () => selectJob(j.id);
     li.appendChild(btn);
     ul.appendChild(li);
@@ -227,8 +229,14 @@ async function loadJob(id, quiet = false) {
     pw.classList.remove("hidden");
     $("#progressBar").style.width = `${j.progress || 0}%`;
     $("#progressText").textContent = j.progress_message || "";
+  } else if (j.status === "error") {
+    pw.classList.remove("hidden");
+    $("#progressBar").style.width = `${j.progress || 0}%`;
+    $("#progressText").textContent = `Error: ${j.error || j.progress_message || "Análisis falló"}`;
+    $("#progressText").style.color = "#f07178";
   } else {
     pw.classList.add("hidden");
+    $("#progressText").style.color = "";
     if (j.status === "done" && pollTimer) {
       clearInterval(pollTimer);
       pollTimer = null;
@@ -364,7 +372,21 @@ $("#exportEhs")?.addEventListener("click", async () => {
 $("#uploadForm")?.addEventListener("submit", async (e) => {
   e.preventDefault();
   const file = $("#caseVideo").files?.[0];
-  if (!file) return;
+  if (!file) {
+    alert("Seleccioná un video principal (MP4 o MOV) antes de iniciar el análisis.");
+    return;
+  }
+  const btn = $("#btnStartAnalysis");
+  const hint = $("#uploadHint");
+  const prevLabel = btn?.textContent || "Iniciar análisis";
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Subiendo video…";
+  }
+  if (hint) {
+    hint.textContent = `Procesando «${file.name}» — puede tardar 1–3 min según duración.`;
+    hint.classList.remove("hidden");
+  }
   const fd = new FormData();
   fd.append("video", file);
   const v2 = $("#caseVideo2").files?.[0];
@@ -383,10 +405,20 @@ $("#uploadForm")?.addEventListener("submit", async (e) => {
   fd.append("offset3", $("#caseOffset3").value);
   try {
     const res = await api("/api/forense/jobs", { method: "POST", body: fd });
+    if (hint) hint.textContent = "Análisis iniciado. Seguí el progreso en el panel central.";
     await refreshJobs();
-    selectJob(res.job.id);
+    await selectJob(res.job.id);
   } catch (err) {
-    alert(err.message);
+    if (hint) {
+      hint.textContent = err.message;
+      hint.style.color = "#f07178";
+    }
+    alert(err.message || "No se pudo iniciar el análisis");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = prevLabel;
+    }
   }
 });
 

@@ -226,8 +226,16 @@ def _process_job(job_id: str) -> None:
         full_md = job["report_md"] + "\n\n" + job["committee_md"]
         (_job_dir(job_id) / "report.md").write_text(full_md, encoding="utf-8")
         (_job_dir(job_id) / "committee.md").write_text(job["committee_md"], encoding="utf-8")
-        export_report_pdf({**job, "report_md": full_md}, _job_dir(job_id) / "report.pdf")
-        export_case_bundle(job, _job_dir(job_id) / "case_bundle.zip")
+        try:
+            export_report_pdf({**job, "report_md": full_md}, _job_dir(job_id) / "report.pdf")
+        except Exception as pdf_exc:
+            logger.warning("PDF forense omitido para %s: %s", job_id, pdf_exc)
+            job["pdf_error"] = str(pdf_exc)
+        try:
+            export_case_bundle(job, _job_dir(job_id) / "case_bundle.zip")
+        except Exception as bundle_exc:
+            logger.warning("Bundle forense omitido para %s: %s", job_id, bundle_exc)
+            job["bundle_error"] = str(bundle_exc)
 
         job["status"] = "done"
         job["progress"] = 100
