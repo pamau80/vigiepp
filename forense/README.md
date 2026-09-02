@@ -17,7 +17,13 @@ Abre **http://127.0.0.1:8001/** (VigiEPP sigue en `:8000`).
 ```env
 VIGIEPP_FORENSE=1
 VIGIEPP_FORENSE_LICENSE=dev          # desarrollo
-# Producción: clave firmada VIGIEPP_FORENSE_LICENSE=<site>.<exp>.<sig>
+# Producción: ver docs/FORENSE_LICENSE_EDGE.md
+```
+
+Emitir licencia edge:
+
+```bash
+PYTHONPATH=backend:forense python forense/scripts/issue_forense_license.py --site faena-norte --years 1
 ```
 
 Solo rol **admin** puede usar Forense (mismo PIN que VigiEPP).
@@ -53,6 +59,10 @@ Almacenados en `forense/data/` (separado de `backend/data/`).
 ### P4 — Plantillas y bundle
 - Plantillas por industria: minería, portuario, bodega, construcción, general
 - Bundle de caso (`case_bundle.zip`): job.json, informes, EHS JSON, series
+
+### P11 — Licencia edge y conectores live
+- Emisión de licencias firmadas (`forense/scripts/issue_forense_license.py`) — ver `docs/FORENSE_LICENSE_EDGE.md`
+- SERNAGEOMIN y EMCIP: intento de fetch live + fallback a JSON curado (offline-safe)
 
 ### P10 — Sesión y UX operador
 - Token en `GET /api/forense/auth/status` para hidratar sesión (cookie o puente `?key=` desde VigiEPP)

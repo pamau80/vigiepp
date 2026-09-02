@@ -137,7 +137,28 @@ Resumen: export ZIP admin → copia off-site → restore `merge`/`replace` con p
 
 ---
 
-## 8. Smoke test post-deploy
+---
+
+## 8. VigiEPP Forense (`:8001`)
+
+Producto aislado post-incidente. Requiere licencia y PIN admin.
+
+```env
+VIGIEPP_FORENSE=1
+VIGIEPP_FORENSE_LICENSE=<site>.<exp>.<sig>   # ver docs/FORENSE_LICENSE_EDGE.md
+VIGIEPP_FORENSE_DATA_DIR=/data/forense
+```
+
+Checklist:
+
+- [ ] Puerto **8001** accesible solo desde LAN/VPN
+- [ ] Licencia emitida con `forense/scripts/issue_forense_license.py`
+- [ ] `curl -s :8001/api/forense/health` → `license.valid: true`
+- [ ] Demo: `bash forense/scripts/demo_caso_completo.sh`
+
+---
+
+## 9. Smoke test post-deploy
 
 ```bash
 bash scripts/review_e2e.sh

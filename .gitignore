@@ -66,3 +66,4 @@ tests/fixtures/lena.jpg
 node_modules/
 
 tests/e2e/_runtime_api_test/
+forense/data/

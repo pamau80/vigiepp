@@ -10,6 +10,7 @@ from typing import Any
 from ..config import DOL_API_KEY
 from ..knowledge import bulk_import_knowledge
 from ..knowledge_import import import_osha, import_seeds
+from .live_fetch import fetch_live_records
 from .registry import get_source
 from .schema import normalize_record
 
@@ -86,9 +87,19 @@ def sync_source(
         return result
 
     if connector == "curated_json":
-        records = _load_curated_json(src.get("json_file") or "")
-        if limit and limit > 0:
-            records = records[:limit]
+        records: list[dict[str, Any]] = []
+        live_meta: dict[str, Any] = {}
+        if src.get("live_fetch"):
+            live = fetch_live_records(source_id, limit=limit)
+            live_meta = {k: v for k, v in live.items() if k not in ("records", "ok")}
+            records.extend(live.get("records") or [])
+        curated = _load_curated_json(src.get("json_file") or "")
+        if limit and limit > 0 and records:
+            remaining = max(0, limit - len(records))
+            curated = curated[:remaining] if remaining else []
+        elif limit and limit > 0 and not records:
+            curated = curated[:limit]
+        records.extend(curated)
         source_name = source_id.split("_")[0] if "_" in source_id else source_id
         result = _import_curated_records(
             records,
@@ -99,6 +110,10 @@ def sync_source(
         result["ok"] = True
         result["source_id"] = source_id
         result["json_file"] = src.get("json_file")
+        result.update(live_meta)
+        if src.get("live_fetch") and not live.get("ok"):
+            result["live_fallback"] = True
+            result["live_error"] = live.get("error")
         return result
 
     return {"ok": False, "error": f"Conector no implementado: {connector}"}
