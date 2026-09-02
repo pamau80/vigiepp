@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "source": "hse_curated",
+  "note": "Patrones basados en guías HSE UK (HSG136, RIDDOR). Transporte en faena y segregación peatón–vehículo.",
+  "records": [
+    {
+      "source_id": "hse:pedestrian-vehicle-segregation",
+      "title": "Falta de segregación peatón–vehículo en almacén",
+      "situation_type": "proximity",
+      "industry": "bodega",
+      "description": "Peatones y montacargas comparten pasillo sin barreras físicas. Solo demarcación en piso, insuficiente según HSG136.",
+      "tags": ["segregacion", "peaton", "montacargas", "hsg136"],
+      "labels": ["HSE", "RIDDOR"]
+    },
+    {
+      "source_id": "hse:forklift-blind-corner",
+      "title": "Montacargas en cruce ciego sin aviso sonoro",
+      "situation_type": "collision",
+      "industry": "bodega",
+      "description": "Intersección de pasillos sin espejo ni señal acústica. Peatón aparece en punto ciego del operador.",
+      "tags": ["montacargas", "cruce ciego", "bodega"],
+      "labels": ["HSE"]
+    },
+    {
+      "source_id": "hse:loading-bay-reversing",
+      "title": "Retroceso de camión en muelle de carga sin guía",
+      "situation_type": "unsafe_act",
+      "industry": "logistica",
+      "description": "Camión retrocede hacia andén sin banksman. Trabajadores en zona de maniobra sin delimitación.",
+      "tags": ["retroceso", "muelle carga", "camion", "banksman"],
+      "labels": ["HSE"]
+    },
+    {
+      "source_id": "hse:fall-from-loading-dock",
+      "title": "Caída desde andén de carga",
+      "situation_type": "fall_risk",
+      "industry": "bodega",
+      "description": "Borde de andén sin baranda o cadena de seguridad. Operario cae al nivel inferior durante preparación de carga.",
+      "tags": ["andén", "caida", "carga", "baranda"],
+      "labels": ["HSE"]
+    },
+    {
+      "source_id": "hse:pallet-stack-collapse",
+      "title": "Colapso de estiba de pallets mal apilada",
+      "situation_type": "collision",
+      "industry": "bodega",
+      "description": "Pallets sobredimensionados o inclinados golpean a trabajador en pasillo adyacente.",
+      "tags": ["pallet", "estiba", "colapso", "almacen"],
+      "labels": ["HSE"]
+    }
+  ]
+}

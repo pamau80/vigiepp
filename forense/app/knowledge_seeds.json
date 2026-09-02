@@ -1,0 +1,394 @@
+{
+  "version": 1,
+  "description": "Semillas curadas para biblioteca Forense — taxonomías iSafetyBench, HFACS, BBS y operación portuaria.",
+  "packs": [
+    {
+      "id": "portuario",
+      "name": "Portuario / grúas / patio",
+      "description": "Maniobras, proximidad y actos inseguros en muelles y patios de contenedores.",
+      "entries": [
+        {
+          "source_id": "seed:portuario:maniobra-imprudente-gruas",
+          "title": "Maniobra imprudente entre grúas",
+          "situation_type": "unsafe_act",
+          "industry": "portuario",
+          "description": "Grúa de bajo tonelaje sortea entre grúas de mayor capacidad con carga suspendida (bobina, contenedor) mientras otra espera encarar carga en piso. Riesgo de colisión, balanceo y golpe.",
+          "tags": ["grua", "maniobra", "proximidad", "carga suspendida"],
+          "labels": ["HFACS", "iSafety", "EMCIP"],
+          "event_types": ["proximity", "action"]
+        },
+        {
+          "source_id": "seed:portuario:peaton-bajo-spreader",
+          "title": "Peatón bajo spreader o carga suspendida",
+          "situation_type": "proximity",
+          "industry": "portuario",
+          "description": "Trabajador o estibador transita bajo spreader de grúa pórtico o carga en tránsito sin zona delimitada ni banksman.",
+          "tags": ["linea de fuego", "spreader", "grua portuaria"],
+          "labels": ["BBS", "HFACS"],
+          "event_types": ["proximity", "zone"]
+        },
+        {
+          "source_id": "seed:portuario:reach-stacker-proximidad",
+          "title": "Reach stacker sin distanciamiento con peatones",
+          "situation_type": "proximity",
+          "industry": "portuario",
+          "description": "Reach stacker o terminal tractor circula en patio con peatones en mismo carril o cruce ciego sin señalero.",
+          "tags": ["reach stacker", "patio", "transito mixto"],
+          "event_types": ["proximity", "speed_violation"]
+        },
+        {
+          "source_id": "seed:portuario:izaje-sin-plan",
+          "title": "Izaje sin planificación ni exclusion",
+          "situation_type": "unsafe_act",
+          "industry": "portuario",
+          "description": "Operación de izaje sin delimitar zona de exclusión, sin comunicación radio y sin verificar estabilidad de carga o viento.",
+          "tags": ["izaje", "plan de izaje", "exclusion"],
+          "labels": ["HFACS"],
+          "event_types": ["action", "zone"]
+        },
+        {
+          "source_id": "seed:portuario:camion-basura-inseguro",
+          "title": "Acto inseguro conductor camión retira basura",
+          "situation_type": "unsafe_act",
+          "industry": "portuario",
+          "description": "Camión recolector (ej. patente LXHW32) realiza maniobra de retiro de basura sin señalizar, invade zona de tránsito o retrocede sin spotter. Riesgo de atropello y colisión con equipos o peatones en patio.",
+          "tags": ["camion", "basura", "residuo", "conductor", "acto inseguro"],
+          "labels": ["BBS", "iSafety"],
+          "event_types": ["action", "proximity"]
+        },
+        {
+          "source_id": "seed:portuario:twistlock-manual",
+          "title": "Enganche manual de twistlocks bajo contenedor",
+          "situation_type": "unsafe_act",
+          "industry": "portuario",
+          "description": "Personal manipula twistlocks bajo contenedor suspendido o en movimiento lento sin sistema de retención.",
+          "tags": ["twistlock", "contenedor", "estiba"],
+          "event_types": ["proximity", "action"]
+        },
+        {
+          "source_id": "seed:portuario:vehiculo-cubierta-ro-ro",
+          "title": "Persona atrapada entre vehículo y estructura en cubierta Ro-Ro",
+          "situation_type": "collision",
+          "industry": "portuario",
+          "description": "Semirremolque o vehículo en cubierta se desplaza sin guía visible; trabajador queda atrapado contra mamparo o rampa.",
+          "tags": ["ro-ro", "cubierta", "atrapamiento"],
+          "labels": ["MAIB", "EMCIP"],
+          "event_types": ["collision", "proximity"]
+        }
+      ]
+    },
+    {
+      "id": "construccion",
+      "name": "Construcción / izaje",
+      "description": "Caídas, andamios y maquinaria en obra civil.",
+      "entries": [
+        {
+          "source_id": "seed:construccion:trabajo-altura-sin-arnes",
+          "title": "Trabajo en altura sin arnés o línea de vida",
+          "situation_type": "fall_risk",
+          "industry": "construccion",
+          "description": "Operario en borde de losa, andamio o plataforma sin sistema de detención de caídas conectado.",
+          "tags": ["altura", "arnes", "caida"],
+          "labels": ["HFACS", "OSHA"],
+          "event_types": ["epp_non_compliant", "fall_risk"]
+        },
+        {
+          "source_id": "seed:construccion:grua-movil-carga",
+          "title": "Grúa móvil con carga sobre personal",
+          "situation_type": "proximity",
+          "industry": "construccion",
+          "description": "Carga suspendida de grúa móvil pasa sobre zona con trabajadores o sin radio de exclusión marcado.",
+          "tags": ["grua movil", "linea de fuego"],
+          "event_types": ["proximity", "action"]
+        },
+        {
+          "source_id": "seed:construccion:andamio-incompleto",
+          "title": "Andamio sin barandas o tablones",
+          "situation_type": "fall_risk",
+          "industry": "construccion",
+          "description": "Trabajo en andamio con barandas faltantes, tablones sueltos o acceso sin escalera homologada.",
+          "tags": ["andamio", "caida"],
+          "event_types": ["fall_risk", "zone"]
+        },
+        {
+          "source_id": "seed:construccion:excavacion-sin-apuntalamiento",
+          "title": "Excavación sin apuntalamiento ni delimitación",
+          "situation_type": "zone_intrusion",
+          "industry": "construccion",
+          "description": "Fosa o zanja sin entibado; peatones o equipos circulan en borde sin señalización.",
+          "tags": ["excavacion", "derrumbe"],
+          "event_types": ["zone", "fall_risk"]
+        }
+      ]
+    },
+    {
+      "id": "bodega",
+      "name": "Bodega / logística",
+      "description": "Montacargas, pasillos y carga manual.",
+      "entries": [
+        {
+          "source_id": "seed:bodega:montacargas-cruce-ciego",
+          "title": "Montacargas en cruce ciego sin bocina",
+          "situation_type": "near_miss",
+          "industry": "bodega",
+          "description": "Montacargas sale de pasillo estrecho sin reducir velocidad ni señalizar; casi colisión con peatón.",
+          "tags": ["montacargas", "cruce ciego", "near miss"],
+          "labels": ["BBS", "iSafety"],
+          "event_types": ["proximity", "speed_violation"]
+        },
+        {
+          "source_id": "seed:bodega:carga-sobrepeso",
+          "title": "Carga sobredimensionada en horquillas",
+          "situation_type": "unsafe_act",
+          "industry": "bodega",
+          "description": "Pallet o carga excede capacidad o visibilidad del operador; horquillas elevadas en tránsito.",
+          "tags": ["montacargas", "sobrecarga"],
+          "event_types": ["action"]
+        },
+        {
+          "source_id": "seed:bodega:pasillo-bloqueado",
+          "title": "Pasillo de evacuación bloqueado",
+          "situation_type": "zone_intrusion",
+          "industry": "bodega",
+          "description": "Materiales o pallets obstruyen ruta de evacuación o salida de emergencia.",
+          "tags": ["evacuacion", "orden y aseo"],
+          "event_types": ["zone"]
+        }
+      ]
+    },
+    {
+      "id": "mineria",
+      "name": "Minería / faena",
+      "description": "Equipos pesados, polvo y zonas restringidas.",
+      "entries": [
+        {
+          "source_id": "seed:mineria:camion-sin-spotter",
+          "title": "Camión de extracción sin spotter en retroceso",
+          "situation_type": "proximity",
+          "industry": "mineria",
+          "description": "Camión 793 o similar retrocede en botadero sin guía a pie ni sistema de proximidad activo.",
+          "tags": ["camion", "retroceso", "spotter"],
+          "event_types": ["proximity", "action"]
+        },
+        {
+          "source_id": "seed:mineria:ingreso-zona-carga",
+          "title": "Ingreso a zona de carga de palanca",
+          "situation_type": "zone_intrusion",
+          "industry": "mineria",
+          "description": "Peatón ingresa al radio de giro de palanca hidráulica o pala sin autorización del operador.",
+          "tags": ["pala", "zona restringida"],
+          "event_types": ["zone", "proximity"]
+        }
+      ]
+    },
+    {
+      "id": "parking",
+      "name": "Parking / patios logísticos",
+      "description": "Estacionamientos, rampas, patios de carga y tránsito mixto.",
+      "entries": [
+        {
+          "source_id": "seed:parking:retroceso-rampa",
+          "title": "Retroceso en rampa sin guía",
+          "situation_type": "unsafe_act",
+          "industry": "parking",
+          "description": "Vehículo retrocede en rampa de parking o subterráneo sin spotter ni conos de delimitación.",
+          "tags": ["retroceso", "rampa", "parking"],
+          "event_types": ["action", "proximity"]
+        },
+        {
+          "source_id": "seed:parking:transito-mixto",
+          "title": "Tránsito mixto peatón–vehículo en patio",
+          "situation_type": "proximity",
+          "industry": "parking",
+          "description": "Peatones y vehículos comparten patio sin barreras ni pasarelas demarcadas.",
+          "tags": ["patio", "peaton", "vehiculo"],
+          "event_types": ["proximity"]
+        },
+        {
+          "source_id": "seed:parking:zona-carga",
+          "title": "Obstrucción de zona de carga/descarga",
+          "situation_type": "zone_intrusion",
+          "industry": "parking",
+          "description": "Vehículo estacionado en zona reservada para montacargas o carga, generando maniobra insegura.",
+          "tags": ["zona carga", "estacionamiento"],
+          "event_types": ["zone"]
+        },
+        {
+          "source_id": "seed:parking:velocidad-patio",
+          "title": "Velocidad inadecuada en patio de logística",
+          "situation_type": "speed_excess",
+          "industry": "parking",
+          "description": "Camión o equipo móvil circula a velocidad superior al límite interno del patio.",
+          "tags": ["velocidad", "patio", "logistica"],
+          "event_types": ["speed_violation"]
+        }
+      ]
+    },
+    {
+      "id": "isafety_hazards",
+      "name": "iSafety — peligros frecuentes",
+      "description": "Categorías de riesgo de iSafetyBench adaptadas a español.",
+      "entries": [
+        {
+          "source_id": "seed:isafety:maquinaria-incorrecta",
+          "title": "Uso incorrecto de maquinaria industrial",
+          "situation_type": "unsafe_act",
+          "industry": "general",
+          "description": "Operador usa equipo fuera de procedimiento: velocidad inadecuada, carga mal asegurada o controles omitidos.",
+          "tags": ["maquinaria", "iSafety"],
+          "labels": ["iSafetyBench"]
+        },
+        {
+          "source_id": "seed:isafety:atrapamiento-enganche",
+          "title": "Riesgo de atrapamiento en partes móviles",
+          "situation_type": "collision",
+          "industry": "general",
+          "description": "Ropa, guantes o herramientas cerca de poleas, cintas o engranajes sin guardas ni LOTO.",
+          "tags": ["atrapamiento", "enganche"],
+          "labels": ["iSafetyBench"]
+        },
+        {
+          "source_id": "seed:isafety:incendio-sobrecalentamiento",
+          "title": "Sobrecalentamiento o chispa en área clasificada",
+          "situation_type": "unsafe_act",
+          "industry": "petroquimica",
+          "description": "Equipo genera chispa o temperatura elevada cerca de vapores inflamables sin permiso de trabajo.",
+          "tags": ["fuego", "explosion", "area clasificada"],
+          "labels": ["iSafetyBench"]
+        },
+        {
+          "source_id": "seed:isafety:levantamiento-manual",
+          "title": "Levantamiento manual inseguro",
+          "situation_type": "unsafe_act",
+          "industry": "general",
+          "description": "Carga pesada levantada con postura incorrecta, sin ayuda mecánica ni equipo de dos personas.",
+          "tags": ["ergonomia", "izaje manual"],
+          "labels": ["iSafetyBench"]
+        },
+        {
+          "source_id": "seed:isafety:vehiculo-industrial-colisión",
+          "title": "Colisión vehículo industrial con peatón",
+          "situation_type": "collision",
+          "industry": "general",
+          "description": "Vehículo de planta golpea peatón en intersección sin prioridad ni demarcación de zonas peatonales.",
+          "tags": ["vehiculo", "colision"],
+          "labels": ["iSafetyBench"]
+        },
+        {
+          "source_id": "seed:isafety:resbalon-tropiezo",
+          "title": "Resbalón o tropiezo por piso húmedo o desorden",
+          "situation_type": "fall_risk",
+          "industry": "general",
+          "description": "Derrame de aceite o agua sin señalización; cables o materiales en pasillo de tránsito.",
+          "tags": ["caida mismo nivel", "orden"],
+          "labels": ["iSafetyBench"]
+        },
+        {
+          "source_id": "seed:isafety:evacuacion-bloqueada",
+          "title": "Evacuación o rescate con conciencia situacional baja",
+          "situation_type": "unsafe_act",
+          "industry": "general",
+          "description": "Personal no identifica ruta de escape o ingresa a zona de rescate sin EPP ni capacitación.",
+          "tags": ["rescate", "conciencia situacional"],
+          "labels": ["iSafetyBench"]
+        }
+      ]
+    },
+    {
+      "id": "bbs_hfacs",
+      "name": "BBS / HFACS — comportamientos críticos",
+      "description": "Observaciones behavior-based safety y actos inseguros HFACS.",
+      "entries": [
+        {
+          "source_id": "seed:bbs:linea-de-fuego",
+          "title": "Línea de fuego — zona de golpe",
+          "situation_type": "proximity",
+          "industry": "general",
+          "description": "Trabajador posicionado en trayectoria de carga, herramienta o equipo móvil (line of fire).",
+          "tags": ["linea de fuego", "BBS"],
+          "labels": ["BBS", "HFACS"]
+        },
+        {
+          "source_id": "seed:bbs:ojos-en-tarea",
+          "title": "Ojos y mente fuera de la tarea",
+          "situation_type": "unsafe_act",
+          "industry": "general",
+          "description": "Distracción por celular o conversación durante operación crítica o tránsito en planta.",
+          "tags": ["distraccion", "BBS"],
+          "labels": ["BBS"]
+        },
+        {
+          "source_id": "seed:bbs:prisa-frustracion",
+          "title": "Prisa o frustración en tarea",
+          "situation_type": "unsafe_act",
+          "industry": "general",
+          "description": "Atajo de procedimiento por presión de plazo; omisión de verificaciones de seguridad.",
+          "tags": ["prisa", "HFACS"],
+          "labels": ["HFACS", "BBS"]
+        },
+        {
+          "source_id": "seed:bbs:epp-incompleto",
+          "title": "EPP incompleto o mal ajustado",
+          "situation_type": "epp_violation",
+          "industry": "general",
+          "description": "Casco sin barbuquejo, lentes ausentes, guantes inadecuados para la tarea o arnés sin conectar.",
+          "tags": ["epp", "casco", "arnes"],
+          "labels": ["BBS", "SH17"],
+          "event_types": ["epp_non_compliant"]
+        },
+        {
+          "source_id": "seed:bbs:herramienta-inadecuada",
+          "title": "Herramienta inadecuada o en mal estado",
+          "situation_type": "unsafe_act",
+          "industry": "general",
+          "description": "Uso de herramienta improvisada o sin inspección previa; riesgo de proyección o falla.",
+          "tags": ["herramienta", "BBS"],
+          "labels": ["BBS"]
+        },
+        {
+          "source_id": "seed:bbs:complacencia",
+          "title": "Complacencia en tarea repetitiva",
+          "situation_type": "unsafe_act",
+          "industry": "general",
+          "description": "Operación rutinaria ejecutada en automático sin verificar condiciones cambiantes del entorno.",
+          "tags": ["complacencia", "HFACS"],
+          "labels": ["HFACS", "BBS"]
+        }
+      ]
+    },
+    {
+      "id": "steelbench_rules",
+      "name": "SteelBench — reglas de planta",
+      "description": "Violaciones típicas en acero / industria pesada (UA-G).",
+      "entries": [
+        {
+          "source_id": "seed:steel:transito-zona-carga",
+          "title": "Tránsito peatonal en zona de carga activa",
+          "situation_type": "zone_intrusion",
+          "industry": "energia",
+          "description": "Peatón cruza zona de carga o grúa puente sin pasarela demarcada.",
+          "tags": ["steelbench", "zona carga"],
+          "labels": ["SteelBench"]
+        },
+        {
+          "source_id": "seed:steel:soldadura-sin-pantalla",
+          "title": "Soldadura sin protección ocular de terceros",
+          "situation_type": "epp_violation",
+          "industry": "energia",
+          "description": "Arco de soldadura expone a transeúntes sin pantallas o cortinas.",
+          "tags": ["soldadura", "radiacion"],
+          "labels": ["SteelBench"]
+        },
+        {
+          "source_id": "seed:steel:grua-puente-sin-señalero",
+          "title": "Grúa puente sin señalero en maniobra",
+          "situation_type": "unsafe_act",
+          "industry": "energia",
+          "description": "Maniobra de grúa puente con puntos ciegos sin banksman ni radio.",
+          "tags": ["grua puente", "steelbench"],
+          "labels": ["SteelBench"]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "source": "emcip_curated",
+  "note": "Narrativas basadas en taxonomía EMCIP/EMSA. Informes públicos europeos — sin datos personales.",
+  "records": [
+    {
+      "source_id": "emcip:roro-vehicle-trap",
+      "title": "Atrapamiento en cubierta Ro-Ro durante movimiento de semirremolque",
+      "situation_type": "collision",
+      "industry": "portuario",
+      "description": "Trabajador queda atrapado entre semirremolque en movimiento y mamparo de cubierta. No había guía visible ni zona de exclusión demarcada durante la operación de estiba.",
+      "tags": ["ro-ro", "cubierta", "atrapamiento", "vehiculo"],
+      "labels": ["EMCIP", "EMSA"]
+    },
+    {
+      "source_id": "emcip:spreader-line-of-fire",
+      "title": "Peatón bajo spreader con contenedor suspendido",
+      "situation_type": "proximity",
+      "industry": "portuario",
+      "description": "Estibador transita bajo spreader de grúa pórtico mientras contenedor permanece suspendido. Línea de fuego sin delimitar ni banksman.",
+      "tags": ["spreader", "contenedor", "grua portuaria", "linea de fuego"],
+      "labels": ["EMCIP"]
+    },
+    {
+      "source_id": "emcip:mooring-incident",
+      "title": "Lesión durante maniobra de amarre en muelle",
+      "situation_type": "unsafe_act",
+      "industry": "portuario",
+      "description": "Personal en línea de amarre sin comunicación con puente del buque. Cabo bajo tensión; falta de coordinación y zona de exclusión.",
+      "tags": ["amarre", "muelle", "cabo", "maritimo"],
+      "labels": ["EMCIP"]
+    },
+    {
+      "source_id": "emcip:terminal-tractor-pedestrian",
+      "title": "Terminal tractor sin segregación peatonal en patio",
+      "situation_type": "proximity",
+      "industry": "portuario",
+      "description": "Tractor de terminal circula en mismo carril que peatones sin barreras físicas ni pasarelas elevadas en patio de contenedores.",
+      "tags": ["terminal tractor", "patio", "peaton", "transito mixto"],
+      "labels": ["EMCIP"]
+    },
+    {
+      "source_id": "emcip:lashing-fall",
+      "title": "Caída desde altura durante trincaje de carga",
+      "situation_type": "fall_risk",
+      "industry": "portuario",
+      "description": "Trabajador realiza trincaje en cubierta sin arnés conectado. Superficie mojada y ausencia de línea de vida.",
+      "tags": ["trincaje", "caida", "altura", "cubierta"],
+      "labels": ["EMCIP"]
+    },
+    {
+      "source_id": "emcip:reach-stacker-overturn",
+      "title": "Vuelco de reach stacker en superficie irregular",
+      "situation_type": "collision",
+      "industry": "portuario",
+      "description": "Reach stacker vira con carga elevada sobre pavimento desnivelado del patio. Velocidad excesiva y radio de giro inadecuado.",
+      "tags": ["reach stacker", "vuelco", "patio", "contenedor"],
+      "labels": ["EMCIP"]
+    }
+  ]
+}

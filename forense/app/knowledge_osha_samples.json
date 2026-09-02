@@ -1,0 +1,133 @@
+{
+  "version": 1,
+  "source": "osha_imis_samples",
+  "note": "Muestras representativas OSHA IMIS (estructura pública). Fallback si labordata/dol.gov no responden.",
+  "records": [
+    {
+      "summary_nr": 509257,
+      "event_desc": "Employee killed when brakes on crane fail",
+      "event_keyword": "BRAKE,INADEQUATE MAINT,CRANE,CONSTRUCTION,EQUIPMENT FAILURE",
+      "abstract_text": "Mobile crane rolled on steep grade; brakes failed during repositioning.",
+      "fatality": "X"
+    },
+    {
+      "summary_nr": 509455,
+      "event_desc": "Two employees injured when crane platform collapses",
+      "event_keyword": "UNSECURED,PLATFORM,FRACTURE,COLLAPSE,CONSTRUCTION,CRANE",
+      "abstract_text": "Workers on suspended platform; collapse during lift operation.",
+      "fatality": null
+    },
+    {
+      "summary_nr": 612340,
+      "event_desc": "Stevedore struck by container during crane lift at dock",
+      "event_keyword": "STRUCK BY,CONTAINER,DOCK,MARITIME,CRANE,STEVEDORE",
+      "abstract_text": "Employee in line of fire under spreader path during discharge.",
+      "fatality": "X"
+    },
+    {
+      "summary_nr": 612341,
+      "event_desc": "Forklift operator struck pedestrian in warehouse aisle",
+      "event_keyword": "FORKLIFT,STRUCK BY,WAREHOUSE,PEDESTRIAN,BLIND CORNER",
+      "abstract_text": "Pedestrian at blind intersection without horn or spotter.",
+      "fatality": null
+    },
+    {
+      "summary_nr": 612342,
+      "event_desc": "Worker fell from scaffold without harness",
+      "event_keyword": "FALL,SCAFFOLD,CONSTRUCTION,HEIGHT,NO HARNESS",
+      "abstract_text": "Missing guardrails; no fall arrest connected.",
+      "fatality": "X"
+    },
+    {
+      "summary_nr": 612343,
+      "event_desc": "Gantry crane crushed worker between hatch cover and crane",
+      "event_keyword": "CRUSH,CRANE,MARITIME,DOCK,LINE OF FIRE",
+      "abstract_text": "Banksman not used; operator had limited view of travel path.",
+      "fatality": "X"
+    },
+    {
+      "summary_nr": 612344,
+      "event_desc": "Employee caught in conveyor at manufacturing plant",
+      "event_keyword": "ENTANGLEMENT,MACHINERY,CONVEYOR,LOCKOUT",
+      "abstract_text": "Maintenance performed without LOTO; glove caught in roller.",
+      "fatality": "X"
+    },
+    {
+      "summary_nr": 612345,
+      "event_desc": "Reach stacker overturned on uneven container yard",
+      "event_keyword": "ROLLOVER,FORKLIFT,CONTAINER,DOCK,UNSTABLE SURFACE",
+      "abstract_text": "Uneven stack surface; excessive speed turning with load.",
+      "fatality": null
+    },
+    {
+      "summary_nr": 612346,
+      "event_desc": "Welder without face shield in steel fabrication shop",
+      "event_keyword": "PPE,WELDING,HELMET,MANUFACTURING",
+      "abstract_text": "Arc flash exposure; inadequate eye protection for task.",
+      "fatality": null
+    },
+    {
+      "summary_nr": 612347,
+      "event_desc": "Miner struck by reversing haul truck",
+      "event_keyword": "MINING,STRUCK BY,REVERSING,PROXIMITY,SPOTTER",
+      "abstract_text": "No spotter during backup in active haul road.",
+      "fatality": "X"
+    },
+    {
+      "summary_nr": 612348,
+      "event_desc": "Crane boom contacted power lines during construction lift",
+      "event_keyword": "CRANE,ELECTROCUTION,POWER LINE,CONSTRUCTION,LIFT",
+      "abstract_text": "Inadequate planning; no spotter for overhead hazards.",
+      "fatality": "X"
+    },
+    {
+      "summary_nr": 612349,
+      "event_desc": "Shipyard worker fell into dry dock opening",
+      "event_keyword": "FALL,MARITIME,SHIPYARD,DOCK,UNGUARDED OPENING",
+      "abstract_text": "Opening not barricaded during night shift.",
+      "fatality": "X"
+    },
+    {
+      "summary_nr": 612350,
+      "event_desc": "Pallet jack runaway struck employee in distribution center",
+      "event_keyword": "PALLET,WAREHOUSE,STRUCK BY,MANUAL HANDLING",
+      "abstract_text": "Unattended loaded pallet on incline.",
+      "fatality": null
+    },
+    {
+      "summary_nr": 612351,
+      "event_desc": "Rigging failure dropped load near workers under crane",
+      "event_keyword": "RIGGING,HOIST,CRANE,STRUCK BY,LINE OF FIRE",
+      "abstract_text": "Incorrect sling angle; workers inside exclusion zone.",
+      "fatality": "X"
+    },
+    {
+      "summary_nr": 612352,
+      "event_desc": "Employee entered confined space without atmospheric testing",
+      "event_keyword": "CONFINED SPACE,ASPHYXIATION,CHEMICAL,PERMIT",
+      "abstract_text": "No gas test; inadequate rescue plan.",
+      "fatality": "X"
+    },
+    {
+      "summary_nr": 612353,
+      "event_desc": "Port tractor trailer pinned worker against quay wall",
+      "event_keyword": "MARITIME,DOCK,CRUSH,VEHICLE,PROXIMITY",
+      "abstract_text": "Driver did not see pedestrian in blind spot at berth.",
+      "fatality": "X"
+    },
+    {
+      "summary_nr": 612354,
+      "event_desc": "Construction worker struck by falling tools from scaffold",
+      "event_keyword": "FALLING OBJECT,SCAFFOLD,CONSTRUCTION,STRUCK BY,HELMET",
+      "abstract_text": "No toe boards; hard hat not worn in drop zone.",
+      "fatality": null
+    },
+    {
+      "summary_nr": 612355,
+      "event_desc": "Forklift elevated worker on pallets to reach rack",
+      "event_keyword": "FORKLIFT,IMPROPER USE,WAREHOUSE,FALL,UNSAFE ACT",
+      "abstract_text": "Improvised work platform; fall from height.",
+      "fatality": "X"
+    }
+  ]
+}

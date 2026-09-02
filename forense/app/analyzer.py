@@ -7,9 +7,16 @@ from typing import Any, Callable
 
 from .charts import build_speed_series, tracks_to_json
 from .config import DEFAULT_PROFILE
+from .frame_store import append_frame, clear_frames
 from .heatmap import render_heatmap
-from .kinematics import compute_track_speeds, find_proximity_events, find_speed_violations
-from .tracker import IoUTracker
+from .kinematics import (
+    compute_track_speeds,
+    find_proximity_events,
+    find_speed_violations,
+    snapshot_proximity,
+    snapshot_track_speeds,
+)
+from .tracker import IoUTracker, _classify
 
 logger = logging.getLogger("vigiepp.forense.analyzer")
 
@@ -28,6 +35,7 @@ def analyze_frame(
     source_id: str,
     profile: str = DEFAULT_PROFILE,
     meters_per_pixel: float = 0.045,
+    imgsz: int = 320,
 ) -> dict[str, Any]:
     """Ejecuta detección + compliance + zonas + acciones sobre un frame."""
     from app import actions as actions_mod
@@ -36,7 +44,7 @@ def analyze_frame(
 
     h, w = frame_bgr.shape[:2]
     det = PPEDetector.get()
-    detections, _ = det.predict(frame_bgr, annotate=False, imgsz=256)
+    detections, _ = det.predict(frame_bgr, annotate=False, imgsz=imgsz)
 
     settings = actions_mod.get_settings()
     settings["meters_per_pixel"] = meters_per_pixel
@@ -102,6 +110,58 @@ def analyze_frame(
     }
 
 
+def _serialize_detections(detections: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for det in detections:
+        box = det.get("box")
+        if not box or len(box) != 4:
+            continue
+        label = str(det.get("label_es") or det.get("label") or "")
+        kind = _classify(label)
+        out.append(
+            {
+                "label": label,
+                "kind": kind,
+                "box": [round(float(x), 1) for x in box],
+                "confidence": round(float(det.get("confidence") or 0), 3),
+            }
+        )
+    return out
+
+
+def _build_frame_record(
+    *,
+    time_sec: float,
+    time_label: str,
+    frame_w: int,
+    frame_h: int,
+    detections: list[dict[str, Any]],
+    tracker: IoUTracker,
+    meters_per_pixel: float,
+    min_distance_m: float,
+) -> dict[str, Any]:
+    tracks = tracker.all_tracks()
+    dets = _serialize_detections(detections)
+    speeds = snapshot_track_speeds(tracks, time_sec, meters_per_pixel=meters_per_pixel)
+    prox = snapshot_proximity(
+        tracks, time_sec, meters_per_pixel=meters_per_pixel, min_distance_m=min_distance_m
+    )
+    persons = sum(1 for d in dets if d["kind"] == "person")
+    vehicles = sum(1 for d in dets if d["kind"] == "machinery")
+    return {
+        "time_sec": round(time_sec, 3),
+        "time_label": time_label,
+        "frame_w": frame_w,
+        "frame_h": frame_h,
+        "detections": dets,
+        "tracks": tracker.active_snapshot(time_sec),
+        "speeds": speeds,
+        "proximity": prox,
+        "counts": {"persons": persons, "vehicles": vehicles, "objects": len(dets)},
+        "min_distance_m": round(min((p["distance_m"] for p in prox), default=999), 2),
+    }
+
+
 def run_analysis(
     samples,
     *,
@@ -113,10 +173,12 @@ def run_analysis(
     min_distance_m: float = 2.0,
     heatmap_path=None,
     source_suffix: str = "",
-    camera_label: str = "Cam 1",
+    camera_label: str = "Cám. 1",
     progress_cb: Callable[[int, str], None] | None = None,
     progress_base: int = 10,
     progress_span: int = 75,
+    imgsz: int = 320,
+    record_frames: bool = True,
 ) -> dict[str, Any]:
     suffix = f":{source_suffix}" if source_suffix else ""
     source_id = f"forense:{job_id}{suffix}"
@@ -125,6 +187,16 @@ def run_analysis(
     tracker = IoUTracker()
     frame_w, frame_h = 0, 0
     total = len(samples)
+
+    try:
+        from .teach_bridge import ensure_custom_model_if_available
+
+        ensure_custom_model_if_available()
+    except Exception:
+        logger.debug("Teach bridge no disponible", exc_info=True)
+
+    if record_frames:
+        clear_frames(job_id)
 
     for i, sample in enumerate(samples):
         if progress_cb:
@@ -137,10 +209,23 @@ def run_analysis(
                 source_id=source_id,
                 profile=profile,
                 meters_per_pixel=meters_per_pixel,
+                imgsz=imgsz,
             )
             frame_w = max(frame_w, int(result.get("frame_w") or 0))
             frame_h = max(frame_h, int(result.get("frame_h") or 0))
             tracker.update(sample.time_sec, result.get("detections") or [])
+            if record_frames:
+                frame_rec = _build_frame_record(
+                    time_sec=sample.time_sec,
+                    time_label=result["time_label"],
+                    frame_w=int(result.get("frame_w") or 0),
+                    frame_h=int(result.get("frame_h") or 0),
+                    detections=result.get("detections") or [],
+                    tracker=tracker,
+                    meters_per_pixel=meters_per_pixel,
+                    min_distance_m=min_distance_m,
+                )
+                append_frame(job_id, frame_rec)
             for ev in result.get("events") or []:
                 ev["camera"] = camera_label
                 timeline.append(ev)
@@ -212,6 +297,7 @@ def run_analysis(
         },
         "speed_series": speed_series,
         "tracks": tracks_to_json(tracks),
+        "frames_analyzed": total,
         "heatmap": heatmap_ok,
         "frame_size": {"w": frame_w, "h": frame_h},
     }

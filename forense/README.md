@@ -54,6 +54,18 @@ Almacenados en `forense/data/` (separado de `backend/data/`).
 - Plantillas por industria: minería, portuario, bodega, construcción, general
 - Bundle de caso (`case_bundle.zip`): job.json, informes, EHS JSON, series
 
+### P9 — Fuentes mundiales (biblioteca)
+- Catálogo de 13 fuentes por industria: semillas, OSHA, SERNAGEOMIN, EMCIP, HSE UK, parking
+- Sincronización por fuente o por industria completa
+- Importación desde URL oficial (lista blanca: osha.gov, sernageomin.cl, hse.gov.uk, emsa.europa.eu, …)
+- Validación masiva de registros antes de incorporar a la biblioteca CLIP
+
+Variables opcionales:
+
+```env
+VIGIEPP_FORENSE_DOL_API_KEY=   # OSHA vía API DOL (si no, fetch público limitado)
+```
+
 ## API principal
 
 | Método | Ruta | Descripción |
@@ -64,6 +76,11 @@ Almacenados en `forense/data/` (separado de `backend/data/`).
 | GET | `/api/forense/jobs/{id}/committee.md` | Informe comité |
 | GET | `/api/forense/jobs/{id}/case_bundle.zip` | Bundle completo |
 | POST | `/api/forense/jobs/{id}/export-ehs` | Push a conectores EHS |
+| GET | `/api/forense/knowledge/sources/catalog` | Catálogo de fuentes por industria |
+| POST | `/api/forense/knowledge/sources/sync` | Sincronizar una fuente (`source_id`) |
+| POST | `/api/forense/knowledge/sources/sync-industry` | Sincronizar todas las fuentes de una industria |
+| POST | `/api/forense/knowledge/sources/ingest-url` | Importar informe desde URL oficial |
+| POST | `/api/forense/knowledge/bulk-validate` | Validar lote de registros |
 
 ## Tests
 

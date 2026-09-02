@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "source": "sernageomin_curated",
+  "note": "Patrones de accidentabilidad minera según estadísticas públicas SERNAGEOMIN Chile. Sin datos personales.",
+  "records": [
+    {
+      "source_id": "sernageomin:haul-truck-reverse",
+      "title": "Atropello por camión de acarreo en retroceso",
+      "situation_type": "collision",
+      "industry": "mineria",
+      "description": "Camión de acarreo retrocede en vía de circulación sin spotter ni sistema de alerta. Peatón en punto ciego detrás del equipo. Patrón frecuente en faenas a rajo abierto.",
+      "tags": ["camion acarreo", "retroceso", "vía acarreo", "spotter"],
+      "labels": ["SERNAGEOMIN", "Chile"]
+    },
+    {
+      "source_id": "sernageomin:fall-of-ground",
+      "title": "Caída de roca en frente de trabajo",
+      "situation_type": "fall_risk",
+      "industry": "mineria",
+      "description": "Desprendimiento de material en frente o talud sin inspección geomecánica previa. Trabajadores expuestos en zona no apuntalada.",
+      "tags": ["caida de roca", "geomecanica", "frente", "talud"],
+      "labels": ["SERNAGEOMIN"]
+    },
+    {
+      "source_id": "sernageomin:shovel-swing",
+      "title": "Golpe por radio de giro de pala o excavadora",
+      "situation_type": "proximity",
+      "industry": "mineria",
+      "description": "Personal ingresa al radio de giro de pala hidráulica durante maniobra. Ausencia de delimitación y comunicación operador–terreno.",
+      "tags": ["pala", "radio de giro", "proximidad", "zona restringida"],
+      "labels": ["SERNAGEOMIN"]
+    },
+    {
+      "source_id": "sernageomin:underground-vehicle",
+      "title": "Colisión de equipos en rampa subterránea",
+      "situation_type": "collision",
+      "industry": "mineria",
+      "description": "Equipos móviles convergen en rampa estrecha sin prioridad definida ni control de velocidad. Visibilidad reducida por polvo.",
+      "tags": ["subterranea", "rampa", "colision", "equipos moviles"],
+      "labels": ["SERNAGEOMIN"]
+    },
+    {
+      "source_id": "sernageomin:conveyor-entrapment",
+      "title": "Atrapamiento en correa transportadora",
+      "situation_type": "collision",
+      "industry": "mineria",
+      "description": "Mantenimiento en correa sin bloqueo y etiquetado (LOTO). Ropa o herramienta enganchada en rodillo.",
+      "tags": ["correa", "atrapamiento", "loto", "mantenimiento"],
+      "labels": ["SERNAGEOMIN"]
+    },
+    {
+      "source_id": "sernageomin:height-no-harness",
+      "title": "Trabajo en altura sin sistema de detención de caídas",
+      "situation_type": "fall_risk",
+      "industry": "mineria",
+      "description": "Operación en estructura elevada de planta sin arnés conectado a línea de vida. Barandas incompletas en plataforma.",
+      "tags": ["altura", "arnes", "planta", "caida"],
+      "labels": ["SERNAGEOMIN"]
+    }
+  ]
+}

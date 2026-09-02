@@ -14,11 +14,12 @@ from typing import Any
 from .comparison import compare_jobs
 from .config import BUILD, JOBS_DIR, ensure_dirs
 from .export import committee_section, export_case_bundle, push_to_ehs
+from .knowledge import apply_knowledge_insights, match_knowledge_for_job, reinforce_knowledge_from_job
 from .multi_source import run_multi_source_analysis
 from .pdf_export import export_report_pdf
 from .report import build_report_markdown, maybe_enrich_with_llm
 from .sampler import adaptive_sample_video
-from .templates import resolve_template
+from .templates import inference_settings, resolve_template
 
 logger = logging.getLogger("vigiepp.forense.jobs")
 _lock = threading.Lock()
@@ -80,6 +81,7 @@ def create_job(
     filename: str,
     title: str,
     site: str,
+    case_notes: str = "",
     template_id: str = "general",
     profile: str | None = None,
     meters_per_pixel: float | None = None,
@@ -101,14 +103,14 @@ def create_job(
     primary_path = sources_dir / f"cam0{ext}"
     primary_path.write_bytes(video_bytes)
 
-    source_meta = [{"label": "Cam 1", "offset_sec": 0.0, "path": str(primary_path), "filename": filename}]
+    source_meta = [{"label": "Cám. 1", "offset_sec": 0.0, "path": str(primary_path), "filename": filename}]
     for i, extra in enumerate(extra_sources or [], start=1):
         ex_ext = Path(extra.get("filename") or "video.mp4").suffix.lower() or ".mp4"
         p = sources_dir / f"cam{i}{ex_ext}"
         p.write_bytes(extra["bytes"])
         source_meta.append(
             {
-                "label": extra.get("label") or f"Cam {i + 1}",
+                "label": extra.get("label") or f"Cám. {i + 1}",
                 "offset_sec": float(extra.get("offset_sec") or 0),
                 "path": str(p),
                 "filename": extra.get("filename") or f"cam{i}{ex_ext}",
@@ -120,6 +122,7 @@ def create_job(
         "build": BUILD,
         "title": title.strip() or "Análisis forense",
         "site": site.strip() or "Faena",
+        "case_notes": case_notes.strip(),
         "template_id": tpl["id"],
         "template_name": tpl["name"],
         "profile": profile or tpl["profile"],
@@ -157,10 +160,20 @@ def _process_job(job_id: str) -> None:
         job["status"] = "processing"
         _set_progress(job_id, 5, "Preparando fuentes de video")
 
+        inf = inference_settings(job.get("template_id"))
+        sample_kw = {
+            "base_interval_sec": inf.get("base_interval_sec", 0.45),
+            "motion_threshold": inf.get("motion_threshold", 11.0),
+            "burst_interval_sec": inf.get("burst_interval_sec", 0.1),
+            "burst_duration_sec": inf.get("burst_duration_sec", 4.5),
+            "max_frames": int(inf.get("max_frames", 5000)),
+        }
+        imgsz = int(inf.get("imgsz", 320))
+
         sources = job.get("sources") or []
         if len(sources) <= 1:
             path = sources[0]["path"] if sources else ""
-            samples, meta = adaptive_sample_video(path)
+            samples, meta = adaptive_sample_video(path, **sample_kw)
             job["meta"] = meta
             from .analyzer import run_analysis
 
@@ -174,6 +187,7 @@ def _process_job(job_id: str) -> None:
                 min_distance_m=float(job["min_distance_m"]),
                 heatmap_path=_job_dir(job_id) / "heatmap.jpg",
                 progress_cb=lambda p, m: _set_progress(job_id, p, m),
+                imgsz=imgsz,
             )
         else:
             job["meta"] = {"sources": len(sources), "multi_camera": True}
@@ -187,6 +201,8 @@ def _process_job(job_id: str) -> None:
                 min_distance_m=float(job["min_distance_m"]),
                 heatmap_path=_job_dir(job_id) / "heatmap.jpg",
                 progress_cb=lambda p, m: _set_progress(job_id, p, m),
+                sample_kw=sample_kw,
+                imgsz=imgsz,
             )
 
         kf_dir = _job_dir(job_id) / "keyframes"
@@ -204,6 +220,8 @@ def _process_job(job_id: str) -> None:
             "event_count": analysis.get("event_count", 0),
             "kinematics": analysis.get("kinematics") or {},
             "speed_series": analysis.get("speed_series") or [],
+            "tracks": analysis.get("tracks") or [],
+            "frames_analyzed": analysis.get("frames_analyzed", 0),
             "heatmap": analysis.get("heatmap", False),
             "frame_size": analysis.get("frame_size") or {},
             "sources_count": analysis.get("sources_count", len(sources)),
@@ -215,6 +233,13 @@ def _process_job(job_id: str) -> None:
             job["comparison"] = compare_jobs(job, ref_job)
         else:
             job["comparison"] = {"available": False}
+
+        _set_progress(job_id, 90, "Consultando biblioteca de situaciones")
+        knowledge_matches = match_knowledge_for_job(job)
+        job["knowledge"] = apply_knowledge_insights(job, knowledge_matches)
+        reinforced = reinforce_knowledge_from_job(job, knowledge_matches)
+        if reinforced:
+            job["knowledge"]["reinforced_entries"] = reinforced
 
         _set_progress(job_id, 92, "Generando informes")
 
@@ -296,3 +321,63 @@ def case_bundle_path(job_id: str) -> Path | None:
 def committee_md_path(job_id: str) -> Path | None:
     p = _job_dir(job_id) / "committee.md"
     return p if p.is_file() else None
+
+
+def job_video_path(job_id: str, cam: int = 0) -> Path | None:
+    d = _job_dir(job_id) / "sources"
+    if not d.is_dir():
+        return None
+    for ext in (".mp4", ".avi", ".mov", ".webm", ".mkv"):
+        p = d / f"cam{cam}{ext}"
+        if p.is_file():
+            return p
+    return None
+
+
+def learn_event_at_timestamp(
+    job_id: str,
+    time_sec: float,
+    *,
+    title: str,
+    description: str = "",
+    situation_type: str = "other",
+    industry: str = "general",
+) -> dict[str, Any]:
+    """Guarda en biblioteca un evento aprendido desde el instante del video."""
+    from .knowledge import create_knowledge
+
+    jpeg = extract_frame_jpeg(job_id, time_sec)
+    if not jpeg:
+        raise FileNotFoundError("No se pudo extraer frame del video")
+    job = get_job(job_id)
+    ind = (industry or "").strip() or (job.get("template_id") if job else "") or "general"
+    return create_knowledge(
+        title=title,
+        situation_type=situation_type,
+        description=description,
+        industry=ind,
+        media_bytes=jpeg,
+        media_filename=f"frame_{int(time_sec)}.jpg",
+        from_job_id=job_id,
+        source="live",
+        source_id=f"{job_id}:{time_sec:.2f}",
+    )
+
+
+def extract_frame_jpeg(job_id: str, time_sec: float, *, cam: int = 0) -> bytes | None:
+    import cv2
+
+    path = job_video_path(job_id, cam)
+    if not path:
+        return None
+    cap = cv2.VideoCapture(str(path))
+    if not cap.isOpened():
+        return None
+    fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+    cap.set(cv2.CAP_PROP_POS_FRAMES, int(time_sec * fps))
+    ok, frame = cap.read()
+    cap.release()
+    if not ok or frame is None:
+        return None
+    ok2, buf = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+    return buf.tobytes() if ok2 else None
