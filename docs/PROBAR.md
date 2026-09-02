@@ -73,6 +73,18 @@ Producto **aislado** — no toca la UI de VigiEPP.
    curl -s http://127.0.0.1:8001/api/forense/health | jq .
    ```
 
+### Demo caso completo (terminal, ~1–3 min)
+
+Con Forense arriba (`bash scripts/probar.sh`):
+
+```bash
+bash forense/scripts/demo_caso_completo.sh
+```
+
+Flujo automático: sync biblioteca parking → video sintético patio → análisis → informe Markdown (+ PDF si disponible).
+
+Variables opcionales: `FORENSE_URL`, `FORENSE_PIN`, `FORENSE_DEMO_TIMEOUT` (default 180s).
+
 ---
 
 ## 4. Métricas y HA (opcional)
