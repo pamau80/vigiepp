@@ -75,6 +75,12 @@ pytest forense/tests/ --ignore=forense/tests/e2e -q
 
 Funcionalidades en `main`: biblioteca CLIP/Teach, video live (p8), es-CL, fuentes mundiales (p9), fixtures accidentes fotorrealistas.
 
+Demo automatizado de punta a punta:
+
+```bash
+bash forense/scripts/demo_caso_completo.sh
+```
+
 ## Qué NO construir
 
 - Organizaciones / billing SaaS
