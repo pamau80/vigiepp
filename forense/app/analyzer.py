@@ -173,7 +173,7 @@ def run_analysis(
     min_distance_m: float = 2.0,
     heatmap_path=None,
     source_suffix: str = "",
-    camera_label: str = "Cam 1",
+    camera_label: str = "Cám. 1",
     progress_cb: Callable[[int, str], None] | None = None,
     progress_base: int = 10,
     progress_span: int = 75,

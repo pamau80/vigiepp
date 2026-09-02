@@ -103,14 +103,14 @@ def create_job(
     primary_path = sources_dir / f"cam0{ext}"
     primary_path.write_bytes(video_bytes)
 
-    source_meta = [{"label": "Cam 1", "offset_sec": 0.0, "path": str(primary_path), "filename": filename}]
+    source_meta = [{"label": "Cám. 1", "offset_sec": 0.0, "path": str(primary_path), "filename": filename}]
     for i, extra in enumerate(extra_sources or [], start=1):
         ex_ext = Path(extra.get("filename") or "video.mp4").suffix.lower() or ".mp4"
         p = sources_dir / f"cam{i}{ex_ext}"
         p.write_bytes(extra["bytes"])
         source_meta.append(
             {
-                "label": extra.get("label") or f"Cam {i + 1}",
+                "label": extra.get("label") or f"Cám. {i + 1}",
                 "offset_sec": float(extra.get("offset_sec") or 0),
                 "path": str(p),
                 "filename": extra.get("filename") or f"cam{i}{ex_ext}",

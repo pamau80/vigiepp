@@ -71,7 +71,7 @@ def run_multi_source_analysis(
     parts: list[dict[str, Any]] = []
     n = len(sources)
     for idx, src in enumerate(sources):
-        label = src.get("label") or f"Cam {idx + 1}"
+        label = src.get("label") or f"Cám. {idx + 1}"
         offset = float(src.get("offset_sec") or 0)
         samples, _ = adaptive_sample_video(src["path"], **sample_kw)
         for s in samples:

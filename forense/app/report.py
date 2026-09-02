@@ -8,6 +8,8 @@ import urllib.request
 from datetime import UTC, datetime
 from typing import Any
 
+from .i18n_es_cl import label_event_type, label_kind, label_severity
+
 
 DISCLAIMER = (
     "Este documento fue generado por **VigiEPP Forense** (inteligencia artificial). "
@@ -23,7 +25,8 @@ def _section_timeline(timeline: list[dict[str, Any]]) -> str:
     lines = ["| Hora | Tipo | Severidad | Observación |", "|------|------|-----------|-------------|"]
     for ev in timeline[:200]:
         lines.append(
-            f"| {ev.get('time_label', '—')} | {ev.get('type', '—')} | {ev.get('severity', '—')} | "
+            f"| {ev.get('time_label', '—')} | {label_event_type(ev.get('type', ''))} | "
+            f"{label_severity(ev.get('severity', ''))} | "
             f"{(ev.get('message') or '').replace('|', '/')} |"
         )
     if len(timeline) > 200:
@@ -40,12 +43,12 @@ def _section_kinematics(kin: dict[str, Any], job: dict[str, Any]) -> str:
         f"persona **{job.get('max_person_kmh', '—')} km/h**, "
         f"distancia mínima **{job.get('min_distance_m', '—')} m**.",
         "",
-        "| Track | Tipo | Máx km/h | Prom km/h |",
-        "|-------|------|----------|-----------|",
+        "| N° seg. | Tipo | Máx. km/h | Prom. km/h |",
+        "|---------|------|-----------|------------|",
     ]
     for ts in speeds[:30]:
         lines.append(
-            f"| #{ts.get('track_id')} | {ts.get('kind')} | {ts.get('max_kmh')} | {ts.get('avg_kmh')} |"
+            f"| #{ts.get('track_id')} | {label_kind(ts.get('kind', ''))} | {ts.get('max_kmh')} | {ts.get('avg_kmh')} |"
         )
     violations = kin.get("speed_violations") or []
     if violations:

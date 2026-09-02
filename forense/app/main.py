@@ -677,6 +677,11 @@ def forense_css() -> FileResponse:
     return FileResponse(WEB_DIR / "forense.css", media_type="text/css")
 
 
+@app.get("/i18n-es-cl.js")
+def forense_i18n() -> FileResponse:
+    return FileResponse(WEB_DIR / "i18n-es-cl.js", media_type="application/javascript")
+
+
 @app.get("/forense.js")
 def forense_js() -> FileResponse:
     return FileResponse(WEB_DIR / "forense.js", media_type="application/javascript")
