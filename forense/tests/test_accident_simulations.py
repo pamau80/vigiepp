@@ -15,6 +15,7 @@ def test_accident_simulation_manifest():
     data = json.loads(MANIFEST.read_text(encoding="utf-8"))
     scenes = data.get("scenes") or []
     assert len(scenes) >= 7
+    assert data.get("source") == "photorealistic_reference"
     ids = {s["id"] for s in scenes}
     assert "sim_atropello" in ids
     assert "sim_caida_altura" in ids
@@ -26,6 +27,7 @@ def test_accident_simulation_images_readable():
     for scene in scenes:
         img_path = FIXTURES / scene["file"]
         assert img_path.is_file(), scene["file"]
+        assert img_path.stat().st_size > 50_000, f"{scene['file']} debe ser imagen fotorrealista"
         img = cv2.imread(str(img_path))
         assert img is not None
         assert img.shape[0] >= 400
