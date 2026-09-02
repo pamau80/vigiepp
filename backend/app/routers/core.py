@@ -20,7 +20,7 @@ from ..profiles import PPE_CATALOG, list_profiles
 
 router = APIRouter(prefix="/api", tags=["core"])
 
-BUILD_VERSION = "v62"
+BUILD_VERSION = "v64"
 
 
 @router.get("/health")
@@ -56,6 +56,7 @@ def health() -> dict[str, Any]:
     active_site = tenants_mod.get_site(tenants_mod.get_active_site_id())
     privacy_cfg = privacy_mod.get_config()
     pin_warn = bool(auth_mod.using_default_pins() and on_render)
+    from ..excellence import edge_excellence_summary
     from ..otel_trace import enabled as otel_enabled
     from ..otel_trace import otlp_mode
     from ..stream_rtsp import active_stream_count
@@ -85,6 +86,7 @@ def health() -> dict[str, Any]:
         "rtsp_streams_active": active_stream_count(),
         "email_transport": notif_mod.email_transport_status().get("mode"),
         "otel": {"enabled": otel_enabled(), "mode": otlp_mode()},
+        "excellence": edge_excellence_summary(identity_ready=identity_ready, epp_ready=epp_ready),
     }
 
 
