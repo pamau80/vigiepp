@@ -66,7 +66,9 @@ Producto **aislado** — no toca la UI de VigiEPP.
 2. **Opción B:** http://127.0.0.1:8001/ → PIN admin `vigiepp`
 3. Subir un video corto (MP4) o usar muestra
 4. Crear job de análisis → ver informe, heatmap, export PDF
-4. Health:
+5. **Biblioteca:** agregar situación manual o sincronizar **Fuentes mundiales por industria** (sidebar)
+6. **Video live:** con un job terminado, reproducir video + overlay de detecciones en el panel central
+7. Health:
    ```bash
    curl -s http://127.0.0.1:8001/api/forense/health | jq .
    ```
@@ -123,6 +125,6 @@ docker compose up -d --build
 |---------|-----------|
 | v62–v66 | UI, Acciones, EHS, RBAC, CSP, watchdog |
 | v67 | Métricas Prometheus readiness + HSTS edge |
-| Forense | Producto `:8001` aislado P0–P4 |
+| Forense | Producto `:8001` aislado P0–P4 + p5–p9 (biblioteca, video live, es-CL, fuentes mundiales) |
 
-*Última actualización: 2026-08-30*
+*Última actualización: 2026-09-02*

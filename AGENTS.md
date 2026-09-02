@@ -36,9 +36,44 @@ CI usa `VIGIEPP_COMBINED_INFERENCE=0` (sin inferencia pesada).
 
 ## Ramas y PRs
 
-- Prefijo ramas agente: `cursor/<nombre>-cce8`
+- Prefijo ramas agente: `cursor/<nombre>-cce8` (local) o `cursor/<nombre>-8b97` (Cloud Agent)
 - Base: `main`
 - Bump `BUILD_VERSION` en `backend/app/routers/core.py`, `frontend/assets/lib/constants.js`, `sw.js`
+- Forense: bump `BUILD` en `forense/app/config.py` (actual: `forense-p9`)
+
+### Cadena Forense (merge a `main`)
+
+Cuando varios PRs de Forense se apilan (p5 → p9), **preferir un PR integrador** sobre la rama más nueva en lugar de mergear uno por uno si hay solapamiento en `forense/web/*` o `forense/app/jobs.py`.
+
+Orden lógico ya integrado en `main` vía **#29**:
+
+| PR | Rama | Contenido |
+|----|------|-----------|
+| #23 | `cursor/forense-submit-fix-8b97` | Fix feedback UI / PDF |
+| #29 | `cursor/forense-knowledge-sources-8b97` | p5 biblioteca → p9 fuentes mundiales |
+
+Los PRs #24–#28 quedaron **cerrados** (supersedidos por #29). Si reaparecen conflictos al rebasear sobre `main`:
+
+```bash
+git fetch origin main
+git rebase origin/main   # resolver forense/web/forense.js, index.html, forense.css
+pytest forense/tests/ --ignore=forense/tests/e2e -q
+```
+
+## VigiEPP Forense (`forense/`)
+
+Producto aislado en `:8001`. Ver `forense/README.md` y `docs/PROBAR.md` §3.
+
+Checklist rápido tras cambios en Forense:
+
+```bash
+bash scripts/probar.sh
+export PYTHONPATH=backend:forense
+pytest forense/tests/ --ignore=forense/tests/e2e -q
+# Panel «Fuentes mundiales por industria» + video live en :8001 (PIN vigiepp)
+```
+
+Funcionalidades en `main`: biblioteca CLIP/Teach, video live (p8), es-CL, fuentes mundiales (p9), fixtures accidentes fotorrealistas.
 
 ## Qué NO construir
 
