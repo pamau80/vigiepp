@@ -9,10 +9,12 @@
   <link rel="stylesheet" href="/forense.css" />
 </head>
 <body>
+  <div id="toastHost" class="toast-host" aria-live="polite"></div>
   <div id="authGate" class="auth-gate">
     <form id="authForm" class="auth-card">
       <p class="brand">VigiEPP <span class="brand-accent">Forense</span></p>
       <p class="muted">Plan exclusivo · Informes IA de accidentes e incidentes</p>
+      <p class="muted small">Usá el mismo PIN administrador de VigiEPP, o abrí Forense desde <strong>Config → Enterprise</strong> para transferir la sesión automáticamente.</p>
       <label>PIN administrador<input type="password" id="authPin" autocomplete="current-password" required /></label>
       <button type="submit" class="btn primary">Entrar</button>
       <p class="hint" id="authHint"></p>
@@ -25,7 +27,11 @@
         <h1>VigiEPP <span class="brand-accent">Forense</span></h1>
         <p class="muted" id="licenseLine">Análisis forense de video</p>
       </div>
-      <a class="btn ghost" href="http://127.0.0.1:8000/" target="_blank" rel="noopener">Volver a VigiEPP</a>
+      <div class="topbar-actions">
+        <span class="session-badge hidden" id="sessionBadge" title="Sesión Forense">Administrador</span>
+        <button type="button" class="btn ghost small hidden" id="btnLogout">Cerrar sesión</button>
+        <a class="btn ghost" id="lnkVigiEpp" href="http://127.0.0.1:8000/" target="_blank" rel="noopener">Volver a VigiEPP</a>
+      </div>
     </header>
 
     <aside class="sidebar">

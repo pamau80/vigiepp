@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
-from .auth_bridge import auth_status_payload, login_pin, require_forense_admin
+from .auth_bridge import auth_status_payload, login_pin, logout_session, require_forense_admin
 from .config import (
     BUILD,
     DEFAULT_MAX_MACHINERY_KMH,
@@ -130,6 +130,12 @@ def auth_me(request: Request) -> dict:
     if not payload.get("can_access"):
         raise HTTPException(401, "No autorizado. Ingresá con PIN administrador.")
     return {"ok": True, "role": payload.get("role")}
+
+
+@app.post("/api/forense/auth/logout")
+def auth_logout(request: Request, response: Response) -> dict:
+    _require_license()
+    return logout_session(request, response)
 
 
 @app.get("/api/forense/templates")

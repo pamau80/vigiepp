@@ -54,6 +54,11 @@ Almacenados en `forense/data/` (separado de `backend/data/`).
 - Plantillas por industria: minería, portuario, bodega, construcción, general
 - Bundle de caso (`case_bundle.zip`): job.json, informes, EHS JSON, series
 
+### P10 — Sesión y UX operador
+- Token en `GET /api/forense/auth/status` para hidratar sesión (cookie o puente `?key=` desde VigiEPP)
+- Reintento automático ante 401 con token expirado
+- Toasts de feedback, badge de sesión y `POST /api/forense/auth/logout`
+
 ### P9 — Fuentes mundiales (biblioteca)
 - Catálogo de 13 fuentes por industria: semillas, OSHA, SERNAGEOMIN, EMCIP, HSE UK, parking
 - Sincronización por fuente o por industria completa
@@ -81,6 +86,7 @@ VIGIEPP_FORENSE_DOL_API_KEY=   # OSHA vía API DOL (si no, fetch público limita
 | POST | `/api/forense/knowledge/sources/sync-industry` | Sincronizar todas las fuentes de una industria |
 | POST | `/api/forense/knowledge/sources/ingest-url` | Importar informe desde URL oficial |
 | POST | `/api/forense/knowledge/bulk-validate` | Validar lote de registros |
+| POST | `/api/forense/auth/logout` | Cerrar sesión Forense |
 
 ## Tests
 

@@ -72,6 +72,14 @@ textarea { resize: vertical; min-height: 4rem; font-family: inherit; }
 .app { display: grid; grid-template-columns: 320px 1fr; min-height: 100vh; }
 .topbar { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); background: #0e1728; }
 .topbar h1 { margin: 0; font-size: 1.25rem; }
+.topbar-actions { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.session-badge { font-size: 0.78rem; font-weight: 600; color: var(--ok); background: rgba(62, 207, 142, 0.12); border: 1px solid rgba(62, 207, 142, 0.35); padding: 0.25rem 0.55rem; border-radius: 999px; }
+.toast-host { position: fixed; top: 1rem; right: 1rem; z-index: 9999; display: grid; gap: 0.5rem; max-width: min(360px, calc(100vw - 2rem)); pointer-events: none; }
+.toast { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 0.65rem 0.85rem; font-size: 0.9rem; box-shadow: 0 8px 24px rgba(0,0,0,0.35); opacity: 0; transform: translateY(-6px); transition: opacity 0.25s, transform 0.25s; }
+.toast.visible { opacity: 1; transform: translateY(0); }
+.toast-ok { border-color: rgba(62, 207, 142, 0.5); }
+.toast-error { border-color: rgba(240, 113, 120, 0.55); color: #ffd4d7; }
+.toast-info { border-color: rgba(61, 139, 253, 0.45); }
 .sidebar { padding: 1rem; border-right: 1px solid var(--border); overflow: auto; }
 .sidebar h2 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
 .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; margin-bottom: 1rem; }

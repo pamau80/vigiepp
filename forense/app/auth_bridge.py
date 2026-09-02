@@ -47,6 +47,7 @@ def auth_status_payload(request: Request) -> dict:
             "authenticated": True,
             "role": auth_mod.ROLE_ADMIN,
             "can_access": True,
+            "token": None,
         }
     token = auth_mod.extract_token(request)
     role = auth_mod.session_role(token)
@@ -57,4 +58,14 @@ def auth_status_payload(request: Request) -> dict:
         "authenticated": bool(role),
         "role": role if is_admin else None,
         "can_access": is_admin,
+        "token": token if is_admin else None,
     }
+
+
+def logout_session(request: Request, response: Response) -> dict:
+    if auth_mod.auth_enabled():
+        token = auth_mod.extract_token(request)
+        if token:
+            auth_mod.revoke_session(token)
+        auth_mod.clear_session_cookie(response)
+    return {"ok": True}
