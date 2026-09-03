@@ -1,4 +1,9 @@
 import { statusLabel, kindLabel, eventTypeLabel, sourceLabel } from "./i18n-es-cl.js";
+import {
+  evaluateInstantAudit,
+  clinicalProgressMessage,
+  renderClinicalAuditPanel,
+} from "./clinical-eye.js";
 
 const API = "";
 const TOKEN_KEY = "forense.token";
@@ -123,6 +128,13 @@ let frameCache = [];
 let lastFrameFetchSec = -1;
 let overlayRaf = null;
 let videoSyncBound = false;
+let jobClinicalContext = {
+  timeline: [],
+  knowledgeMatches: [],
+  minDistanceM: 2,
+  maxMachineryKmh: 15,
+  maxPersonKmh: 8,
+};
 
 function formatTs(sec) {
   const s = Math.max(0, Math.floor(sec));
@@ -218,6 +230,31 @@ function drawFrameOverlay(frameRec) {
   }
 }
 
+function updateClinicalEye(frameRec, totalStored) {
+  const audit = evaluateInstantAudit(frameRec, {
+    timeline: jobClinicalContext.timeline,
+    knowledgeMatches: jobClinicalContext.knowledgeMatches,
+    minDistanceM: jobClinicalContext.minDistanceM,
+    maxMachineryKmh: jobClinicalContext.maxMachineryKmh,
+    maxPersonKmh: jobClinicalContext.maxPersonKmh,
+  });
+  const statusEl = $("#clinicalStatus");
+  const headlineEl = $("#clinicalHeadline");
+  const metricEl = $("#clinicalMetric");
+  const glanceEl = $("#clinicalGlance");
+  if (statusEl) {
+    statusEl.textContent = audit.statusLabel;
+    statusEl.className = `clinical-status clinical-level-${audit.level}`;
+  }
+  if (headlineEl) headlineEl.textContent = audit.headline;
+  if (metricEl) {
+    const framesNote = totalStored ? `${totalStored} fotogramas` : "";
+    metricEl.textContent = [audit.glanceMetric, framesNote].filter(Boolean).join(" · ");
+  }
+  if (glanceEl) glanceEl.dataset.level = audit.level;
+  renderClinicalAuditPanel($("#clinicalAuditBody"), audit);
+}
+
 function updateLiveStats(frameRec, totalStored) {
   const timeEl = $("#liveTime");
   const countsEl = $("#liveCounts");
@@ -251,6 +288,17 @@ function updateLiveStats(frameRec, totalStored) {
     }
   }
   if (framesEl) framesEl.textContent = `${totalStored || frameCache.length} fotogramas analizados`;
+  updateClinicalEye(frameRec, totalStored || frameCache.length);
+}
+
+function setJobClinicalContext(job) {
+  jobClinicalContext = {
+    timeline: job?.analysis?.timeline || [],
+    knowledgeMatches: job?.knowledge?.matches || [],
+    minDistanceM: Number(job?.min_distance_m) || 2,
+    maxMachineryKmh: Number(job?.max_machinery_kmh) || 15,
+    maxPersonKmh: Number(job?.max_person_kmh) || 8,
+  };
 }
 
 function onVideoTimeUpdate() {
@@ -1002,6 +1050,7 @@ async function promoteKeyframe(jobId, keyframeName, timeLabel) {
 async function loadJob(id, quiet = false) {
   const data = await api(`/api/forense/jobs/${id}`);
   const j = data.job;
+  setJobClinicalContext(j);
   $("#jobTitle").textContent = j.title || id;
   const srcCount = j.sources?.length || j.analysis?.sources_count || 1;
   $("#jobMeta").textContent =
@@ -1017,15 +1066,18 @@ async function loadJob(id, quiet = false) {
   if (j.status === "processing" || j.status === "queued") {
     pw.classList.remove("hidden");
     $("#progressBar").style.width = `${j.progress || 0}%`;
-    $("#progressText").textContent = j.progress_message || "";
+    $("#progressText").textContent = clinicalProgressMessage(j.progress_message, j.progress);
+    $("#progressText").classList.add("progress-clinical");
     $("#progressText").style.color = "";
   } else if (j.status === "error") {
     pw.classList.remove("hidden");
     $("#progressBar").style.width = `${j.progress || 0}%`;
-    $("#progressText").textContent = `Error: ${j.error || j.progress_message || "Falló el análisis"}`;
+    $("#progressText").textContent = `Error: ${j.error || clinicalProgressMessage(j.progress_message) || "Falló el análisis"}`;
+    $("#progressText").classList.add("progress-clinical");
     $("#progressText").style.color = "#f07178";
   } else {
     pw.classList.add("hidden");
+    $("#progressText").classList.remove("progress-clinical");
     $("#progressText").style.color = "";
     if (j.status === "done" && pollTimer) {
       clearInterval(pollTimer);

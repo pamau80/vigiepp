@@ -161,13 +161,22 @@
           <p id="comparisonText" class="comparison-text"></p>
         </section>
         <section class="card hidden" id="videoSection">
-          <h3>Reproductor forense — análisis en vivo</h3>
-          <p class="muted small">Personas, vehículos, velocidades y distancias persona–maquinaria mientras avanza el video.</p>
+          <h3>Reproductor forense — ojo clínico</h3>
+          <p class="muted small">Auditoría del instante sincronizada al playhead: detecciones, cinemática y coincidencias con la biblioteca.</p>
           <div class="video-stage">
             <video id="forenseVideo" controls playsinline preload="metadata"></video>
             <canvas id="forenseOverlay" aria-hidden="true"></canvas>
           </div>
-          <div class="live-stats" id="liveStats">
+          <div class="clinical-glance" id="clinicalGlance" aria-live="polite">
+            <span class="clinical-status clinical-level-idle" id="clinicalStatus">Sin datos</span>
+            <span class="clinical-headline" id="clinicalHeadline">Esperando análisis del video…</span>
+            <span class="clinical-metric muted" id="clinicalMetric"></span>
+          </div>
+          <details class="clinical-audit" id="clinicalAuditPanel">
+            <summary>Auditoría del instante</summary>
+            <div id="clinicalAuditBody" class="clinical-audit-body"></div>
+          </details>
+          <div class="live-stats live-stats-compact" id="liveStats">
             <span id="liveTime">00:00:00</span>
             <span id="liveCounts">—</span>
             <span id="liveSpeeds">—</span>

@@ -781,6 +781,11 @@ def forense_i18n() -> FileResponse:
     return FileResponse(WEB_DIR / "i18n-es-cl.js", media_type="application/javascript")
 
 
+@app.get("/clinical-eye.js")
+def forense_clinical_eye() -> FileResponse:
+    return FileResponse(WEB_DIR / "clinical-eye.js", media_type="application/javascript")
+
+
 @app.get("/forense.js")
 def forense_js() -> FileResponse:
     return FileResponse(WEB_DIR / "forense.js", media_type="application/javascript")
