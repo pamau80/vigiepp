@@ -201,7 +201,7 @@ def run_analysis(
     for i, sample in enumerate(samples):
         if progress_cb:
             pct = int(progress_base + (progress_span * (i + 1) / max(total, 1)))
-            progress_cb(pct, f"{camera_label}: frame {i + 1}/{total}")
+            progress_cb(pct, f"Revisando escena ({camera_label}): fotograma {i + 1} de {total}")
         try:
             result = analyze_frame(
                 sample.frame_bgr,
@@ -242,7 +242,7 @@ def run_analysis(
             logger.exception("Frame %s falló en job %s", sample.index, job_id)
 
     if progress_cb:
-        progress_cb(88, "Calculando cinemática y mapa de calor")
+        progress_cb(88, "Cuantificando velocidades y zonas de tránsito")
 
     tracks = tracker.all_tracks()
     track_speeds = compute_track_speeds(tracks, meters_per_pixel=meters_per_pixel)
