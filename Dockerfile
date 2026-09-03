@@ -24,10 +24,13 @@ RUN pip install -r /app/backend/requirements.txt
 
 COPY backend /app/backend
 COPY frontend /app/frontend
+COPY forense/requirements.txt /app/forense/requirements.txt
+RUN pip install -r /app/forense/requirements.txt
+COPY forense /app/forense
 
 # Modelos: copiar si existen en build context; si no, se descargan al arrancar
 # Datos mutables van a VIGIEPP_DATA_DIR (/data) cuando hay volumen Railway
-RUN mkdir -p /app/backend/models /app/backend/data/models /app/backend/data/faces /data
+RUN mkdir -p /app/backend/models /app/backend/data/models /app/backend/data/faces /data /data/forense
 
 # Descargar pesos EPP + rostros en build (mejor arranque en cloud)
 RUN curl -fsSL -o /app/backend/models/best_ppe.pt \

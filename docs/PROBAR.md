@@ -114,9 +114,25 @@ bash scripts/review_full_e2e.sh              # API smoke (servidor arriba)
 ## 6. Docker (edge faena)
 
 ```bash
-cp .env.example .env   # editar PINs
+cp .env.example .env   # editar PINs y VIGIEPP_FORENSE_LICENSE en producción
 docker compose up -d --build
 ```
+
+Servicios:
+
+| Puerto | Servicio |
+|--------|----------|
+| 8000 | VigiEPP core |
+| 8001 | VigiEPP Forense |
+
+Smoke Forense tras compose:
+
+```bash
+bash scripts/docker_forense_smoke.sh
+bash forense/scripts/demo_caso_completo.sh   # requiere Forense accesible en :8001
+```
+
+Emitir licencia producción: `docs/FORENSE_LICENSE_EDGE.md`
 
 ---
 
