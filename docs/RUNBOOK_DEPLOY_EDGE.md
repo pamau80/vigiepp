@@ -22,9 +22,11 @@ Ver [RUNBOOK_ENTRENAR_EPP_FAENA.md](RUNBOOK_ENTRENAR_EPP_FAENA.md) — color/tip
 
 ```bash
 cp .env.example .env
-# Editar PINs y VIGIEPP_DATA_DIR si aplica
+# Editar PINs, VIGIEPP_FORENSE_LICENSE (producción) y VIGIEPP_DATA_DIR si aplica
 docker compose up -d --build
 curl -s http://127.0.0.1:8000/api/health | jq .
+curl -s http://127.0.0.1:8001/api/forense/health | jq .
+bash scripts/docker_forense_smoke.sh
 ```
 
 Verificar en `/api/health`:

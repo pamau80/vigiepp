@@ -1,6 +1,6 @@
 # VigiEPP en faena (edge): disco persistente, sin Render Free.
 # Uso (Linux / NUC): docker compose up -d --build
-# Datos en volumen vigiepp-data → /data
+# Datos en volumen vigiepp-data → /data (VigiEPP + Forense)
 # Cámaras LAN: en Windows preferí start-edge.bat (Docker Desktop no ve bien RTSP local).
 
 services:
@@ -25,6 +25,39 @@ services:
       interval: 30s
       timeout: 5s
       retries: 5
+
+  forense:
+    image: vigiepp-edge
+    depends_on:
+      vigiepp:
+        condition: service_healthy
+    ports:
+      - "8001:8001"
+    environment:
+      PYTHONPATH: /app/backend:/app
+      VIGIEPP_DATA_DIR: /data
+      VIGIEPP_FORENSE_DATA_DIR: /data/forense
+      VIGIEPP_FORENSE: "1"
+      VIGIEPP_FORENSE_LICENSE: ${VIGIEPP_FORENSE_LICENSE:-dev}
+      VIGIEPP_AUTH: "1"
+      VIGIEPP_ADMIN_PIN: ${VIGIEPP_ADMIN_PIN:-changeme-admin}
+      VIGIEPP_COMBINED_INFERENCE: "0"
+      VIGIEPP_FORENSE_DOL_API_KEY: ${VIGIEPP_FORENSE_DOL_API_KEY:-}
+    volumes:
+      - vigiepp-data:/data
+    restart: unless-stopped
+    command:
+      [
+        "sh",
+        "-c",
+        "uvicorn forense.app.main:app --host 0.0.0.0 --port 8001",
+      ]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8001/api/forense/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
 
 volumes:
   vigiepp-data:
