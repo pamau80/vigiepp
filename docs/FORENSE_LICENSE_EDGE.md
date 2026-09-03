@@ -36,7 +36,9 @@ VIGIEPP_FORENSE_LICENSE=faena-norte.1785600000.a1b2c3d4e5f6...
 ```env
 VIGIEPP_FORENSE=1
 VIGIEPP_FORENSE_LICENSE=faena-norte.1785600000.a1b2c3d4e5f6...
-# NO incluir VIGIEPP_FORENSE_SIGNING_KEY en el edge (solo quien emite licencias)
+VIGIEPP_FORENSE_SIGNING_KEY=<clave-de-verificacion-distribuida-por-vendor>
+# La clave de verificación NO es la del servidor emisor; el vendor la entrega por faena.
+# NO commitear ni compartir en repositorios públicos.
 ```
 
 ### 4. Verificar
@@ -63,4 +65,4 @@ Antes de expirar, emitir nueva licencia con el mismo `site_id` y fecha extendida
 | Variable | Edge faena | Emisor licencias |
 |----------|------------|------------------|
 | `VIGIEPP_FORENSE_LICENSE` | Sí | No |
-| `VIGIEPP_FORENSE_SIGNING_KEY` | **No** | Sí |
+| `VIGIEPP_FORENSE_SIGNING_KEY` | Sí (verificación) | Sí (emisión) |

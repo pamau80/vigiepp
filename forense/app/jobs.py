@@ -16,6 +16,7 @@ from .config import BUILD, JOBS_DIR, ensure_dirs
 from .export import committee_section, export_case_bundle, push_to_ehs
 from .knowledge import apply_knowledge_insights, match_knowledge_for_job, reinforce_knowledge_from_job
 from .multi_source import run_multi_source_analysis
+from .path_safety import resolve_under, safe_job_id, safe_keyframe_name
 from .pdf_export import export_report_pdf
 from .report import build_report_markdown, maybe_enrich_with_llm
 from .sampler import adaptive_sample_video
@@ -27,7 +28,10 @@ _jobs: dict[str, dict[str, Any]] = {}
 
 
 def _job_dir(job_id: str) -> Path:
-    return JOBS_DIR / job_id
+    safe = safe_job_id(job_id)
+    if not safe:
+        raise ValueError("job_id inválido")
+    return JOBS_DIR / safe
 
 
 def _save_job(job: dict[str, Any]) -> None:
@@ -60,6 +64,8 @@ def list_jobs() -> list[dict[str, Any]]:
 
 
 def get_job(job_id: str) -> dict[str, Any] | None:
+    if not safe_job_id(job_id):
+        return None
     with _lock:
         if job_id not in _jobs:
             _load_jobs_from_disk()
@@ -299,8 +305,13 @@ def delete_job(job_id: str) -> bool:
 
 
 def keyframe_path(job_id: str, name: str) -> Path | None:
-    p = _job_dir(job_id) / "keyframes" / name
-    return p if p.is_file() else None
+    safe_id = safe_job_id(job_id)
+    safe_name = safe_keyframe_name(name)
+    if not safe_id or not safe_name:
+        return None
+    base = JOBS_DIR / safe_id
+    p = resolve_under(base, "keyframes", safe_name)
+    return p if p and p.is_file() else None
 
 
 def heatmap_path(job_id: str) -> Path | None:
