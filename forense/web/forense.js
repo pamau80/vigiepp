@@ -123,6 +123,7 @@ let frameCache = [];
 let lastFrameFetchSec = -1;
 let overlayRaf = null;
 let videoSyncBound = false;
+let videoBlobUrl = null;
 
 function formatTs(sec) {
   const s = Math.max(0, Math.floor(sec));
@@ -283,6 +284,14 @@ function bindVideoSync() {
     if (overlayRaf) cancelAnimationFrame(overlayRaf);
     onVideoTimeUpdate();
   });
+  video.addEventListener("error", () => {
+    const code = video.error?.code;
+    if (code === 4) {
+      showToast("Formato de video no soportado en este navegador. Reintentá recargar el caso.", "error");
+    } else if (code) {
+      showToast("No se pudo reproducir el video en el navegador.", "error");
+    }
+  });
 }
 
 async function fetchIncrementalFrames(jobId) {
@@ -313,26 +322,68 @@ async function fetchIncrementalFrames(jobId) {
   }
 }
 
+function releaseVideoBlob() {
+  if (videoBlobUrl) {
+    URL.revokeObjectURL(videoBlobUrl);
+    videoBlobUrl = null;
+  }
+}
+
+async function loadJobVideo(jobId) {
+  const video = $("#forenseVideo");
+  if (!video) return;
+  const path = `/api/forense/jobs/${jobId}/video`;
+  if (video.getAttribute("data-src") === path && video.src) return;
+
+  releaseVideoBlob();
+  video.removeAttribute("src");
+  video.setAttribute("data-src", path);
+
+  showToast("Cargando video (puede tardar si requiere conversión H.264)…", "info");
+  try {
+    const res = await fetch(path, { credentials: "include", headers: authHeaders() });
+    if (res.status === 401) {
+      clearForenseToken();
+      const st = await fetchAuthStatus();
+      hydrateTokenFromStatus(st);
+      if (!st.can_access) throw new Error("Sesión expirada");
+      return loadJobVideo(jobId);
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "No se pudo cargar el video");
+    }
+    const blob = await res.blob();
+    if (!blob.size) throw new Error("El video está vacío o no se pudo convertir");
+    videoBlobUrl = URL.createObjectURL(blob);
+    video.src = videoBlobUrl;
+    await video.play().catch(() => {});
+    video.pause();
+    video.currentTime = 0;
+  } catch (err) {
+    showToast(err.message || "Error al cargar el video", "error");
+    video.removeAttribute("data-src");
+  }
+}
+
 function setupVideoViewer(job, jobId) {
   const section = $("#videoSection");
   const video = $("#forenseVideo");
   if (!section || !video) return;
   if (!job.has_video) {
     section.classList.add("hidden");
+    releaseVideoBlob();
     video.removeAttribute("src");
+    video.removeAttribute("data-src");
     frameCache = [];
     lastFrameFetchSec = -1;
     return;
   }
   section.classList.remove("hidden");
-  const src = `/api/forense/jobs/${jobId}/video`;
-  if (video.getAttribute("data-src") !== src) {
-    video.setAttribute("data-src", src);
-    video.src = `${src}?t=${Date.now()}`;
-    frameCache = [];
-    lastFrameFetchSec = -1;
-  }
+  frameCache = [];
+  lastFrameFetchSec = -1;
   bindVideoSync();
+  void loadJobVideo(jobId);
   fetchIncrementalFrames(jobId);
 }
 
@@ -414,6 +465,7 @@ function resetNewCaseForm() {
   lastFrameFetchSec = -1;
   const video = $("#forenseVideo");
   if (video) {
+    releaseVideoBlob();
     video.removeAttribute("src");
     video.removeAttribute("data-src");
   }

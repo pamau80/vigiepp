@@ -165,6 +165,7 @@ def _process_job(job_id: str) -> None:
     try:
         job["status"] = "processing"
         _set_progress(job_id, 5, "Preparando fuentes de video")
+        ensure_web_playback(job_id)
 
         inf = inference_settings(job.get("template_id"))
         sample_kw = {
@@ -334,7 +335,8 @@ def committee_md_path(job_id: str) -> Path | None:
     return p if p.is_file() else None
 
 
-def job_video_path(job_id: str, cam: int = 0) -> Path | None:
+def job_source_video_path(job_id: str, cam: int = 0) -> Path | None:
+    """Archivo original subido (p. ej. AVI HEVC) — usado por OpenCV y análisis."""
     d = _job_dir(job_id) / "sources"
     if not d.is_dir():
         return None
@@ -343,6 +345,25 @@ def job_video_path(job_id: str, cam: int = 0) -> Path | None:
         if p.is_file():
             return p
     return None
+
+
+def job_video_path(job_id: str, cam: int = 0) -> Path | None:
+    """MP4 H.264 listo para <video> en navegador; transcodifica bajo demanda."""
+    d = _job_dir(job_id) / "sources"
+    if not d.is_dir():
+        return None
+    from .video_transcode import web_playback_path
+
+    return web_playback_path(d, cam)
+
+
+def has_job_video(job_id: str, cam: int = 0) -> bool:
+    return job_source_video_path(job_id, cam) is not None
+
+
+def ensure_web_playback(job_id: str, cam: int = 0) -> Path | None:
+    """Genera cam{N}_web.mp4 si el original no es reproducible en Chrome."""
+    return job_video_path(job_id, cam)
 
 
 def learn_event_at_timestamp(
@@ -378,7 +399,7 @@ def learn_event_at_timestamp(
 def extract_frame_jpeg(job_id: str, time_sec: float, *, cam: int = 0) -> bytes | None:
     import cv2
 
-    path = job_video_path(job_id, cam)
+    path = job_source_video_path(job_id, cam)
     if not path:
         return None
     cap = cv2.VideoCapture(str(path))
