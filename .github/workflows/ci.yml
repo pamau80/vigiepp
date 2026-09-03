@@ -18,13 +18,19 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r backend/requirements.txt
+          pip install -r forense/requirements.txt
           pip install pytest httpx ruff bandit
 
       - name: Ruff
         run: ruff check backend/app tests --ignore E501
 
+      - name: Ruff Forense (archivos P0)
+        run: ruff check forense/app/path_safety.py forense/app/license.py forense/tests/test_security_forense.py --ignore E501
+
       - name: Bandit
-        run: bandit -q -r backend/app -x tests -lll
+        run: |
+          bandit -q -r backend/app -x tests -lll
+          bandit -q -r forense/app -lll
 
       - name: Install Node (ESLint frontend)
         uses: actions/setup-node@v4
@@ -37,9 +43,12 @@ jobs:
           npm run lint
 
       - name: Run pytest
-        run: pytest tests/ -v --tb=short --ignore=tests/e2e
+        run: |
+          pytest tests/ forense/tests/ -v --tb=short --ignore=tests/e2e --ignore=forense/tests/e2e
         env:
           VIGIEPP_COMBINED_INFERENCE: "0"
+          VIGIEPP_FORENSE: "1"
+          VIGIEPP_FORENSE_LICENSE: dev
 
   browser-e2e:
     runs-on: ubuntu-latest

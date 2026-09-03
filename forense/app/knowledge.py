@@ -15,6 +15,7 @@ import cv2
 import numpy as np
 
 from .config import KNOWLEDGE_DIR, ensure_dirs
+from .path_safety import safe_entry_id
 from .vision_embed import (
     cosine_similarity,
     embed_image_bgr,
@@ -76,17 +77,24 @@ def _save_index(entries: list[dict[str, Any]]) -> None:
     _INDEX_PATH.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def _entry_dir(entry_id: str) -> Path:
-    return KNOWLEDGE_DIR / entry_id
+def _entry_dir(entry_id: str) -> Path | None:
+    safe = safe_entry_id(entry_id)
+    if not safe:
+        return None
+    return KNOWLEDGE_DIR / safe
 
 
-def _thumb_path(entry_id: str) -> Path:
-    return _entry_dir(entry_id) / "thumb.jpg"
+def _thumb_path(entry_id: str) -> Path | None:
+    base = _entry_dir(entry_id)
+    return base / "thumb.jpg" if base else None
 
 
-def _media_path(entry_id: str, media_type: str) -> Path:
+def _media_path(entry_id: str, media_type: str) -> Path | None:
+    base = _entry_dir(entry_id)
+    if not base:
+        return None
     ext = ".mp4" if media_type == "video" else ".jpg"
-    return _entry_dir(entry_id) / f"media{ext}"
+    return base / f"media{ext}"
 
 
 def _keyword_overlap(text_a: str, text_b: str) -> float:
@@ -419,7 +427,7 @@ def create_knowledge(
         "labels": [x.strip() for x in (labels or []) if x.strip()],
         "event_types": [x.strip() for x in (event_types or []) if x.strip()],
         "media_type": media_type,
-        "has_thumb": _thumb_path(entry_id).is_file(),
+        "has_thumb": bool(_thumb_path(entry_id) and _thumb_path(entry_id).is_file()),
         "signature": signature,
         "frame_signatures": frame_signatures[:16],
         "text_signature": text_signature,
@@ -484,6 +492,8 @@ def bulk_import_knowledge(
 
 
 def delete_knowledge(entry_id: str) -> bool:
+    if not safe_entry_id(entry_id):
+        return False
     with _lock:
         entries = _load_index()
         new_entries = [e for e in entries if e.get("id") != entry_id]
@@ -491,7 +501,7 @@ def delete_knowledge(entry_id: str) -> bool:
             return False
         _save_index(new_entries)
     d = _entry_dir(entry_id)
-    if d.exists():
+    if d and d.exists():
         shutil.rmtree(d, ignore_errors=True)
     return True
 

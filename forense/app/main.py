@@ -673,9 +673,13 @@ def knowledge_thumb(entry_id: str, request: Request) -> FileResponse:
     _require_license()
     require_forense_admin(request)
     from .config import KNOWLEDGE_DIR
+    from .path_safety import resolve_under, safe_entry_id
 
-    path = KNOWLEDGE_DIR / entry_id / "thumb.jpg"
-    if not path.is_file():
+    safe = safe_entry_id(entry_id)
+    if not safe:
+        raise HTTPException(404, "Miniatura no disponible")
+    path = resolve_under(KNOWLEDGE_DIR, safe, "thumb.jpg")
+    if not path or not path.is_file():
         raise HTTPException(404, "Miniatura no disponible")
     return FileResponse(path, media_type="image/jpeg")
 

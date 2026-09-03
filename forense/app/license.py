@@ -7,9 +7,22 @@ import hmac
 import os
 import time
 
+_DEV_SIGNING_FALLBACK = "vigiepp-forense-dev-key-change-in-prod"
 
-def _signing_secret() -> str:
-    return os.getenv("VIGIEPP_FORENSE_SIGNING_KEY", "vigiepp-forense-dev-key-change-in-prod")
+
+def _is_dev_license() -> bool:
+    return os.getenv("VIGIEPP_FORENSE_LICENSE", "").strip() == "dev"
+
+
+def _signing_secret(*, required: bool = False) -> str:
+    explicit = os.getenv("VIGIEPP_FORENSE_SIGNING_KEY", "").strip()
+    if explicit:
+        return explicit
+    if _is_dev_license():
+        return _DEV_SIGNING_FALLBACK
+    if required:
+        raise ValueError("Falta VIGIEPP_FORENSE_SIGNING_KEY")
+    return ""
 
 
 def sign_license(site_id: str, expires_unix: int, *, secret: str | None = None) -> str:
@@ -19,7 +32,7 @@ def sign_license(site_id: str, expires_unix: int, *, secret: str | None = None) 
         raise ValueError("site_id inválido (sin puntos)")
     if expires_unix <= int(time.time()):
         raise ValueError("La expiración debe ser futura")
-    key = (secret or _signing_secret()).encode()
+    key = (secret or _signing_secret(required=True)).encode()
     payload = f"{site}.{expires_unix}"
     sig = hmac.new(key, payload.encode(), hashlib.sha256).hexdigest()[:32]
     return f"{payload}.{sig}"
@@ -59,6 +72,9 @@ def verify_license(key: str | None = None) -> tuple[bool, str]:
         return False, "Falta VIGIEPP_FORENSE_LICENSE"
     if raw == "dev":
         return True, "licencia desarrollo"
+    secret = _signing_secret()
+    if not secret:
+        return False, "Falta VIGIEPP_FORENSE_SIGNING_KEY para verificar licencia de producción"
     # Formato producción: site_id.unix_exp.sig_hex
     parts = raw.split(".")
     if len(parts) != 3:
@@ -71,7 +87,7 @@ def verify_license(key: str | None = None) -> tuple[bool, str]:
     if exp < int(time.time()):
         return False, "Licencia expirada"
     payload = f"{site_id}.{exp}"
-    expected = hmac.new(_signing_secret().encode(), payload.encode(), hashlib.sha256).hexdigest()[:32]
+    expected = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()[:32]
     if not hmac.compare_digest(expected, sig):
         return False, "Firma de licencia inválida"
     return True, f"licencia {site_id}"
