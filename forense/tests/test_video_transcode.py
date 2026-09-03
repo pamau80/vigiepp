@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from forense.app.jobs import ensure_web_playback, has_job_video, job_source_video_path, job_video_path
 from forense.app.main import app
-from forense.app.video_transcode import needs_browser_transcode, transcode_for_browser, web_playback_path
+from forense.app.video_transcode import needs_browser_transcode, web_playback_path
 
 
 def _ffmpeg_available() -> bool:

@@ -21,6 +21,7 @@ from .pdf_export import export_report_pdf
 from .report import build_report_markdown, maybe_enrich_with_llm
 from .sampler import adaptive_sample_video
 from .templates import inference_settings, resolve_template
+from .video_formats import resolve_source_path, video_extension
 
 logger = logging.getLogger("vigiepp.forense.jobs")
 _lock = threading.Lock()
@@ -105,13 +106,14 @@ def create_job(
 
     sources_dir = job_dir / "sources"
     sources_dir.mkdir(exist_ok=True)
-    ext = Path(filename).suffix.lower() or ".mp4"
+    ext = video_extension(filename) or ".mp4"
     primary_path = sources_dir / f"cam0{ext}"
     primary_path.write_bytes(video_bytes)
 
     source_meta = [{"label": "Cám. 1", "offset_sec": 0.0, "path": str(primary_path), "filename": filename}]
     for i, extra in enumerate(extra_sources or [], start=1):
-        ex_ext = Path(extra.get("filename") or "video.mp4").suffix.lower() or ".mp4"
+        ex_name = extra.get("filename") or "video.mp4"
+        ex_ext = video_extension(ex_name) or ".mp4"
         p = sources_dir / f"cam{i}{ex_ext}"
         p.write_bytes(extra["bytes"])
         source_meta.append(
@@ -337,14 +339,7 @@ def committee_md_path(job_id: str) -> Path | None:
 
 def job_source_video_path(job_id: str, cam: int = 0) -> Path | None:
     """Archivo original subido (p. ej. AVI HEVC) — usado por OpenCV y análisis."""
-    d = _job_dir(job_id) / "sources"
-    if not d.is_dir():
-        return None
-    for ext in (".mp4", ".avi", ".mov", ".webm", ".mkv"):
-        p = d / f"cam{cam}{ext}"
-        if p.is_file():
-            return p
-    return None
+    return resolve_source_path(_job_dir(job_id) / "sources", cam)
 
 
 def job_video_path(job_id: str, cam: int = 0) -> Path | None:

@@ -16,6 +16,7 @@ import numpy as np
 
 from .config import KNOWLEDGE_DIR, ensure_dirs
 from .path_safety import safe_entry_id
+from .video_formats import is_supported_video_filename
 from .vision_embed import (
     cosine_similarity,
     embed_image_bgr,
@@ -387,7 +388,7 @@ def create_knowledge(
 
     if media_bytes and len(media_bytes) > 100:
         fname = (media_filename or "").lower()
-        if fname.endswith((".mp4", ".mov", ".avi", ".webm")):
+        if is_supported_video_filename(fname):
             media_type = "video"
             media_path = _media_path(entry_id, "video")
             media_path.write_bytes(media_bytes)

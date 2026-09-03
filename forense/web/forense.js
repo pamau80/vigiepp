@@ -2,6 +2,19 @@ import { statusLabel, kindLabel, eventTypeLabel, sourceLabel } from "./i18n-es-c
 
 const API = "";
 const TOKEN_KEY = "forense.token";
+const SUPPORTED_VIDEO_EXT = [
+  ".avi", ".mp4", ".m4v", ".mov", ".mkv", ".webm", ".ts", ".mts", ".m2ts",
+  ".wmv", ".asf", ".flv", ".f4v", ".3gp", ".3g2", ".mpg", ".mpeg", ".mpe",
+  ".dav", ".h264", ".264", ".ogv", ".ogg",
+];
+
+function isSupportedVideoFile(file) {
+  if (!file?.name) return false;
+  const dot = file.name.lastIndexOf(".");
+  if (dot < 0) return (file.type || "").startsWith("video/");
+  const ext = file.name.slice(dot).toLowerCase();
+  return SUPPORTED_VIDEO_EXT.includes(ext);
+}
 
 function getForenseToken() {
   return sessionStorage.getItem(TOKEN_KEY) || "";
@@ -1273,8 +1286,18 @@ $("#uploadForm")?.addEventListener("submit", async (e) => {
   e.preventDefault();
   const file = $("#caseVideo").files?.[0];
   if (!file) {
-    alert("Seleccioná un video principal (MP4 o MOV) antes de iniciar el análisis.");
+    alert("Seleccioná un video principal antes de iniciar el análisis.");
     return;
+  }
+  if (!isSupportedVideoFile(file)) {
+    alert("Formato no soportado. Usá AVI, MP4, MOV, MKV, WMV, TS, MPG, FLV, 3GP, DAV u otro contenedor de video.");
+    return;
+  }
+  for (const extra of [$("#caseVideo2").files?.[0], $("#caseVideo3").files?.[0]]) {
+    if (extra && !isSupportedVideoFile(extra)) {
+      alert(`Formato no soportado en cámara adicional: ${extra.name}`);
+      return;
+    }
   }
   const btn = $("#btnStartAnalysis");
   const hint = $("#uploadHint");

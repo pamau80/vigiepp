@@ -58,6 +58,7 @@ from .teach_bridge import (
     teach_status,
 )
 from .templates import list_templates
+from .video_formats import SUPPORTED_FORMATS_HINT, is_supported_video_filename
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("vigiepp.forense")
@@ -90,6 +91,8 @@ class LoginBody(BaseModel):
 async def _read_upload(video: UploadFile | None, label: str) -> dict | None:
     if video is None or not video.filename:
         return None
+    if not is_supported_video_filename(video.filename):
+        raise HTTPException(400, f"{label}: formato no soportado. Admitidos: {SUPPORTED_FORMATS_HINT}")
     data = await video.read()
     max_b = MAX_UPLOAD_MB * 1024 * 1024
     if len(data) > max_b:

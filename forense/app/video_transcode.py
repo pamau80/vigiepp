@@ -7,6 +7,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from .video_formats import SUPPORTED_VIDEO_EXTENSIONS
+
 logger = logging.getLogger("vigiepp.forense.video_transcode")
 
 _BROWSER_SAFE_CODECS = {"h264", "avc1", "avc3"}
@@ -44,7 +46,7 @@ def needs_browser_transcode(path: Path) -> bool:
     if not path.is_file():
         return True
     ext = path.suffix.lower()
-    if ext not in {".mp4", ".mov", ".avi", ".mkv", ".webm"}:
+    if ext not in SUPPORTED_VIDEO_EXTENSIONS:
         return True
     codec = _ffprobe_codec(path)
     if not codec:
@@ -102,7 +104,7 @@ def web_playback_path(sources_dir: Path, cam: int = 0) -> Path | None:
     web = sources_dir / f"cam{cam}_web.mp4"
     if web.is_file() and web.stat().st_size > 1000:
         return web
-    for ext in (".mp4", ".avi", ".mov", ".webm", ".mkv"):
+    for ext in SUPPORTED_VIDEO_EXTENSIONS:
         src = sources_dir / f"cam{cam}{ext}"
         if not src.is_file():
             continue
