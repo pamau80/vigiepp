@@ -113,6 +113,10 @@ Se detectaron **{analysis.get('event_count', 0)} eventos** relevantes.
 
 {_section_knowledge(knowledge)}
 
+## 2c. Observaciones visuales IA (video)
+
+{_section_video_ai(job.get("video_ai") or {})}
+
 ## 3. Cinemática y velocidades
 
 {_section_kinematics(kin, job)}
@@ -154,6 +158,31 @@ _VigiEPP Forense · Informe IA de accidentes e incidentes_
     return body
 
 
+def _section_video_ai(video_ai: dict[str, Any]) -> str:
+    status = video_ai.get("status")
+    if status == "skipped":
+        reason = video_ai.get("reason") or "Análisis visual no ejecutado."
+        return f"_{reason}_\n"
+    if status == "error":
+        return f"_Análisis visual no disponible: {video_ai.get('reason', 'error')}._\n"
+    captions = video_ai.get("captions") or []
+    if not captions:
+        return "_Sin observaciones visuales generadas._\n"
+    model = video_ai.get("model") or "modelo visión"
+    lines = [
+        f"Se analizaron **{len(captions)}** fotogramas representativos del video con **{model}**:",
+        "",
+    ]
+    for cap in captions:
+        lines.append(f"- **{cap.get('time_label', '—')}:** {cap.get('caption')}")
+    summary = (video_ai.get("summary") or "").strip()
+    if summary and len(captions) > 1:
+        lines.append(f"\n**Síntesis:** {summary}")
+    if status == "partial":
+        lines.append(f"\n_({video_ai.get('reason')})_")
+    return "\n".join(lines) + "\n"
+
+
 def _narrative_block(job: dict[str, Any]) -> str:
     llm = (job.get("llm_narrative") or "").strip()
     if llm:
@@ -178,6 +207,11 @@ def _narrative_block(job: dict[str, Any]) -> str:
     for m in (knowledge.get("matches") or [])[:3]:
         parts.append(
             f"- Posible factor (biblioteca): patrón «{m.get('title')}» — {m.get('description') or m.get('situation_label')}."
+        )
+    video_ai = job.get("video_ai") or {}
+    for cap in (video_ai.get("captions") or [])[:2]:
+        parts.append(
+            f"- Observación visual ({cap.get('time_label')}): {cap.get('caption')}"
         )
     return "\n".join(parts) if parts else "_Revisar secuencia cronológica manualmente._"
 
@@ -248,6 +282,11 @@ def maybe_enrich_with_llm(job: dict[str, Any]) -> str | None:
         }
         for m in (job.get("knowledge") or {}).get("matches") or []
     ]
+    video_ai = job.get("video_ai") or {}
+    visual_obs = [
+        {"instante": c.get("time_label"), "observacion": c.get("caption")}
+        for c in (video_ai.get("captions") or [])[:8]
+    ]
     payload = {
         "model": model,
         "messages": [
@@ -255,8 +294,9 @@ def maybe_enrich_with_llm(job: dict[str, Any]) -> str | None:
                 "role": "system",
                 "content": (
                     "Eres analista senior en prevención de riesgos industriales en Chile. "
-                    "Redactas hipótesis contribuyentes SOLO a partir del JSON de eventos y ejemplos "
-                    "de la biblioteca de situaciones. Usa condicional (podría, se observó). "
+                    "Redactas hipótesis contribuyentes SOLO a partir del JSON de eventos, "
+                    "observaciones visuales del video y ejemplos de la biblioteca. "
+                    "Usa condicional (podría, se observó). "
                     "Nunca concluyas negligencia ni culpa legal."
                 ),
             },
@@ -266,8 +306,11 @@ def maybe_enrich_with_llm(job: dict[str, Any]) -> str | None:
                     {
                         "titulo": job.get("title"),
                         "sitio": job.get("site"),
+                        "notas_caso": job.get("case_notes"),
                         "plantilla": job.get("template_name"),
                         "eventos": timeline[:120],
+                        "observaciones_visuales_video": visual_obs,
+                        "sintesis_visual": video_ai.get("summary"),
                         "situaciones_similares": knowledge_examples[:5],
                     },
                     ensure_ascii=False,

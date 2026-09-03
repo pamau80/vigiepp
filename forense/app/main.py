@@ -248,6 +248,8 @@ def _job_payload(job: dict) -> dict:
         "frames_analyzed": count_frames(job["id"]),
         "ehs_push": job.get("ehs_push"),
         "knowledge": job.get("knowledge"),
+        "video_ai": job.get("video_ai"),
+        "llm_narrative": job.get("llm_narrative"),
     }
 
 
@@ -779,6 +781,11 @@ def forense_css() -> FileResponse:
 @app.get("/i18n-es-cl.js")
 def forense_i18n() -> FileResponse:
     return FileResponse(WEB_DIR / "i18n-es-cl.js", media_type="application/javascript")
+
+
+@app.get("/clinical-eye.js")
+def forense_clinical_eye() -> FileResponse:
+    return FileResponse(WEB_DIR / "clinical-eye.js", media_type="application/javascript")
 
 
 @app.get("/forense.js")

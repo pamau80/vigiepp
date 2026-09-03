@@ -60,7 +60,16 @@ Almacenados en `forense/data/` (separado de `backend/data/`).
 - Plantillas por industria: minería, portuario, bodega, construcción, general
 - Bundle de caso (`case_bundle.zip`): job.json, informes, EHS JSON, series
 
-### P11 — Licencia edge y conectores live
+### P12 — Ojo clínico
+- Barra de auditoría del instante sincronizada al playhead
+- Panel colapsable con detecciones, cinemática y proximidad
+
+### P13 — Análisis visual IA del video
+- Modelo de visión sobre fotogramas clave (keyframes, alertas, timeline)
+- Sección en informe **2c. Observaciones visuales IA**
+- Panel UI + integración en ojo clínico al scrub
+- Requiere API OpenAI-compatible (`VIGIEPP_FORENSE_OPENAI_KEY`); edge: Ollama + `llava`
+
 - Emisión de licencias firmadas (`forense/scripts/issue_forense_license.py`) — ver `docs/FORENSE_LICENSE_EDGE.md`
 - SERNAGEOMIN y EMCIP: intento de fetch live + fallback a JSON curado (offline-safe)
 

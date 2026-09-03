@@ -18,6 +18,7 @@ from .knowledge import apply_knowledge_insights, match_knowledge_for_job, reinfo
 from .multi_source import run_multi_source_analysis
 from .pdf_export import export_report_pdf
 from .report import build_report_markdown, maybe_enrich_with_llm
+from .video_ai import analyze_job_video_ai
 from .sampler import adaptive_sample_video
 from .templates import inference_settings, resolve_template
 
@@ -135,7 +136,7 @@ def create_job(
         "filename": filename,
         "status": "queued",
         "progress": 0,
-        "progress_message": "En cola",
+        "progress_message": "En cola — preparando revisión forense del video",
         "created_at": datetime.now(UTC).isoformat(),
         "updated_at": datetime.now(UTC).isoformat(),
         "meta": {},
@@ -158,7 +159,7 @@ def _process_job(job_id: str) -> None:
         return
     try:
         job["status"] = "processing"
-        _set_progress(job_id, 5, "Preparando fuentes de video")
+        _set_progress(job_id, 5, "Preparando fuentes de video para auditoría")
 
         inf = inference_settings(job.get("template_id"))
         sample_kw = {
@@ -234,14 +235,17 @@ def _process_job(job_id: str) -> None:
         else:
             job["comparison"] = {"available": False}
 
-        _set_progress(job_id, 90, "Consultando biblioteca de situaciones")
+        _set_progress(job_id, 88, "Contrastando escena con biblioteca de incidentes")
         knowledge_matches = match_knowledge_for_job(job)
         job["knowledge"] = apply_knowledge_insights(job, knowledge_matches)
         reinforced = reinforce_knowledge_from_job(job, knowledge_matches)
         if reinforced:
             job["knowledge"]["reinforced_entries"] = reinforced
 
-        _set_progress(job_id, 92, "Generando informes")
+        _set_progress(job_id, 89, "Analizando video con IA visual (fotogramas clave)")
+        job["video_ai"] = analyze_job_video_ai(job, job_id)
+
+        _set_progress(job_id, 92, "Redactando informe clínico del caso")
 
         narrative = maybe_enrich_with_llm(job)
         if narrative:
@@ -264,7 +268,7 @@ def _process_job(job_id: str) -> None:
 
         job["status"] = "done"
         job["progress"] = 100
-        job["progress_message"] = "Completado"
+        job["progress_message"] = "Auditoría completa — informe listo para revisión"
         job["updated_at"] = datetime.now(UTC).isoformat()
         _save_job(job)
     except Exception as exc:
