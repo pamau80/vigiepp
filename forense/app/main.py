@@ -248,6 +248,8 @@ def _job_payload(job: dict) -> dict:
         "frames_analyzed": count_frames(job["id"]),
         "ehs_push": job.get("ehs_push"),
         "knowledge": job.get("knowledge"),
+        "video_ai": job.get("video_ai"),
+        "llm_narrative": job.get("llm_narrative"),
     }
 
 

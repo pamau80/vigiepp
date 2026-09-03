@@ -18,6 +18,7 @@ from .knowledge import apply_knowledge_insights, match_knowledge_for_job, reinfo
 from .multi_source import run_multi_source_analysis
 from .pdf_export import export_report_pdf
 from .report import build_report_markdown, maybe_enrich_with_llm
+from .video_ai import analyze_job_video_ai
 from .sampler import adaptive_sample_video
 from .templates import inference_settings, resolve_template
 
@@ -234,12 +235,15 @@ def _process_job(job_id: str) -> None:
         else:
             job["comparison"] = {"available": False}
 
-        _set_progress(job_id, 90, "Contrastando escena con biblioteca de incidentes")
+        _set_progress(job_id, 88, "Contrastando escena con biblioteca de incidentes")
         knowledge_matches = match_knowledge_for_job(job)
         job["knowledge"] = apply_knowledge_insights(job, knowledge_matches)
         reinforced = reinforce_knowledge_from_job(job, knowledge_matches)
         if reinforced:
             job["knowledge"]["reinforced_entries"] = reinforced
+
+        _set_progress(job_id, 89, "Analizando video con IA visual (fotogramas clave)")
+        job["video_ai"] = analyze_job_video_ai(job, job_id)
 
         _set_progress(job_id, 92, "Redactando informe clínico del caso")
 

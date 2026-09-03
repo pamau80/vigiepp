@@ -3,6 +3,7 @@ import {
   evaluateInstantAudit,
   clinicalProgressMessage,
   renderClinicalAuditPanel,
+  nearestVideoCaption,
 } from "./clinical-eye.js";
 
 const API = "";
@@ -131,6 +132,7 @@ let videoSyncBound = false;
 let jobClinicalContext = {
   timeline: [],
   knowledgeMatches: [],
+  videoAi: null,
   minDistanceM: 2,
   maxMachineryKmh: 15,
   maxPersonKmh: 8,
@@ -231,9 +233,12 @@ function drawFrameOverlay(frameRec) {
 }
 
 function updateClinicalEye(frameRec, totalStored) {
+  const timeSec = frameRec?.time_sec ?? $("#forenseVideo")?.currentTime ?? 0;
+  const videoCaption = nearestVideoCaption(jobClinicalContext.videoAi, timeSec);
   const audit = evaluateInstantAudit(frameRec, {
     timeline: jobClinicalContext.timeline,
     knowledgeMatches: jobClinicalContext.knowledgeMatches,
+    videoCaption,
     minDistanceM: jobClinicalContext.minDistanceM,
     maxMachineryKmh: jobClinicalContext.maxMachineryKmh,
     maxPersonKmh: jobClinicalContext.maxPersonKmh,
@@ -295,10 +300,48 @@ function setJobClinicalContext(job) {
   jobClinicalContext = {
     timeline: job?.analysis?.timeline || [],
     knowledgeMatches: job?.knowledge?.matches || [],
+    videoAi: job?.video_ai || null,
     minDistanceM: Number(job?.min_distance_m) || 2,
     maxMachineryKmh: Number(job?.max_machinery_kmh) || 15,
     maxPersonKmh: Number(job?.max_person_kmh) || 8,
   };
+  renderVideoAiSection(job?.video_ai);
+}
+
+function renderVideoAiSection(videoAi) {
+  const sec = $("#videoAiSection");
+  const body = $("#videoAiBody");
+  const hint = $("#videoAiHint");
+  if (!sec || !body) return;
+  if (!videoAi || videoAi.status === "skipped") {
+    sec.classList.add("hidden");
+    if (hint && videoAi?.reason) hint.textContent = videoAi.reason;
+    return;
+  }
+  sec.classList.remove("hidden");
+  body.innerHTML = "";
+  if (videoAi.status === "error") {
+    body.innerHTML = `<p class="muted">${videoAi.reason || "Análisis visual no disponible."}</p>`;
+    return;
+  }
+  const meta = document.createElement("p");
+  meta.className = "muted small";
+  meta.textContent = `${videoAi.frame_count || 0} fotograma(s) · modelo ${videoAi.model || "—"}${videoAi.status === "partial" ? " · parcial" : ""}`;
+  body.appendChild(meta);
+  const ul = document.createElement("ul");
+  ul.className = "video-ai-captions";
+  for (const cap of videoAi.captions || []) {
+    const li = document.createElement("li");
+    li.innerHTML = `<strong>${cap.time_label}</strong> — ${cap.caption}`;
+    ul.appendChild(li);
+  }
+  body.appendChild(ul);
+  if (hint) {
+    hint.textContent =
+      videoAi.status === "ok"
+        ? "La IA visual complementa detecciones YOLO y cinemática con descripción de escena."
+        : videoAi.reason || "";
+  }
 }
 
 function onVideoTimeUpdate() {

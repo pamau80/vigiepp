@@ -17,6 +17,7 @@ export function evaluateInstantAudit(frameRec, context = {}) {
   const {
     timeline = [],
     knowledgeMatches = [],
+    videoCaption = null,
     timeSec = frameRec?.time_sec,
     minDistanceM = 2,
     maxMachineryKmh = 15,
@@ -143,6 +144,13 @@ export function evaluateInstantAudit(frameRec, context = {}) {
   }
   if (knItems.length) sections.push({ title: "Biblioteca de aprendizaje", items: knItems });
 
+  if (videoCaption?.caption) {
+    sections.unshift({
+      title: "IA visual — este instante",
+      items: [{ label: videoCaption.time_label || "video", value: videoCaption.caption }],
+    });
+  }
+
   const statusMap = { alert: "Riesgo alto", warn: "Atención", ok: "Estable", idle: "Sin datos" };
   return {
     level,
@@ -154,6 +162,21 @@ export function evaluateInstantAudit(frameRec, context = {}) {
   };
 }
 
+export function nearestVideoCaption(videoAi, timeSec, tolerance = 2) {
+  const captions = videoAi?.captions || [];
+  if (!captions.length) return null;
+  let best = captions[0];
+  let bestDt = Math.abs((best.time_sec || 0) - timeSec);
+  for (const cap of captions) {
+    const dt = Math.abs((cap.time_sec || 0) - timeSec);
+    if (dt < bestDt) {
+      bestDt = dt;
+      best = cap;
+    }
+  }
+  return bestDt <= tolerance ? best : null;
+}
+
 export function clinicalProgressMessage(raw, progress = null) {
   const text = (raw || "").trim();
   if (!text) return "Preparando auditoría forense…";
@@ -161,6 +184,7 @@ export function clinicalProgressMessage(raw, progress = null) {
   if (text === "En cola") return "En cola — preparando revisión forense del video";
   if (text === "Preparando fuentes de video") return "Preparando fuentes de video para auditoría";
   if (text.startsWith("Consultando biblioteca")) return "Contrastando escena con biblioteca de incidentes";
+  if (text.startsWith("Analizando video con IA visual")) return "La IA revisa fotogramas clave del video";
   if (text.startsWith("Generando informes")) return "Redactando informe clínico del caso";
   if (text === "Completado") return "Auditoría completa — informe listo para revisión";
   if (text === "Error") return "La auditoría no pudo completarse";

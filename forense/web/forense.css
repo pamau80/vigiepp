@@ -104,6 +104,8 @@ textarea { resize: vertical; min-height: 4rem; font-family: inherit; }
 .video-stage { position: relative; width: 100%; max-width: 960px; background: #000; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
 .video-stage video { width: 100%; display: block; max-height: 540px; }
 .video-stage canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
+.video-ai-captions { list-style: none; margin: 0.5rem 0 0; padding: 0; display: grid; gap: 0.45rem; }
+.video-ai-captions li { padding: 0.45rem 0.6rem; background: var(--card); border-left: 3px solid var(--industrial); border-radius: 0 6px 6px 0; font-size: 0.88rem; line-height: 1.4; }
 .clinical-glance {
   display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem;
   margin: 0.65rem 0 0.35rem; padding: 0.55rem 0.75rem;

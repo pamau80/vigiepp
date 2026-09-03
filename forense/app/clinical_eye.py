@@ -35,6 +35,7 @@ def evaluate_instant_audit(
     *,
     timeline: list[dict[str, Any]] | None = None,
     knowledge_matches: list[dict[str, Any]] | None = None,
+    video_caption: dict[str, Any] | None = None,
     time_sec: float | None = None,
     min_distance_m: float = 2.0,
     max_machinery_kmh: float = 15.0,
@@ -184,6 +185,21 @@ def evaluate_instant_audit(
     if kn_items:
         sections.append({"title": "Biblioteca de aprendizaje", "items": kn_items})
 
+    if video_caption and (video_caption.get("caption") or "").strip():
+        sections.insert(
+            0,
+            {
+                "title": "IA visual — este instante",
+                "items": [
+                    {
+                        "label": video_caption.get("time_label") or "video",
+                        "value": video_caption.get("caption"),
+                        "severity": None,
+                    }
+                ],
+            },
+        )
+
     status_map = {
         "alert": "Riesgo alto",
         "warn": "Atención",
@@ -212,6 +228,8 @@ def clinical_progress_message(raw: str, *, progress: int | None = None) -> str:
         return "Preparando fuentes de video para auditoría"
     if text.startswith("Consultando biblioteca"):
         return "Contrastando escena con biblioteca de incidentes"
+    if text.startswith("Analizando video con IA visual"):
+        return "La IA revisa fotogramas clave del video"
     if text.startswith("Generando informes"):
         return "Redactando informe clínico del caso"
     if text == "Completado":
