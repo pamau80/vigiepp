@@ -50,6 +50,8 @@ def analyze_focus_window(
     until_sec: float,
     job_dir,
     progress_cb=None,
+    camera_label: str = "Cám. 1",
+    source_suffix: str = "",
 ) -> dict[str, Any]:
     """YOLO + reglas solo en la ventana indicada."""
     from .analyzer import run_analysis
@@ -78,6 +80,8 @@ def analyze_focus_window(
         max_person_kmh=float(job["max_person_kmh"]),
         min_distance_m=float(job["min_distance_m"]),
         heatmap_path=None,
+        camera_label=camera_label,
+        source_suffix=source_suffix,
         progress_cb=lambda p, m: progress_cb(min(85, p), m) if progress_cb else None,
         progress_base=40,
         progress_span=45,

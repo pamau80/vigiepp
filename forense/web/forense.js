@@ -143,7 +143,23 @@ let videoLoadPromise = null;
 let videoLoadRetryAfter = 0;
 let currentVideoCam = 0;
 let showDismissedEvents = localStorage.getItem("forenseShowDismissed") !== "0";
+let reportStructuredView = localStorage.getItem("forenseReportStructured") !== "0";
 const imageBlobUrls = new Map();
+
+function escapeHtml(text) {
+  return String(text || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function renderMarkdownLite(text) {
+  return escapeHtml(text)
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/_(.+?)_/g, "<em>$1</em>")
+    .replace(/\n/g, "<br>");
+}
 
 const INCIDENT_PRESETS = {
   general: {
@@ -1516,47 +1532,158 @@ function renderVideoAi(job) {
   const va = job.video_ai;
   if (!va) {
     sec.classList.add("hidden");
-    body.textContent = "";
+    body.innerHTML = "";
     return;
   }
   sec.classList.remove("hidden");
   const fw = va.focus_window || {};
   const fwTxt =
-    fw.from_sec != null && fw.until_sec != null
-      ? `Ventana ${fw.from_sec}s–${fw.until_sec}s · `
-      : "";
+    fw.from_sec != null && fw.until_sec != null ? `Ventana ${fw.from_sec}s–${fw.until_sec}s · ` : "";
   if (meta) {
     meta.textContent = `${fwTxt}${va.frames_used || 0} capturas · modelo ${va.model || "—"}`;
   }
+  body.innerHTML = "";
   const p = va.parsed;
-  if (p) {
-    const lines = [];
-    if (p.resumen) lines.push(String(p.resumen));
-    const seq = p.secuencia || [];
-    if (seq.length) {
-      lines.push("\nSecuencia observada:");
-      for (const item of seq) {
-        if (item && typeof item === "object") {
-          lines.push(`• ${item.hora || "—"}: ${item.observacion || ""}`);
-        } else {
-          lines.push(`• ${item}`);
-        }
-      }
-    }
-    const fp = p.posibles_falsos_positivos || [];
-    if (fp.length) {
-      lines.push("\nPosibles falsos positivos del detector:");
-      for (const f of fp) lines.push(`• ${f}`);
-    }
-    const rec = p.recomendaciones || [];
-    if (rec.length) {
-      lines.push("\nRecomendaciones:");
-      for (const r of rec) lines.push(`• ${r}`);
-    }
-    body.textContent = lines.join("\n");
-  } else {
+  if (!p) {
     body.textContent = va.raw || "—";
+    return;
   }
+  if (p.resumen) {
+    const block = document.createElement("div");
+    block.className = "video-ai-block";
+    block.innerHTML = `<strong>Resumen</strong><p>${escapeHtml(p.resumen)}</p>`;
+    body.appendChild(block);
+  }
+  const seq = p.secuencia || [];
+  if (seq.length) {
+    const block = document.createElement("div");
+    block.className = "video-ai-block";
+    block.innerHTML = "<strong>Secuencia observada</strong>";
+    const ul = document.createElement("ul");
+    for (const item of seq) {
+      const li = document.createElement("li");
+      if (item && typeof item === "object") {
+        li.textContent = `${item.hora || "—"}: ${item.observacion || ""}`;
+      } else {
+        li.textContent = String(item);
+      }
+      ul.appendChild(li);
+    }
+    block.appendChild(ul);
+    body.appendChild(block);
+  }
+  const fp = p.posibles_falsos_positivos || [];
+  if (fp.length) {
+    const block = document.createElement("div");
+    block.className = "video-ai-block";
+    block.innerHTML = "<strong>Posibles falsos positivos del detector</strong>";
+    const ul = document.createElement("ul");
+    ul.className = "fp-list";
+    for (const f of fp) {
+      const li = document.createElement("li");
+      const span = document.createElement("span");
+      span.textContent = f;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "btn ghost small";
+      btn.textContent = "Descartar coincidencias";
+      btn.onclick = () => void dismissMatchingFromAi(job.id, f);
+      li.appendChild(span);
+      li.appendChild(btn);
+      ul.appendChild(li);
+    }
+    block.appendChild(ul);
+    body.appendChild(block);
+  }
+  const rec = p.recomendaciones || [];
+  if (rec.length) {
+    const block = document.createElement("div");
+    block.className = "video-ai-block";
+    block.innerHTML = "<strong>Recomendaciones</strong>";
+    const ul = document.createElement("ul");
+    for (const r of rec) {
+      const li = document.createElement("li");
+      li.textContent = r;
+      ul.appendChild(li);
+    }
+    block.appendChild(ul);
+    body.appendChild(block);
+  }
+}
+
+async function dismissMatchingFromAi(jobId, query) {
+  if (!confirm(`¿Descartar eventos del timeline que coincidan con?\n\n"${query}"`)) return;
+  try {
+    const res = await api(`/api/forense/jobs/${jobId}/events/dismiss-matching`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query }),
+    });
+    showToast(`${res.dismissed_count || 0} evento(s) descartado(s)`, "ok");
+    await loadJob(jobId, true);
+    await loadSuppressionRules();
+  } catch (err) {
+    showToast(err.message || "No se pudo descartar", "error");
+  }
+}
+
+function renderReportSections(report) {
+  const host = $("#reportSections");
+  const disclaimer = $("#reportDisclaimer");
+  if (!host) return;
+  host.innerHTML = "";
+  if (disclaimer) {
+    disclaimer.textContent = report.disclaimer || "";
+    disclaimer.classList.toggle("hidden", !report.disclaimer);
+  }
+  for (const section of report.sections || []) {
+    const card = document.createElement("article");
+    card.className = "report-section-card";
+    const title = document.createElement("h4");
+    title.textContent = section.title || section.id;
+    card.appendChild(title);
+    if (section.note) {
+      const note = document.createElement("p");
+      note.className = "section-note";
+      note.textContent = section.note;
+      card.appendChild(note);
+    }
+    const content = document.createElement("div");
+    content.className = "report-section-body";
+    content.innerHTML = renderMarkdownLite(section.content_md || "");
+    card.appendChild(content);
+    host.appendChild(card);
+  }
+}
+
+function renderReviewAuditPanel(entries) {
+  const sec = $("#reviewAuditSection");
+  const list = $("#reviewAuditList");
+  if (!sec || !list) return;
+  list.innerHTML = "";
+  if (!entries?.length) {
+    sec.classList.add("hidden");
+    return;
+  }
+  sec.classList.remove("hidden");
+  for (const e of entries) {
+    const li = document.createElement("li");
+    const verdict =
+      e.verdict === "dismissed" ? "✗ descartado" : e.verdict === "confirmed" ? "✓ confirmado" : e.verdict;
+    const when = e.reviewed_at ? e.reviewed_at.slice(0, 16).replace("T", " ") : "—";
+    li.innerHTML = `<strong>${verdict}</strong> · ${escapeHtml(e.time_label || "—")} · ${escapeHtml(e.message || "")}<br><span class="muted small">${escapeHtml(e.reviewed_by || "admin")} · ${when}${e.note ? ` · ${escapeHtml(e.note)}` : ""}</span>`;
+    list.appendChild(li);
+  }
+}
+
+function setReportViewMode(structured) {
+  reportStructuredView = structured;
+  localStorage.setItem("forenseReportStructured", structured ? "1" : "0");
+  $("#reportSections")?.classList.toggle("hidden", !structured);
+  $("#reportDisclaimer")?.classList.toggle("hidden", !structured || !$("#reportDisclaimer")?.textContent);
+  $("#reportMd")?.classList.toggle("hidden", structured);
+  const btn = $("#btnToggleReportView");
+  if (btn) btn.textContent = structured ? "Vista markdown" : "Vista estructurada";
 }
 
 async function loadJob(id, quiet = false) {
@@ -1573,8 +1700,10 @@ async function loadJob(id, quiet = false) {
   renderCriticalAlerts(j, id);
   const refSec = $("#refocusSection");
   if (refSec) {
-    const canRefocus = Boolean(j.has_video) && (j.sources?.length || 1) === 1;
+    const canRefocus = Boolean(j.has_video) && (j.sources?.length || 0) >= 1;
     refSec.classList.toggle("hidden", !canRefocus);
+    const camWrap = $("#refocusCamWrap");
+    const camSel = $("#refocusCam");
     if (canRefocus) {
       const desc = $("#refocusDescription");
       const rf = $("#refocusFrom");
@@ -1586,6 +1715,21 @@ async function loadJob(id, quiet = false) {
       if (rf && !rf.dataset.touched && j.focus_from_sec != null) rf.value = String(j.focus_from_sec);
       if (ru && !ru.dataset.touched && j.focus_until_sec != null) ru.value = String(j.focus_until_sec);
       if (rs) rs.checked = Boolean(j.strict_detection);
+      const sources = j.sources || [];
+      if (camWrap && camSel && sources.length > 1) {
+        camWrap.classList.remove("hidden");
+        camSel.innerHTML = "";
+        for (let i = 0; i < sources.length; i++) {
+          const opt = document.createElement("option");
+          opt.value = String(i);
+          opt.textContent = sources[i].label || `Cám. ${i + 1}`;
+          camSel.appendChild(opt);
+        }
+        const idx = j.focus_camera_index ?? 0;
+        camSel.value = String(idx);
+      } else if (camWrap) {
+        camWrap.classList.add("hidden");
+      }
     }
   }
   if (j.status === "processing" || j.status === "queued") {
@@ -1730,11 +1874,25 @@ async function loadJob(id, quiet = false) {
   const ehsBtn = $("#exportEhs");
 
   if (j.status === "done") {
-    const md = await api(`/api/forense/jobs/${id}/report.md`);
+    const [md, sectionsRes] = await Promise.all([
+      api(`/api/forense/jobs/${id}/report.md`),
+      api(`/api/forense/jobs/${id}/report-sections`).catch(() => null),
+    ]);
     $("#reportMd").textContent = md;
+    if (sectionsRes?.report) {
+      renderReportSections(sectionsRes.report);
+      renderReviewAuditPanel(sectionsRes.report.review_audit || []);
+    }
+    setReportViewMode(reportStructuredView);
     const dl = $("#downloadMd");
     dl.href = `/api/forense/jobs/${id}/report.md`;
     dl.download = `forense-${id}.md`;
+    const auditDl = $("#downloadReviewAudit");
+    if (auditDl) {
+      auditDl.href = `/api/forense/jobs/${id}/review-audit.json`;
+      auditDl.download = `forense-audit-${id}.json`;
+      auditDl.classList.toggle("hidden", !(sectionsRes?.report?.review_audit || []).length);
+    }
     if (j.has_pdf) {
       pdf.classList.remove("hidden");
       pdf.href = `/api/forense/jobs/${id}/report.pdf`;
@@ -1762,7 +1920,11 @@ async function loadJob(id, quiet = false) {
       ? `Último envío a EHS: ${ehs.map((r) => (r.ok ? "listo" : r.error || "error")).join(", ")}`
       : "";
   } else {
-    if (!quiet) $("#reportMd").textContent = "Informe disponible al completar el análisis…";
+    if (!quiet) {
+      $("#reportMd").textContent = "Informe disponible al completar el análisis…";
+      $("#reportSections").innerHTML = "";
+      $("#reviewAuditSection")?.classList.add("hidden");
+    }
     pdf.classList.add("hidden");
     committee.classList.add("hidden");
     bundle.classList.add("hidden");
@@ -1825,6 +1987,7 @@ $("#btnRefocus")?.addEventListener("click", async () => {
         focus_from_sec: fromSec,
         focus_until_sec: untilSec,
         strict_detection: Boolean($("#refocusStrict")?.checked),
+        camera_index: parseInt($("#refocusCam")?.value || "0", 10) || 0,
       }),
     });
     if (pollTimer) clearInterval(pollTimer);
@@ -1835,6 +1998,10 @@ $("#btnRefocus")?.addEventListener("click", async () => {
   } finally {
     if (btn) btn.disabled = false;
   }
+});
+
+$("#btnToggleReportView")?.addEventListener("click", () => {
+  setReportViewMode(!reportStructuredView);
 });
 
 $("#incidentPresets")?.addEventListener("click", (e) => {

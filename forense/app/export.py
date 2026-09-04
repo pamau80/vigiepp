@@ -97,4 +97,9 @@ def export_case_bundle(job: dict[str, Any], out_path: Path) -> bool:
         charts = (job.get("analysis") or {}).get("speed_series")
         if charts:
             zf.writestr("speed_series.json", json.dumps(charts, ensure_ascii=False, indent=2))
+        from .event_feedback import build_review_audit
+
+        audit = build_review_audit(job)
+        if audit:
+            zf.writestr("review_audit.json", json.dumps(audit, ensure_ascii=False, indent=2))
     return out_path.is_file()

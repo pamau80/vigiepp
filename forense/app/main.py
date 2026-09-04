@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
@@ -28,6 +29,7 @@ from .jobs import (
     committee_md_path,
     create_job,
     delete_job,
+    dismiss_matching_events,
     export_job_ehs,
     get_job,
     heatmap_path,
@@ -41,7 +43,8 @@ from .jobs import (
     reanalyze_job,
     review_event,
 )
-from .event_feedback import apply_review_state, delete_suppression_rule, ensure_event_ids, review_summary, suppression_summary
+from .event_feedback import apply_review_state, build_review_audit, delete_suppression_rule, ensure_event_ids, review_summary, suppression_summary
+from .report_sections import build_report_sections
 from .timeline_evidence import critical_alerts_summary, enrich_timeline_evidence
 from .knowledge import (
     SITUATION_TYPES,
@@ -369,6 +372,12 @@ class RefocusBody(BaseModel):
     focus_from_sec: float = Field(..., ge=0)
     focus_until_sec: float = Field(..., gt=0)
     strict_detection: bool | None = None
+    camera_index: int = Field(0, ge=0, le=2)
+
+
+class DismissMatchBody(BaseModel):
+    query: str = Field(..., min_length=3, max_length=500)
+    note: str = Field("", max_length=500)
 
 
 @app.post("/api/forense/jobs/{job_id}/refocus")
@@ -384,6 +393,7 @@ def jobs_refocus(job_id: str, body: RefocusBody, request: Request) -> dict:
             focus_from_sec=body.focus_from_sec,
             focus_until_sec=body.focus_until_sec,
             strict_detection=body.strict_detection,
+            camera_index=body.camera_index,
         )
     except FileNotFoundError as exc:
         raise HTTPException(404, str(exc)) from exc
@@ -436,14 +446,57 @@ def suppression_rules_delete(
 @app.post("/api/forense/jobs/{job_id}/events/{event_id}/review")
 def jobs_review_event(job_id: str, event_id: str, body: EventReviewBody, request: Request) -> dict:
     _require_license()
-    require_forense_admin(request)
+    role = require_forense_admin(request)
     try:
-        job = review_event(job_id, event_id, verdict=body.verdict, note=body.note)
+        job = review_event(job_id, event_id, verdict=body.verdict, note=body.note, reviewed_by=role)
     except FileNotFoundError as exc:
         raise HTTPException(404, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"ok": True, "job": _job_payload(job)}
+
+
+@app.post("/api/forense/jobs/{job_id}/events/dismiss-matching")
+def jobs_dismiss_matching(job_id: str, body: DismissMatchBody, request: Request) -> dict:
+    _require_license()
+    role = require_forense_admin(request)
+    try:
+        job, dismissed = dismiss_matching_events(
+            job_id,
+            body.query,
+            note=body.note,
+            reviewed_by=role,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {"ok": True, "dismissed_count": len(dismissed), "dismissed_ids": dismissed, "job": _job_payload(job)}
+
+
+@app.get("/api/forense/jobs/{job_id}/report-sections")
+def jobs_report_sections(job_id: str, request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(404, "Trabajo no encontrado")
+    return {"ok": True, "report": build_report_sections(job)}
+
+
+@app.get("/api/forense/jobs/{job_id}/review-audit.json")
+def jobs_review_audit(job_id: str, request: Request) -> JSONResponse:
+    _require_license()
+    require_forense_admin(request)
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(404, "Trabajo no encontrado")
+    payload = {
+        "job_id": job_id,
+        "title": job.get("title"),
+        "site": job.get("site"),
+        "exported_at": datetime.now(UTC).isoformat(),
+        "entries": build_review_audit(job),
+    }
+    return JSONResponse(payload)
 
 
 @app.post("/api/forense/jobs/{job_id}/events/learn")

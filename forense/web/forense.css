@@ -105,6 +105,21 @@ textarea { resize: vertical; min-height: 4rem; font-family: inherit; }
 .cam-select { background: var(--card); color: inherit; border: 1px solid var(--border); border-radius: 6px; padding: 0.25rem 0.45rem; }
 .ev-review-tag { display: inline-block; margin-left: 0.35rem; font-size: 0.72rem; font-weight: 600; }
 .ev-review-tag.ok { color: var(--ok); }
+.report-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+.report-head h3 { margin: 0; }
+.report-disclaimer { border-left: 3px solid var(--warn); padding: 0.5rem 0.75rem; background: rgba(240,180,41,0.08); border-radius: 0 6px 6px 0; }
+.report-sections { display: grid; gap: 0.65rem; max-height: 520px; overflow: auto; }
+.report-section-card { border: 1px solid var(--border); border-radius: 8px; padding: 0.65rem 0.75rem; background: rgba(61,139,253,0.04); }
+.report-section-card h4 { margin: 0 0 0.35rem; font-size: 0.92rem; color: var(--accent); }
+.report-section-card .section-note { font-size: 0.75rem; color: var(--muted); margin: 0 0 0.35rem; }
+.report-section-body { font-size: 0.82rem; line-height: 1.45; white-space: pre-wrap; font-family: ui-sans-serif, system-ui, sans-serif; }
+.video-ai-body { font-size: 0.88rem; }
+.video-ai-block { margin-bottom: 0.75rem; }
+.fp-list { list-style: none; padding: 0; margin: 0.35rem 0 0; display: grid; gap: 0.4rem; }
+.fp-list li { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; padding: 0.4rem 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: rgba(240,113,120,0.06); font-size: 0.82rem; }
+.review-audit-card { margin-top: 0.75rem; padding: 0.65rem; background: var(--bg); border: 1px dashed var(--border); }
+.review-audit-list { list-style: none; padding: 0; margin: 0; font-size: 0.8rem; display: grid; gap: 0.35rem; }
+.review-audit-list li { padding: 0.35rem 0.45rem; border-radius: 6px; background: rgba(61,139,253,0.06); }
 .timeline-ev-actions { display: flex; gap: 0.35rem; padding: 0.2rem 0.5rem 0.45rem 0.6rem; }
 .timeline-ev-actions button { font-size: 0.75rem; padding: 0.15rem 0.45rem; border-radius: 4px; border: 1px solid var(--border); background: var(--card); color: inherit; cursor: pointer; }
 .timeline-ev-actions button:hover { border-color: var(--accent); }

@@ -26,6 +26,7 @@ from .event_feedback import (
     active_timeline,
     apply_review_state,
     ensure_event_ids,
+    match_events_for_query,
     record_dismissal,
     remove_suppression_for_event,
     review_summary,
@@ -395,6 +396,7 @@ def refocus_job(
     focus_from_sec: float,
     focus_until_sec: float,
     strict_detection: bool | None = None,
+    camera_index: int = 0,
 ) -> dict[str, Any]:
     """Re-analiza la ventana temporal indicada y regenera informe + IA visual."""
     job = get_job(job_id)
@@ -403,18 +405,23 @@ def refocus_job(
     if job.get("status") == "processing":
         raise RuntimeError("El trabajo ya está en proceso")
     sources = job.get("sources") or []
-    if len(sources) != 1:
-        raise ValueError("Re-enfoque disponible solo con una cámara")
+    if not sources:
+        raise ValueError("Sin fuentes de video")
+    if camera_index < 0 or camera_index >= len(sources):
+        raise ValueError("Índice de cámara inválido")
     if focus_until_sec <= focus_from_sec:
         raise ValueError("La ventana de enfoque es inválida")
 
-    video_path = sources[0].get("path") or ""
+    src = sources[camera_index]
+    video_path = src.get("path") or ""
     if not video_path or not Path(video_path).is_file():
         raise FileNotFoundError("Video no encontrado")
+    camera_label = src.get("label") or f"Cám. {camera_index + 1}"
 
     job["focus_description"] = focus_description.strip()
     job["focus_from_sec"] = float(focus_from_sec)
     job["focus_until_sec"] = float(focus_until_sec)
+    job["focus_camera_index"] = int(camera_index)
     if strict_detection is not None:
         job["strict_detection"] = bool(strict_detection)
     job["status"] = "processing"
@@ -433,6 +440,8 @@ def refocus_job(
                 until_sec=float(focus_until_sec),
                 job_dir=_job_dir(job_id),
                 progress_cb=lambda p, m: _set_progress(job_id, p, m),
+                camera_label=camera_label,
+                source_suffix=str(camera_index) if camera_index else "",
             )
             analysis = job.get("analysis") or {}
             timeline = merge_focus_timeline_window(
@@ -467,6 +476,8 @@ def refocus_job(
             meta["focus_refocus"] = {
                 "from_sec": float(focus_from_sec),
                 "until_sec": float(focus_until_sec),
+                "camera_index": int(camera_index),
+                "camera_label": camera_label,
                 "extra_frames": int(partial.get("frames_analyzed") or 0),
                 "extra_events": len(partial.get("timeline") or []),
             }
@@ -534,6 +545,7 @@ def review_event(
     *,
     verdict: str,
     note: str = "",
+    reviewed_by: str = "admin",
 ) -> dict[str, Any]:
     """Operador confirma, descarta o restaura un evento de la línea de tiempo."""
     if verdict not in {"confirmed", "dismissed", "restored"}:
@@ -557,6 +569,7 @@ def review_event(
             "verdict": verdict,
             "note": (note or "").strip(),
             "at": datetime.now(UTC).isoformat(),
+            "reviewed_by": (reviewed_by or "admin").strip() or "admin",
             "type": ev.get("type"),
             "rule_id": ev.get("rule_id"),
             "message": ev.get("message"),
@@ -572,6 +585,36 @@ def review_event(
     job["updated_at"] = datetime.now(UTC).isoformat()
     _save_job(job)
     return job
+
+
+def dismiss_matching_events(
+    job_id: str,
+    query: str,
+    *,
+    note: str = "",
+    reviewed_by: str = "admin",
+) -> tuple[dict[str, Any], list[str]]:
+    """Descarta eventos de timeline que coinciden con texto de falso positivo IA."""
+    job = get_job(job_id)
+    if not job:
+        raise FileNotFoundError("Trabajo no encontrado")
+    analysis = job.get("analysis") or {}
+    timeline = ensure_event_ids(analysis.get("timeline") or [])
+    matches = match_events_for_query(query, timeline)
+    dismissed_ids: list[str] = []
+    for ev in matches:
+        eid = ev.get("event_id")
+        if not eid:
+            continue
+        job = review_event(
+            job_id,
+            eid,
+            verdict="dismissed",
+            note=note or f"Coincide con alerta IA: {(query or '')[:200]}",
+            reviewed_by=reviewed_by,
+        )
+        dismissed_ids.append(eid)
+    return job, dismissed_ids
 
 
 def export_job_ehs(job_id: str) -> list[dict[str, Any]]:

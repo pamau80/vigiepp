@@ -201,6 +201,9 @@
             <label>Hasta (seg)<input type="number" id="refocusUntil" min="0" step="0.1" placeholder="95" /></label>
           </div>
           <label class="checkbox"><input type="checkbox" id="refocusStrict" /> Detección estricta (menos falsos positivos)</label>
+          <label class="hidden" id="refocusCamWrap">Cámara
+            <select id="refocusCam"></select>
+          </label>
           <div class="btn-row">
             <button type="button" class="btn primary small" id="btnRefocus">Aplicar enfoque y re-interpretar</button>
           </div>
@@ -263,13 +266,23 @@
         <section class="card hidden" id="videoAiSection">
           <h3>Interpretación visual IA</h3>
           <p class="muted small" id="videoAiMeta"></p>
-          <pre id="videoAiBody" class="report-md"></pre>
+          <div id="videoAiBody" class="video-ai-body"></div>
         </section>
         <section class="card">
-          <h3>Informe IA</h3>
-          <pre id="reportMd" class="report-md"></pre>
+          <div class="report-head">
+            <h3>Informe experto</h3>
+            <button type="button" class="btn ghost small" id="btnToggleReportView">Vista markdown</button>
+          </div>
+          <p class="muted small report-disclaimer hidden" id="reportDisclaimer"></p>
+          <div id="reportSections" class="report-sections"></div>
+          <pre id="reportMd" class="report-md hidden"></pre>
+          <section class="card review-audit-card hidden" id="reviewAuditSection">
+            <h4>Auditoría de revisiones</h4>
+            <ul id="reviewAuditList" class="review-audit-list"></ul>
+          </section>
           <div class="btn-row">
             <a id="downloadMd" class="btn secondary" href="#" download>Descargar .md</a>
+            <a id="downloadReviewAudit" class="btn secondary hidden" href="#" download>Auditoría (.json)</a>
             <a id="downloadPdf" class="btn primary hidden" href="#" download>Descargar PDF</a>
             <a id="downloadCommittee" class="btn secondary hidden" href="#" download>Comité paritario</a>
             <a id="downloadBundle" class="btn secondary hidden" href="#" download>Paquete del caso (.zip)</a>

@@ -177,3 +177,55 @@ def filter_suppressed_events(events: list[dict[str, Any]]) -> list[dict[str, Any
 def suppression_summary() -> dict[str, Any]:
     rules = _load_suppression_rules()
     return {"count": len(rules), "rules": rules[:100]}
+
+
+def match_events_for_query(query: str, timeline: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Empareja texto de falso positivo IA con eventos de timeline."""
+    q = (query or "").strip().lower()
+    if not q or len(q) < 4:
+        return []
+    tokens = [w for w in q.replace(",", " ").split() if len(w) >= 4]
+    matches: list[dict[str, Any]] = []
+    for ev in timeline or []:
+        if ev.get("review_status") == _VERDICT_DISMISSED:
+            continue
+        msg = (ev.get("message") or "").lower()
+        etype = (ev.get("type") or "").lower()
+        score = 0
+        if q in msg or msg in q:
+            score += 3
+        for tok in tokens:
+            if tok in msg or tok in etype:
+                score += 1
+        if score >= 2 or (score >= 1 and len(tokens) <= 2):
+            matches.append(ev)
+    return matches
+
+
+def build_review_audit(job: dict[str, Any]) -> list[dict[str, Any]]:
+    """Historial de revisiones del operador sobre eventos."""
+    feedback = job.get("event_feedback") or {}
+    if not feedback:
+        return []
+    analysis = job.get("analysis") or {}
+    timeline = apply_review_state(ensure_event_ids(analysis.get("timeline") or []), feedback)
+    by_id = {e.get("event_id"): e for e in timeline if e.get("event_id")}
+    entries: list[dict[str, Any]] = []
+    for eid, fb in feedback.items():
+        ev = by_id.get(eid) or {}
+        entries.append(
+            {
+                "event_id": eid,
+                "verdict": fb.get("verdict"),
+                "note": fb.get("note") or "",
+                "reviewed_at": fb.get("at"),
+                "reviewed_by": fb.get("reviewed_by") or "admin",
+                "event_type": fb.get("type") or ev.get("type"),
+                "rule_id": fb.get("rule_id") or ev.get("rule_id"),
+                "time_label": ev.get("time_label"),
+                "time_sec": ev.get("time_sec"),
+                "message": fb.get("message") or ev.get("message"),
+            }
+        )
+    entries.sort(key=lambda x: str(x.get("reviewed_at") or ""))
+    return entries
