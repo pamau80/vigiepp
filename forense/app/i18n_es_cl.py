@@ -26,6 +26,10 @@ EVENT_TYPE_LABELS: dict[str, str] = {
     "collision": "colisión",
     "fall_risk": "riesgo de caída",
     "unsafe_act": "acto inseguro",
+    "fire": "incendio / llamas",
+    "smoke": "humo",
+    "epp_reflective": "sin ropa reflectante",
+    "emergency_response": "respuesta de emergencia",
 }
 
 SEVERITY_LABELS: dict[str, str] = {

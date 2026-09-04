@@ -64,6 +64,32 @@ def _section_kinematics(kin: dict[str, Any], job: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _section_executive_alerts(timeline: list[dict[str, Any]], job: dict[str, Any]) -> str:
+    fires = [e for e in timeline if e.get("type") in {"fire", "smoke"}]
+    epp_ref = [e for e in timeline if e.get("type") == "epp_reflective"]
+    brigade = [e for e in timeline if e.get("type") == "emergency_response"]
+    if not fires and not epp_ref and not brigade:
+        va = (job.get("video_ai") or {}).get("parsed") or {}
+        bits = []
+        if va.get("fuego_contenedor"):
+            bits.append(f"**Fuego:** {va['fuego_contenedor']}")
+        if va.get("epp_chaleco_reflectante"):
+            bits.append(f"**EPP reflectante:** {va['epp_chaleco_reflectante']}")
+        if va.get("brigada_incendios"):
+            bits.append(f"**Brigada:** {va['brigada_incendios']}")
+        if bits:
+            return "### Alertas críticas detectadas\n\n" + "\n".join(f"- {b}" for b in bits) + "\n"
+        return ""
+    lines = ["### Alertas críticas detectadas\n"]
+    if fires:
+        lines.append(f"- **Incendio/humo:** {len(fires)} registro(s) en video — revisar secuencia cronológica.")
+    if epp_ref:
+        lines.append(f"- **Ropa reflectante:** {len(epp_ref)} registro(s) de personal sin chaleco/alta visibilidad.")
+    if brigade:
+        lines.append(f"- **Respuesta emergencia:** {len(brigade)} registro(s) de brigada o maniobra de emergencia.")
+    return "\n".join(lines) + "\n"
+
+
 def build_report_markdown(job: dict[str, Any]) -> str:
     meta = job.get("meta") or {}
     analysis = job.get("analysis") or {}
@@ -105,6 +131,8 @@ def build_report_markdown(job: dict[str, Any]) -> str:
 
 Se analizó un video de **{duration_txt}** ({frames_txt} frames muestreados{cameras_txt}).  
 Se detectaron **{analysis.get('event_count', 0)} eventos** relevantes.
+
+{_section_executive_alerts(timeline, job)}
 
 {_section_focus(job)}
 

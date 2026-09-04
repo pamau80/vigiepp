@@ -14,7 +14,8 @@ from typing import Any
 from .comparison import compare_jobs
 from .config import BUILD, JOBS_DIR, ensure_dirs
 from .export import committee_section, export_case_bundle, push_to_ehs
-from .focus_analysis import analyze_focus_window, merge_focus_keyframes, merge_focus_timeline
+from .focus_analysis import analyze_focus_window, merge_focus_keyframes, merge_focus_timeline as merge_focus_timeline_window
+from .vision_timeline import events_from_vision_parsed, merge_vision_timeline
 from .knowledge import apply_knowledge_insights, match_knowledge_for_job, reinforce_knowledge_from_job
 from .multi_source import run_multi_source_analysis
 from .path_safety import resolve_under, safe_job_id, safe_keyframe_name
@@ -120,6 +121,16 @@ def _regenerate_job_outputs(job_id: str) -> None:
     vision = analyze_job_with_vision(job)
     if vision:
         job["video_ai"] = vision
+        analysis = job.get("analysis") or {}
+        v_events = events_from_vision_parsed(
+            vision.get("parsed"),
+            frames_used=vision.get("frames_meta"),
+        )
+        if v_events:
+            timeline = merge_vision_timeline(analysis.get("timeline") or [], v_events)
+            analysis["timeline"] = timeline
+            analysis["event_count"] = len(timeline)
+            job["analysis"] = analysis
     else:
         job.pop("video_ai", None)
 
@@ -407,7 +418,7 @@ def refocus_job(
                 progress_cb=lambda p, m: _set_progress(job_id, p, m),
             )
             analysis = job.get("analysis") or {}
-            timeline = merge_focus_timeline(
+            timeline = merge_focus_timeline_window(
                 analysis.get("timeline") or [],
                 partial.get("timeline") or [],
                 from_sec=float(focus_from_sec),

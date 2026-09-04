@@ -10,6 +10,8 @@ import urllib.error
 import urllib.request
 from typing import Any
 
+from .scene_signals import is_emergency_context
+
 logger = logging.getLogger("vigiepp.forense.video_ai")
 
 _MAX_FRAMES = 6
@@ -78,6 +80,34 @@ def _pick_frames(job: dict[str, Any]) -> list[dict[str, Any]]:
         if len(picked) >= _MAX_FRAMES:
             break
 
+    # Emergencias: muestrear todo el video aunque haya pocos keyframes con eventos
+    emergency = is_emergency_context(
+        job.get("title"),
+        job.get("case_notes"),
+        job.get("focus_description"),
+        job.get("filename"),
+        job.get("template_id"),
+    )
+    if len(picked) < 4 and (emergency or not has_focus):
+        from .jobs import extract_frame_jpeg
+
+        duration = float((job.get("meta") or {}).get("duration_sec") or 0)
+        if duration > 5:
+            n = min(_MAX_FRAMES, 6)
+            step_t = duration / max(n - 1, 1)
+            for i in range(n):
+                t = i * step_t
+                jpeg = extract_frame_jpeg(job_id, t)
+                if not jpeg:
+                    continue
+                picked.append(
+                    {
+                        "time_sec": round(t, 3),
+                        "time_label": _format_ts(t),
+                        "jpeg": jpeg,
+                    }
+                )
+
     # Sin capturas con eventos: extraer directo del video en la ventana de enfoque
     if len(picked) < 3 and has_focus:
         span = float(focus_until) - float(focus_from)
@@ -129,6 +159,22 @@ def analyze_job_with_vision(job: dict[str, Any]) -> dict[str, Any] | None:
     if focus_from is not None and focus_until is not None:
         window_txt = f"Ventana prioritaria del incidente: {focus_from}s — {focus_until}s."
 
+    emergency = is_emergency_context(
+        title,
+        job.get("case_notes"),
+        focus_desc,
+        job.get("filename"),
+        job.get("template_id"),
+    )
+    emergency_checklist = ""
+    if emergency:
+        emergency_checklist = (
+            "Este video parece un incidente de emergencia. Priorizá identificar: "
+            "1) fuego/llamas en contenedor o equipo, 2) humo, "
+            "3) personal sin chaleco/ropa reflectante, "
+            "4) brigada de incendios o respuesta de emergencia (camiones, mangueras, EPP bomberil). "
+        )
+
     content: list[dict[str, Any]] = [
         {
             "type": "text",
@@ -137,9 +183,15 @@ def analyze_job_with_vision(job: dict[str, Any]) -> dict[str, Any] | None:
                 "Mirá estas capturas de un video de seguridad en faena. "
                 f"Caso: «{title}» · sitio: {site} · plantilla: {template}. "
                 f"{window_txt} "
+                f"{emergency_checklist}"
                 f"Enfoque del operador: {focus_desc or 'no especificado'}. "
                 "Respondé en JSON con claves: "
-                "resumen (2-4 oraciones), secuencia (lista de {hora, observacion}), "
+                "resumen (2-4 oraciones), "
+                "fuego_contenedor (descripción visible de llamas/fuego en contenedor o carga), "
+                "humo (humo visible), "
+                "epp_chaleco_reflectante (personal sin chaleco/ropa reflectante), "
+                "brigada_incendios (intervención brigada/bomberos/extintores), "
+                "secuencia (lista de {hora, observacion}), "
                 "riesgos (lista), posibles_falsos_positivos (alertas del detector genérico que NO ves en imagen), "
                 "recomendaciones (lista). "
                 "Solo describe lo visible; usa condicional; no afirmes culpa legal."
@@ -188,7 +240,9 @@ def analyze_job_with_vision(job: dict[str, Any]) -> dict[str, Any] | None:
     return {
         "model": model,
         "frames_used": len(frames),
+        "frames_meta": [{"time_sec": f.get("time_sec"), "time_label": f.get("time_label")} for f in frames],
         "focus_window": {"from_sec": focus_from, "until_sec": focus_until},
+        "emergency_context": emergency,
         "raw": raw,
         "parsed": parsed,
     }
@@ -202,6 +256,15 @@ def format_video_ai_markdown(video_ai: dict[str, Any] | None) -> str:
         lines = []
         if parsed.get("resumen"):
             lines.append(str(parsed["resumen"]))
+        for label, key in (
+            ("Fuego en contenedor/equipo", "fuego_contenedor"),
+            ("Humo", "humo"),
+            ("EPP reflectante", "epp_chaleco_reflectante"),
+            ("Brigada / emergencia", "brigada_incendios"),
+        ):
+            val = parsed.get(key)
+            if val:
+                lines.append(f"\n**{label}:** {val}")
         seq = parsed.get("secuencia") or []
         if seq:
             lines.append("\n**Secuencia observada:**\n")

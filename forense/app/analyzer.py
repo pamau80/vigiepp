@@ -17,6 +17,7 @@ from .kinematics import (
     snapshot_track_speeds,
 )
 from .detection_filter import filter_detections
+from .scene_signals import detect_fire_smoke, fire_smoke_events
 from .tracker import IoUTracker, _classify
 
 logger = logging.getLogger("vigiepp.forense.analyzer")
@@ -91,6 +92,23 @@ def analyze_frame(
                 "message": comp.get("summary") or "Incumplimiento EPP",
             }
         )
+        for person in comp.get("persons") or []:
+            missing = [str(m).lower() for m in (person.get("missing") or [])]
+            if any("chaleco" in m or "vest" in m or "reflect" in m for m in missing):
+                events.append(
+                    {
+                        "time_sec": time_sec,
+                        "time_label": _format_ts(time_sec),
+                        "type": "epp_reflective",
+                        "severity": "high",
+                        "message": "Persona sin chaleco/ropa reflectante de alta visibilidad",
+                        "source": "detector",
+                    }
+                )
+                break
+
+    scene = detect_fire_smoke(frame_bgr)
+    events.extend(fire_smoke_events(time_sec, _format_ts(time_sec), scene))
 
     for zalert in (resp.get("zones") or {}).get("alerts") or []:
         events.append(
@@ -105,6 +123,8 @@ def analyze_frame(
 
     keyframe_jpeg = None
     if events:
+        keyframe_jpeg = encode_jpeg(frame_bgr, quality=78)
+    elif scene.get("fire") or scene.get("smoke"):
         keyframe_jpeg = encode_jpeg(frame_bgr, quality=78)
 
     return {
