@@ -516,12 +516,37 @@ async function loadTemplates() {
   applyTemplateDefaults(sel.value || "general");
 }
 
-function resetNewCaseForm() {
+function clearUploadForm() {
   $("#uploadForm")?.reset();
-  $("#caseTemplate").value = "general";
+  const title = $("#caseTitle");
+  const notes = $("#caseNotes");
+  const site = $("#caseSite");
+  if (title) title.value = "";
+  if (notes) notes.value = "";
+  if (site) site.value = "";
+  const tpl = $("#caseTemplate");
+  if (tpl) tpl.value = "general";
   applyTemplateDefaults("general");
-  $("#caseReference").value = "";
-  $("#uploadHint")?.classList.add("hidden");
+  const ref = $("#caseReference");
+  if (ref) ref.value = "";
+  const off2 = $("#caseOffset2");
+  const off3 = $("#caseOffset3");
+  if (off2) off2.value = "0";
+  if (off3) off3.value = "0";
+  for (const id of ["caseVideo", "caseVideo2", "caseVideo3"]) {
+    const el = document.getElementById(id);
+    if (el) el.value = "";
+  }
+  const hint = $("#uploadHint");
+  if (hint) {
+    hint.textContent = "";
+    hint.style.color = "";
+    hint.classList.add("hidden");
+  }
+}
+
+function resetNewCaseForm() {
+  clearUploadForm();
   if (pollTimer) {
     clearInterval(pollTimer);
     pollTimer = null;
@@ -529,8 +554,7 @@ function resetNewCaseForm() {
   currentJobId = null;
   frameCache = [];
   lastFrameFetchSec = -1;
-  const video = $("#forenseVideo");
-  if (video) resetVideoViewerState();
+  resetVideoViewerState();
   $("#jobView")?.classList.add("hidden");
   $("#emptyState")?.classList.remove("hidden");
   refreshJobs();
@@ -840,9 +864,8 @@ $("#authForm")?.addEventListener("submit", async (e) => {
 
 $("#btnNewCase")?.addEventListener("click", resetNewCaseForm);
 $("#btnResetForm")?.addEventListener("click", () => {
-  $("#uploadForm")?.reset();
-  applyTemplateDefaults($("#caseTemplate").value || "general");
-  $("#uploadHint")?.classList.add("hidden");
+  clearUploadForm();
+  showToast("Formulario limpiado", "info");
 });
 
 $("#btnTeachActivate")?.addEventListener("click", async () => {
