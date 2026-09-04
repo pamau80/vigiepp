@@ -8,7 +8,9 @@ import urllib.request
 from datetime import UTC, datetime
 from typing import Any
 
+from .expert_report import section_barrier_analysis, section_expert_recommendations, section_observed_facts
 from .i18n_es_cl import label_event_type, label_kind, label_severity
+from .timeline_evidence import enrich_timeline_evidence
 from .video_ai import format_video_ai_markdown
 
 
@@ -23,12 +25,16 @@ DISCLAIMER = (
 def _section_timeline(timeline: list[dict[str, Any]]) -> str:
     if not timeline:
         return "_No se registraron eventos automáticos en el muestreo analizado._\n"
-    lines = ["| Hora | Tipo | Severidad | Observación |", "|------|------|-----------|-------------|"]
+    lines = [
+        "| Hora | Tipo | Severidad | Observación | Evidencia |",
+        "|------|------|-----------|-------------|-----------|",
+    ]
     for ev in timeline[:200]:
+        ev_ref = f"`{ev['evidence_image']}`" if ev.get("evidence_image") else "—"
         lines.append(
             f"| {ev.get('time_label', '—')} | {label_event_type(ev.get('type', ''))} | "
             f"{label_severity(ev.get('severity', ''))} | "
-            f"{(ev.get('message') or '').replace('|', '/')} |"
+            f"{(ev.get('message') or '').replace('|', '/')} | {ev_ref} |"
         )
     if len(timeline) > 200:
         lines.append(f"\n_… y {len(timeline) - 200} eventos adicionales._")
@@ -93,7 +99,9 @@ def _section_executive_alerts(timeline: list[dict[str, Any]], job: dict[str, Any
 def build_report_markdown(job: dict[str, Any]) -> str:
     meta = job.get("meta") or {}
     analysis = job.get("analysis") or {}
-    timeline = analysis.get("timeline") or []
+    raw_timeline = analysis.get("timeline") or []
+    keyframes = analysis.get("keyframes") or []
+    timeline = enrich_timeline_evidence(raw_timeline, keyframes)
     kin = analysis.get("kinematics") or {}
     comp = job.get("comparison") or {}
     knowledge = job.get("knowledge") or {}
@@ -140,42 +148,45 @@ Se detectaron **{analysis.get('event_count', 0)} eventos** relevantes.
 
 {format_video_ai_markdown(job.get('video_ai'))}
 
-## 2. Comparación vs escenario de referencia
+## 2. Hechos observados (evidencia en video)
 
-{_section_comparison(comp)}
+{section_observed_facts(timeline)}
 
-## 2b. Coincidencias con biblioteca de situaciones
-
-{_section_knowledge(knowledge)}
-
-## 3. Cinemática y velocidades
-
-{_section_kinematics(kin, job)}
-
-## 4. Gráficos de velocidad
-
-{_section_speed_charts(analysis.get('speed_series') or [])}
-
-## 5. Secuencia cronológica
-
-{_section_timeline(timeline)}
-
-## 6. Hechos observables (automáticos)
-
-Los eventos provienen del motor VigiEPP (EPP, zonas, Acciones, tracking) con muestreo adaptivo.
-
-## 7. Hipótesis contribuyentes (asistido IA)
+## 3. Hipótesis contribuyentes (requieren validación)
 
 {_narrative_block(job)}
 
-## 8. Recomendaciones preventivas
+> _Las hipótesis son inferencias asistidas por IA. Deben contrastarse con entrevistas, registros y peritaje._
 
-- Revisar señalética y delimitación de zonas restringidas en el sector del incidente.
-- Reforzar distanciamiento persona–maquinaria y límites de velocidad en vías internas.
-- Verificar cumplimiento EPP en el tramo horario del evento.
-- Capacitar supervisores en uso del monitoreo en vivo para evitar recurrencia.
+## 4. Barreras que podrían haber fallado
 
-## 9. Limitaciones del análisis
+{section_barrier_analysis(timeline, job)}
+
+## 5. Comparación vs escenario de referencia
+
+{_section_comparison(comp)}
+
+## 5b. Coincidencias con biblioteca de situaciones
+
+{_section_knowledge(knowledge)}
+
+## 6. Cinemática y velocidades
+
+{_section_kinematics(kin, job)}
+
+## 7. Gráficos de velocidad
+
+{_section_speed_charts(analysis.get('speed_series') or [])}
+
+## 8. Secuencia cronológica (con evidencia)
+
+{_section_timeline(timeline)}
+
+## 9. Recomendaciones preventivas (experto)
+
+{section_expert_recommendations(timeline, job)}
+
+## 10. Limitaciones del análisis
 
 - Muestreo adaptivo (~2–10 fps efectivos): pueden existir eventos entre frames no analizados.
 - Velocidades y distancias requieren calibración `m/px` ({job.get('meters_per_pixel', '—')} m/px en este análisis).
@@ -199,6 +210,12 @@ def _narrative_block(job: dict[str, Any]) -> str:
     types = {e.get("type") for e in timeline}
     comp = job.get("comparison") or {}
     parts = []
+    if "fire" in types or "smoke" in types:
+        parts.append("- Posible factor: emergencia con fuego/humo — revisar plan de respuesta y controles de ignición.")
+    if "epp_reflective" in types:
+        parts.append("- Posible factor: personal sin ropa reflectante de alta visibilidad en zona de riesgo.")
+    if "emergency_response" in types:
+        parts.append("- Posible factor: respuesta de brigada/emergencia en curso — evaluar tiempos y coordinación.")
     if "epp_non_compliant" in types:
         parts.append("- Posible factor: incumplimiento de EPP detectado antes o durante el evento.")
     if "action" in types:

@@ -22,6 +22,7 @@ from .path_safety import resolve_under, safe_job_id, safe_keyframe_name
 from .pdf_export import export_report_pdf
 from .report import build_report_markdown, maybe_enrich_with_llm
 from .sampler import adaptive_sample_video, enrich_focus_window
+from .timeline_evidence import enrich_timeline_evidence
 from .templates import inference_settings, resolve_template
 from .video_formats import resolve_source_path, video_extension
 
@@ -347,6 +348,12 @@ def _process_job(job_id: str) -> None:
             "frame_size": analysis.get("frame_size") or {},
             "sources_count": analysis.get("sources_count", len(sources)),
         }
+        analysis_block = job["analysis"]
+        analysis_block["timeline"] = enrich_timeline_evidence(
+            analysis_block.get("timeline") or [],
+            analysis_block.get("keyframes") or [],
+        )
+        analysis_block["event_count"] = len(analysis_block["timeline"])
 
         ref_id = job.get("reference_job_id")
         if ref_id:
@@ -439,6 +446,10 @@ def refocus_job(
                 "frames_analyzed": int(analysis.get("frames_analyzed") or 0)
                 + int(partial.get("frames_analyzed") or 0),
             }
+            job["analysis"]["timeline"] = enrich_timeline_evidence(
+                job["analysis"]["timeline"],
+                job["analysis"]["keyframes"],
+            )
             meta = job.get("meta") or {}
             meta["focus_refocus"] = {
                 "from_sec": float(focus_from_sec),
@@ -462,6 +473,45 @@ def refocus_job(
             _save_job(job)
 
     threading.Thread(target=in_thread, daemon=True).start()
+    return job
+
+
+def reanalyze_job(job_id: str) -> dict[str, Any]:
+    """Re-procesa el video completo con el pipeline actual (sin re-subir archivo)."""
+    job = get_job(job_id)
+    if not job:
+        raise FileNotFoundError("Trabajo no encontrado")
+    if job.get("status") == "processing":
+        raise RuntimeError("El trabajo ya está en proceso")
+    sources = job.get("sources") or []
+    if not sources:
+        raise FileNotFoundError("Sin fuentes de video")
+    for src in sources:
+        p = src.get("path") or ""
+        if not p or not Path(p).is_file():
+            raise FileNotFoundError("Video no encontrado")
+
+    kf_dir = _job_dir(job_id) / "keyframes"
+    if kf_dir.is_dir():
+        shutil.rmtree(kf_dir, ignore_errors=True)
+    heatmap = _job_dir(job_id) / "heatmap.jpg"
+    if heatmap.is_file():
+        heatmap.unlink(missing_ok=True)
+
+    job["analysis"] = {}
+    job.pop("video_ai", None)
+    job.pop("llm_narrative", None)
+    job["report_md"] = ""
+    job["committee_md"] = ""
+    job["status"] = "processing"
+    job["progress"] = 2
+    job["progress_message"] = "Re-analizando caso completo"
+    job.pop("error", None)
+    job["updated_at"] = datetime.now(UTC).isoformat()
+    with _lock:
+        _jobs[job_id] = job
+    _save_job(job)
+    threading.Thread(target=_process_job, args=(job_id,), daemon=True).start()
     return job
 
 

@@ -143,6 +143,29 @@ let videoLoadPromise = null;
 let videoLoadRetryAfter = 0;
 const imageBlobUrls = new Map();
 
+const INCIDENT_PRESETS = {
+  fire: {
+    template: "incendio_emergencia",
+    focus: "contenedor en llamas, humo, brigada de incendios, personal sin chaleco reflectante",
+  },
+  fall: {
+    template: "construccion",
+    focus: "caída de persona, golpe, atrapamiento, postura de caída",
+  },
+  proximity: {
+    template: "portuario",
+    focus: "persona cerca de maquinaria móvil, proximidad crítica, retroceso sin guía",
+  },
+  epp: {
+    template: "general",
+    focus: "personal sin casco, chaleco reflectante o EPP completo",
+  },
+  lineoffire: {
+    template: "portuario",
+    focus: "línea de fuego, carga suspendida, persona bajo spreader o carga",
+  },
+};
+
 function revokeImageBlobs(prefix = "") {
   for (const [key, url] of imageBlobUrls.entries()) {
     if (!prefix || key.startsWith(prefix)) {
@@ -189,6 +212,67 @@ function formatTs(sec) {
   const m = Math.floor((s % 3600) / 60);
   const ss = s % 60;
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+}
+
+function seekVideoTo(timeSec) {
+  const video = $("#forenseVideo");
+  const sec = $("#videoSection");
+  if (!video || timeSec == null || Number.isNaN(Number(timeSec))) return;
+  sec?.classList.remove("hidden");
+  video.currentTime = Math.max(0, Number(timeSec));
+  video.play().catch(() => {});
+  video.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function applyIncidentPreset(presetId) {
+  const preset = INCIDENT_PRESETS[presetId];
+  if (!preset) return;
+  const focus = $("#caseFocus");
+  const tpl = $("#caseTemplate");
+  if (focus) focus.value = preset.focus;
+  if (tpl && preset.template) {
+    tpl.value = preset.template;
+    applyTemplateDefaults(preset.template);
+  }
+  showToast(`Plantilla y enfoque: ${presetId}`, "info");
+}
+
+function renderCriticalAlerts(job, jobId) {
+  const sec = $("#criticalAlertsSection");
+  const grid = $("#criticalAlerts");
+  if (!sec || !grid) return;
+  const alerts = job.critical_alerts || [];
+  grid.innerHTML = "";
+  if (!alerts.length || job.status !== "done") {
+    sec.classList.add("hidden");
+    return;
+  }
+  sec.classList.remove("hidden");
+  for (const a of alerts) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `alert-card sev-${a.severity || "high"}`;
+    const timeTxt = a.time_label ? `${a.time_label}` : "IA visual / global";
+    btn.innerHTML = `<strong>${a.label}</strong><span class="alert-time">${timeTxt}</span><p class="muted small">${a.message || ""}</p>`;
+    btn.onclick = () => {
+      if (a.time_sec != null) seekVideoTo(a.time_sec);
+      else if (a.evidence_image) highlightKeyframe(jobId, a.evidence_image);
+    };
+    grid.appendChild(btn);
+  }
+}
+
+function highlightKeyframe(jobId, imageName) {
+  const buttons = document.querySelectorAll("#keyframes .keyframe-btn");
+  for (const b of buttons) {
+    const img = b.querySelector("img");
+    if (img?.alt && imageName) {
+      b.classList.toggle("selected", b.dataset.image === imageName);
+    }
+  }
+  const match = document.querySelector(`#keyframes .keyframe-btn[data-image="${imageName}"]`);
+  match?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  match?.focus();
 }
 
 function nearestCachedFrame(timeSec) {
@@ -1237,6 +1321,7 @@ async function loadJob(id, quiet = false) {
 
   setupVideoViewer(j, id, { isPoll: quiet });
   renderVideoAi(j);
+  renderCriticalAlerts(j, id);
   const refSec = $("#refocusSection");
   if (refSec) {
     const canRefocus = Boolean(j.has_video) && (j.sources?.length || 1) === 1;
@@ -1361,11 +1446,19 @@ async function loadJob(id, quiet = false) {
   const hasFocusWindow = f0 != null && f1 != null && Number(f1) > Number(f0);
   for (const ev of j.analysis?.timeline || []) {
     const li = document.createElement("li");
+    const btn = document.createElement("button");
+    btn.type = "button";
     const t = Number(ev.time_sec ?? 0);
     const inFocus = hasFocusWindow && t >= Number(f0) && t <= Number(f1);
-    li.className = `sev-${ev.severity || "medium"}${ev.type === "knowledge_match" ? " knowledge-ev" : ""}${ev.type === "knowledge_conjecture" ? " knowledge-conj" : ""}${inFocus ? " focus-ev" : ""}`;
+    btn.className = `timeline-ev-btn sev-${ev.severity || "medium"}${ev.type === "knowledge_match" ? " knowledge-ev" : ""}${ev.type === "knowledge_conjecture" ? " knowledge-conj" : ""}${inFocus ? " focus-ev" : ""}`;
     const cam = ev.camera ? ` [${ev.camera}]` : "";
-    li.textContent = `${ev.time_label}${cam} · ${eventTypeLabel(ev.type)}: ${ev.message}`;
+    const evImg = ev.evidence_image ? `<span class="ev-evidence">📷 evidencia: ${ev.evidence_image}</span>` : "";
+    btn.innerHTML = `${ev.time_label}${cam} · ${eventTypeLabel(ev.type)}: ${ev.message}${evImg}`;
+    btn.onclick = () => {
+      seekVideoTo(t);
+      if (ev.evidence_image) highlightKeyframe(id, ev.evidence_image);
+    };
+    li.appendChild(btn);
     tl.appendChild(li);
   }
   if (!tl.children.length) {
@@ -1382,6 +1475,7 @@ async function loadJob(id, quiet = false) {
     const wrap = document.createElement("button");
     wrap.type = "button";
     wrap.className = "keyframe-btn";
+    wrap.dataset.image = frame.image;
     wrap.title = "Clic: seleccionar · doble clic: guardar en biblioteca";
     const img = document.createElement("img");
     img.alt = frame.time_label;
@@ -1451,6 +1545,24 @@ async function loadJob(id, quiet = false) {
   }
 }
 
+$("#btnReanalyze")?.addEventListener("click", async () => {
+  if (!currentJobId) return;
+  if (!confirm("¿Re-analizar el caso completo con el motor actual? Puede tardar 1–3 min.")) return;
+  const btn = $("#btnReanalyze");
+  if (btn) btn.disabled = true;
+  try {
+    await api(`/api/forense/jobs/${currentJobId}/reanalyze`, { method: "POST" });
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(() => loadJob(currentJobId, true), 2000);
+    await loadJob(currentJobId);
+    showToast("Re-análisis iniciado", "info");
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+});
+
 $("#btnDeleteJob")?.addEventListener("click", async () => {
   if (!currentJobId) return;
   if (!confirm("¿Eliminar este trabajo y todos sus archivos?")) return;
@@ -1498,6 +1610,12 @@ $("#btnRefocus")?.addEventListener("click", async () => {
   } finally {
     if (btn) btn.disabled = false;
   }
+});
+
+$("#incidentPresets")?.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-preset]");
+  if (!btn) return;
+  applyIncidentPreset(btn.dataset.preset);
 });
 
 $("#exportEhs")?.addEventListener("click", async () => {

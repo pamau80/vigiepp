@@ -44,6 +44,16 @@
       </div>
       <form id="uploadForm" class="card">
         <label>Título del caso<input type="text" id="caseTitle" placeholder="Ej.: acto inseguro en patio de faena" /></label>
+        <div class="wizard-presets">
+          <p class="muted small">Tipo de incidente (rellena enfoque y plantilla):</p>
+          <div class="btn-row compact" id="incidentPresets">
+            <button type="button" class="btn ghost small" data-preset="fire">Incendio</button>
+            <button type="button" class="btn ghost small" data-preset="fall">Caída</button>
+            <button type="button" class="btn ghost small" data-preset="proximity">Proximidad</button>
+            <button type="button" class="btn ghost small" data-preset="epp">EPP</button>
+            <button type="button" class="btn ghost small" data-preset="lineoffire">Línea de fuego</button>
+          </div>
+        </div>
         <label>Descripción de lo ocurrido<textarea id="caseNotes" rows="2" placeholder="Ej.: conductor retrocede sin guía, invade zona peatonal…"></textarea></label>
         <label>¿Qué buscamos en el video? (enfoque IA)<textarea id="caseFocus" rows="2" placeholder="Ej.: caída de paquete en muelle, retroceso sin guía, persona bajo carga suspendida…"></textarea></label>
         <div class="focus-window-row">
@@ -153,12 +163,18 @@
               <p id="jobMeta" class="muted"></p>
             </div>
             <button type="button" class="btn ghost danger" id="btnDeleteJob">Eliminar trabajo</button>
+            <button type="button" class="btn secondary small" id="btnReanalyze">Re-analizar caso</button>
           </div>
           <div class="progress-wrap hidden" id="progressWrap">
             <div class="progress-bar"><div id="progressBar"></div></div>
             <p id="progressText" class="muted"></p>
           </div>
         </header>
+        <section class="card hidden" id="criticalAlertsSection">
+          <h3>Alertas críticas</h3>
+          <p class="muted small">Clic en una alerta para ir al instante en el reproductor.</p>
+          <div id="criticalAlerts" class="alert-grid"></div>
+        </section>
         <section class="card hidden" id="knowledgeSection">
           <h3>Coincidencias con biblioteca de aprendizaje</h3>
           <ul id="knowledgeMatches" class="knowledge-matches"></ul>

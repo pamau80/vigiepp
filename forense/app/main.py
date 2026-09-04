@@ -37,7 +37,9 @@ from .jobs import (
     list_jobs,
     report_pdf_path,
     refocus_job,
+    reanalyze_job,
 )
+from .timeline_evidence import critical_alerts_summary, enrich_timeline_evidence
 from .knowledge import (
     SITUATION_TYPES,
     create_knowledge,
@@ -232,7 +234,13 @@ async def jobs_create(
 
 
 def _job_payload(job: dict) -> dict:
-    analysis = job.get("analysis") or {}
+    analysis = dict(job.get("analysis") or {})
+    timeline = enrich_timeline_evidence(
+        analysis.get("timeline") or [],
+        analysis.get("keyframes") or [],
+    )
+    if timeline:
+        analysis = {**analysis, "timeline": timeline}
     return {
         "id": job["id"],
         "title": job.get("title"),
@@ -266,6 +274,7 @@ def _job_payload(job: dict) -> dict:
         "frames_analyzed": count_frames(job["id"]),
         "ehs_push": job.get("ehs_push"),
         "knowledge": job.get("knowledge"),
+        "critical_alerts": critical_alerts_summary(timeline, job),
     }
 
 
@@ -364,6 +373,19 @@ def jobs_refocus(job_id: str, body: RefocusBody, request: Request) -> dict:
         raise HTTPException(404, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"ok": True, "job": {"id": job["id"], "status": job["status"]}}
+
+
+@app.post("/api/forense/jobs/{job_id}/reanalyze")
+def jobs_reanalyze(job_id: str, request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    try:
+        job = reanalyze_job(job_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(409, str(exc)) from exc
     return {"ok": True, "job": {"id": job["id"], "status": job["status"]}}
