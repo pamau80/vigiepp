@@ -144,25 +144,33 @@ let videoLoadRetryAfter = 0;
 const imageBlobUrls = new Map();
 
 const INCIDENT_PRESETS = {
-  fire: {
-    template: "incendio_emergencia",
-    focus: "contenedor en llamas, humo, brigada de incendios, personal sin chaleco reflectante",
-  },
-  fall: {
-    template: "construccion",
-    focus: "caída de persona, golpe, atrapamiento, postura de caída",
+  general: {
+    template: "general",
+    focus: "cualquier riesgo visible: EPP, proximidad, velocidad, zonas, conducta, caídas",
   },
   proximity: {
     template: "portuario",
-    focus: "persona cerca de maquinaria móvil, proximidad crítica, retroceso sin guía",
+    focus: "persona cerca de maquinaria móvil, proximidad crítica, retroceso sin guía, velocidad",
   },
   epp: {
     template: "general",
-    focus: "personal sin casco, chaleco reflectante o EPP completo",
+    focus: "personal sin casco, chaleco reflectante, lentes, guantes o EPP incompleto",
   },
-  lineoffire: {
+  fall: {
+    template: "construccion",
+    focus: "caída de persona, golpe, atrapamiento, postura insegura en altura o superficie",
+  },
+  machinery: {
     template: "portuario",
-    focus: "línea de fuego, carga suspendida, persona bajo spreader o carga",
+    focus: "maniobras de grúa, reach stacker, carga suspendida, línea de fuego",
+  },
+  zone: {
+    template: "mineria",
+    focus: "ingreso a zona restringida, señalética, delimitación, tránsito no autorizado",
+  },
+  fire: {
+    template: "incendio_emergencia",
+    focus: "fuego, humo, respuesta de emergencia, EPP, evacuación del sector",
   },
 };
 

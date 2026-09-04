@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .timeline_evidence import _VISION_FIELD_MAP
+
 
 def merge_vision_timeline(
     existing: list[dict[str, Any]],
@@ -23,12 +25,18 @@ def merge_vision_timeline(
     return merged
 
 
+def _skip_val(val: Any) -> bool:
+    if not val:
+        return True
+    return str(val).strip().lower() in {"no observable", "no visible", "ninguno", "n/a", "-"}
+
+
 def events_from_vision_parsed(
     parsed: dict[str, Any] | None,
     *,
     frames_used: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Traduce JSON de visión a eventos forenses."""
+    """Traduce JSON de visión a eventos forenses (cualquier tipo de incidente)."""
     if not parsed:
         return []
     events: list[dict[str, Any]] = []
@@ -36,7 +44,7 @@ def events_from_vision_parsed(
     t_label = (frames_used or [{}])[0].get("time_label") or "00:00:00"
 
     def add(ev_type: str, msg: str, severity: str = "high") -> None:
-        if not msg or not str(msg).strip():
+        if _skip_val(msg):
             return
         events.append(
             {
@@ -44,85 +52,49 @@ def events_from_vision_parsed(
                 "time_label": t_label,
                 "type": ev_type,
                 "severity": severity,
-                "message": str(msg).strip(),
+                "message": f"IA visual: {str(msg).strip()}",
                 "source": "vision_ai",
             }
         )
 
-    # Campos estructurados de emergencia
-    fuego = parsed.get("fuego_contenedor") or parsed.get("fuego")
-    if fuego:
-        add("fire", f"IA visual: {fuego}", "critical")
-    humo = parsed.get("humo") or parsed.get("humo_visible")
-    if humo:
-        add("smoke", f"IA visual: {humo}", "high")
-    epp = parsed.get("epp_chaleco_reflectante") or parsed.get("ropa_reflectante")
-    if epp:
-        add("epp_reflective", f"IA visual: {epp}", "high")
-    brigada = parsed.get("brigada_incendios") or parsed.get("respuesta_emergencia")
-    if brigada:
-        add("emergency_response", f"IA visual: {brigada}", "medium")
-
-    for r in parsed.get("riesgos") or []:
-        rl = str(r).lower()
-        if any(k in rl for k in ("fuego", "llama", "incendio", "humo")):
-            add("fire", f"Riesgo visible: {r}", "critical")
-        elif any(k in rl for k in ("chaleco", "reflect", "alta visibilidad", "epp")):
-            add("epp_reflective", f"Riesgo EPP: {r}", "high")
-        elif any(k in rl for k in ("brigada", "bomber", "emergenc")):
-            add("emergency_response", f"Respuesta emergencia: {r}", "medium")
+    for field, etype, _label in _VISION_FIELD_MAP:
+        val = parsed.get(field)
+        if _skip_val(val):
+            continue
+        sev = "critical" if etype in {"fire", "smoke", "collision"} else "high"
+        add(etype, val, sev)
 
     for item in parsed.get("secuencia") or []:
         if not isinstance(item, dict):
             continue
-        obs = str(item.get("observacion") or "")
-        ol = obs.lower()
+        obs = str(item.get("observacion") or "").strip()
+        if not obs:
+            continue
         hora = item.get("hora") or t_label
-        ts = t0
-        if isinstance(item.get("time_sec"), (int, float)):
-            ts = float(item["time_sec"])
-        if any(k in ol for k in ("fuego", "llama", "incendio", "contenedor en llamas")):
-            events.append(
-                {
-                    "time_sec": ts,
-                    "time_label": hora,
-                    "type": "fire",
-                    "severity": "critical",
-                    "message": obs,
-                    "source": "vision_ai",
-                }
-            )
-        elif "humo" in ol:
-            events.append(
-                {
-                    "time_sec": ts,
-                    "time_label": hora,
-                    "type": "smoke",
-                    "severity": "high",
-                    "message": obs,
-                    "source": "vision_ai",
-                }
-            )
-        elif any(k in ol for k in ("chaleco", "reflect", "ropa flúor", "alta visibilidad")):
-            events.append(
-                {
-                    "time_sec": ts,
-                    "time_label": hora,
-                    "type": "epp_reflective",
-                    "severity": "high",
-                    "message": obs,
-                    "source": "vision_ai",
-                }
-            )
-        elif any(k in ol for k in ("brigada", "bombero", "emergenc", "extintor")):
-            events.append(
-                {
-                    "time_sec": ts,
-                    "time_label": hora,
-                    "type": "emergency_response",
-                    "severity": "medium",
-                    "message": obs,
-                    "source": "vision_ai",
-                }
-            )
+        ts = float(item["time_sec"]) if isinstance(item.get("time_sec"), (int, float)) else t0
+        ol = obs.lower()
+        etype = "action"
+        sev = "medium"
+        if any(k in ol for k in ("fuego", "llama", "incendio", "humo")):
+            etype, sev = ("fire" if "humo" not in ol else "smoke"), "critical"
+        elif any(k in ol for k in ("chaleco", "reflect", "epp", "casco", "sin ")):
+            etype, sev = "epp_non_compliant", "high"
+        elif any(k in ol for k in ("proxim", "maquin", "retroceso", "camión", "grúa", "cerca")):
+            etype, sev = "proximity", "high"
+        elif any(k in ol for k in ("caída", "caida", "tropez", "atrap")):
+            etype, sev = "fall_risk", "high"
+        elif any(k in ol for k in ("zona", "restring", "carga suspend", "línea de fuego", "linea de fuego")):
+            etype, sev = "zone", "high"
+        elif any(k in ol for k in ("brigada", "emergenc", "bomber", "extintor")):
+            etype, sev = "emergency_response", "medium"
+        events.append(
+            {
+                "time_sec": ts,
+                "time_label": hora,
+                "type": etype,
+                "severity": sev,
+                "message": obs,
+                "source": "vision_ai",
+            }
+        )
     return events

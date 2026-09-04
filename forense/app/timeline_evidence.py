@@ -1,32 +1,46 @@
-"""Evidencia por evento: enlaza timeline con capturas clave."""
+"""Evidencia por evento y alertas prioritarias (todos los tipos de incidente)."""
 
 from __future__ import annotations
 
 from typing import Any
 
-_CRITICAL_TYPES = frozenset(
+from .i18n_es_cl import label_event_type
+
+# Tipos que merecen destacarse en el panel superior (cualquier faena)
+_PRIORITY_TYPES = frozenset(
     {
         "fire",
         "smoke",
         "epp_reflective",
-        "emergency_response",
         "epp_non_compliant",
+        "emergency_response",
         "proximity",
+        "speed_violation",
         "action",
         "fall_risk",
+        "unsafe_act",
+        "zone",
+        "collision",
+        "knowledge_match",
     }
 )
 
-_ALERT_LABELS: dict[str, str] = {
-    "fire": "Incendio / llamas",
-    "smoke": "Humo",
-    "epp_reflective": "Sin ropa reflectante",
-    "emergency_response": "Respuesta de emergencia",
-    "epp_non_compliant": "Incumplimiento EPP",
-    "proximity": "Proximidad crítica",
-    "action": "Acción insegura",
-    "fall_risk": "Riesgo de caída",
-}
+_SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+
+# Campos IA visual → tipo de evento (esquema general + compatibilidad legacy)
+_VISION_FIELD_MAP: tuple[tuple[str, str, str], ...] = (
+    ("epp_y_ropa", "epp_non_compliant", "EPP y ropa (IA visual)"),
+    ("epp_chaleco_reflectante", "epp_reflective", "Ropa reflectante (IA visual)"),
+    ("ropa_reflectante", "epp_reflective", "Ropa reflectante (IA visual)"),
+    ("maquinaria_proximidad", "proximity", "Maquinaria y proximidad (IA visual)"),
+    ("conducta_y_caidas", "action", "Conducta y caídas (IA visual)"),
+    ("zonas_y_carga", "zone", "Zonas y carga (IA visual)"),
+    ("energia_fuego_humo", "fire", "Fuego o humo (IA visual)"),
+    ("fuego_contenedor", "fire", "Fuego (IA visual)"),
+    ("humo", "smoke", "Humo (IA visual)"),
+    ("respuesta_emergencia", "emergency_response", "Respuesta emergencia (IA visual)"),
+    ("brigada_incendios", "emergency_response", "Respuesta emergencia (IA visual)"),
+)
 
 
 def enrich_timeline_evidence(
@@ -60,48 +74,54 @@ def critical_alerts_summary(
     timeline: list[dict[str, Any]],
     job: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Agrupa alertas críticas para la UI (primera ocurrencia por tipo)."""
+    """Primera ocurrencia por tipo — EPP, proximidad, zonas, fuego, etc."""
     job = job or {}
     seen: set[str] = set()
     alerts: list[dict[str, Any]] = []
     for ev in sorted(timeline or [], key=lambda e: float(e.get("time_sec") or 0)):
         etype = str(ev.get("type") or "")
-        if etype not in _CRITICAL_TYPES or etype in seen:
+        if etype not in _PRIORITY_TYPES or etype in seen:
             continue
         seen.add(etype)
         alerts.append(
             {
                 "type": etype,
-                "label": _ALERT_LABELS.get(etype, etype.replace("_", " ")),
+                "label": label_event_type(etype),
                 "severity": ev.get("severity") or "high",
                 "time_sec": ev.get("time_sec"),
                 "time_label": ev.get("time_label"),
                 "message": ev.get("message"),
                 "evidence_image": ev.get("evidence_image"),
+                "source": ev.get("source") or "automático",
             }
         )
+
     va = (job.get("video_ai") or {}).get("parsed") or {}
-    for key, etype, label in (
-        ("fuego_contenedor", "fire", "Incendio / llamas (IA visual)"),
-        ("humo", "smoke", "Humo (IA visual)"),
-        ("epp_chaleco_reflectante", "epp_reflective", "Sin ropa reflectante (IA visual)"),
-        ("brigada_incendios", "emergency_response", "Brigada / emergencia (IA visual)"),
-    ):
-        if etype in seen or not va.get(key):
+    for field, etype, label in _VISION_FIELD_MAP:
+        val = va.get(field)
+        if not val or etype in seen:
+            continue
+        if isinstance(val, str) and val.strip().lower() in {"no observable", "no visible", "ninguno", "n/a", "-"}:
             continue
         seen.add(etype)
+        sev = "critical" if etype in {"fire", "smoke", "collision"} else "high"
         alerts.append(
             {
                 "type": etype,
                 "label": label,
-                "severity": "critical" if etype in {"fire", "smoke"} else "high",
+                "severity": sev,
                 "time_sec": None,
                 "time_label": None,
-                "message": str(va[key]),
+                "message": str(val),
                 "evidence_image": None,
                 "source": "vision_ai",
             }
         )
-    sev_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-    alerts.sort(key=lambda a: (sev_order.get(str(a.get("severity")), 9), float(a.get("time_sec") or 0)))
+
+    alerts.sort(
+        key=lambda a: (
+            _SEVERITY_RANK.get(str(a.get("severity")), 9),
+            float(a.get("time_sec") if a.get("time_sec") is not None else 1e9),
+        )
+    )
     return alerts

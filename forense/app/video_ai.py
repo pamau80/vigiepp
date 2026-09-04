@@ -10,8 +10,6 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-from .scene_signals import is_emergency_context
-
 logger = logging.getLogger("vigiepp.forense.video_ai")
 
 _MAX_FRAMES = 6
@@ -80,15 +78,8 @@ def _pick_frames(job: dict[str, Any]) -> list[dict[str, Any]]:
         if len(picked) >= _MAX_FRAMES:
             break
 
-    # Emergencias: muestrear todo el video aunque haya pocos keyframes con eventos
-    emergency = is_emergency_context(
-        job.get("title"),
-        job.get("case_notes"),
-        job.get("focus_description"),
-        job.get("filename"),
-        job.get("template_id"),
-    )
-    if len(picked) < 4 and (emergency or not has_focus):
+    # Pocos keyframes: muestrear el video completo para no perder contexto
+    if len(picked) < 4:
         from .jobs import extract_frame_jpeg
 
         duration = float((job.get("meta") or {}).get("duration_sec") or 0)
@@ -159,21 +150,13 @@ def analyze_job_with_vision(job: dict[str, Any]) -> dict[str, Any] | None:
     if focus_from is not None and focus_until is not None:
         window_txt = f"Ventana prioritaria del incidente: {focus_from}s — {focus_until}s."
 
-    emergency = is_emergency_context(
-        title,
-        job.get("case_notes"),
-        focus_desc,
-        job.get("filename"),
-        job.get("template_id"),
+    expert_checklist = (
+        "Analizá el incidente de forma integral (cualquier industria): "
+        "EPP (casco, chaleco reflectante, lentes, guantes), proximidad persona–maquinaria, "
+        "velocidad y maniobras, zonas restringidas, carga suspendida o línea de fuego, "
+        "caídas o atrapamientos, actos inseguros, y solo si es visible: fuego, humo o respuesta de emergencia. "
+        "Si algo no se ve, indicá «no observable»."
     )
-    emergency_checklist = ""
-    if emergency:
-        emergency_checklist = (
-            "Este video parece un incidente de emergencia. Priorizá identificar: "
-            "1) fuego/llamas en contenedor o equipo, 2) humo, "
-            "3) personal sin chaleco/ropa reflectante, "
-            "4) brigada de incendios o respuesta de emergencia (camiones, mangueras, EPP bomberil). "
-        )
 
     content: list[dict[str, Any]] = [
         {
@@ -183,16 +166,18 @@ def analyze_job_with_vision(job: dict[str, Any]) -> dict[str, Any] | None:
                 "Mirá estas capturas de un video de seguridad en faena. "
                 f"Caso: «{title}» · sitio: {site} · plantilla: {template}. "
                 f"{window_txt} "
-                f"{emergency_checklist}"
+                f"{expert_checklist} "
                 f"Enfoque del operador: {focus_desc or 'no especificado'}. "
                 "Respondé en JSON con claves: "
                 "resumen (2-4 oraciones), "
-                "fuego_contenedor (descripción visible de llamas/fuego en contenedor o carga), "
-                "humo (humo visible), "
-                "epp_chaleco_reflectante (personal sin chaleco/ropa reflectante), "
-                "brigada_incendios (intervención brigada/bomberos/extintores), "
+                "epp_y_ropa (cumplimiento EPP visible), "
+                "maquinaria_proximidad (equipos, distancias, maniobras), "
+                "conducta_y_caidas (posturas, caídas, actos inseguros), "
+                "zonas_y_carga (zonas, carga suspendida, línea de fuego), "
+                "energia_fuego_humo (solo si visible; si no, «no observable»), "
+                "respuesta_emergencia (solo si visible; si no, «no observable»), "
                 "secuencia (lista de {hora, observacion}), "
-                "riesgos (lista), posibles_falsos_positivos (alertas del detector genérico que NO ves en imagen), "
+                "riesgos (lista), posibles_falsos_positivos (alertas del detector que NO ves), "
                 "recomendaciones (lista). "
                 "Solo describe lo visible; usa condicional; no afirmes culpa legal."
             ),
@@ -242,7 +227,6 @@ def analyze_job_with_vision(job: dict[str, Any]) -> dict[str, Any] | None:
         "frames_used": len(frames),
         "frames_meta": [{"time_sec": f.get("time_sec"), "time_label": f.get("time_label")} for f in frames],
         "focus_window": {"from_sec": focus_from, "until_sec": focus_until},
-        "emergency_context": emergency,
         "raw": raw,
         "parsed": parsed,
     }
@@ -257,14 +241,22 @@ def format_video_ai_markdown(video_ai: dict[str, Any] | None) -> str:
         if parsed.get("resumen"):
             lines.append(str(parsed["resumen"]))
         for label, key in (
-            ("Fuego en contenedor/equipo", "fuego_contenedor"),
-            ("Humo", "humo"),
-            ("EPP reflectante", "epp_chaleco_reflectante"),
-            ("Brigada / emergencia", "brigada_incendios"),
+            ("EPP y ropa", "epp_y_ropa"),
+            ("Maquinaria y proximidad", "maquinaria_proximidad"),
+            ("Conducta y caídas", "conducta_y_caidas"),
+            ("Zonas y carga", "zonas_y_carga"),
+            ("Fuego o humo", "energia_fuego_humo"),
+            ("Respuesta emergencia", "respuesta_emergencia"),
+            # compatibilidad esquema anterior
+            ("Fuego (legacy)", "fuego_contenedor"),
+            ("Humo (legacy)", "humo"),
+            ("EPP reflectante (legacy)", "epp_chaleco_reflectante"),
+            ("Emergencia (legacy)", "brigada_incendios"),
         ):
             val = parsed.get(key)
-            if val:
-                lines.append(f"\n**{label}:** {val}")
+            if not val or str(val).strip().lower() in {"no observable", "no visible", "ninguno", "n/a"}:
+                continue
+            lines.append(f"\n**{label}:** {val}")
         seq = parsed.get("secuencia") or []
         if seq:
             lines.append("\n**Secuencia observada:**\n")

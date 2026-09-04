@@ -45,13 +45,15 @@
       <form id="uploadForm" class="card">
         <label>Título del caso<input type="text" id="caseTitle" placeholder="Ej.: acto inseguro en patio de faena" /></label>
         <div class="wizard-presets">
-          <p class="muted small">Tipo de incidente (rellena enfoque y plantilla):</p>
+          <p class="muted small">Escenario típico (opcional — rellena enfoque y plantilla):</p>
           <div class="btn-row compact" id="incidentPresets">
-            <button type="button" class="btn ghost small" data-preset="fire">Incendio</button>
-            <button type="button" class="btn ghost small" data-preset="fall">Caída</button>
+            <button type="button" class="btn ghost small" data-preset="general">General</button>
             <button type="button" class="btn ghost small" data-preset="proximity">Proximidad</button>
             <button type="button" class="btn ghost small" data-preset="epp">EPP</button>
-            <button type="button" class="btn ghost small" data-preset="lineoffire">Línea de fuego</button>
+            <button type="button" class="btn ghost small" data-preset="fall">Caída</button>
+            <button type="button" class="btn ghost small" data-preset="machinery">Maquinaria</button>
+            <button type="button" class="btn ghost small" data-preset="zone">Zonas</button>
+            <button type="button" class="btn ghost small" data-preset="fire">Fuego</button>
           </div>
         </div>
         <label>Descripción de lo ocurrido<textarea id="caseNotes" rows="2" placeholder="Ej.: conductor retrocede sin guía, invade zona peatonal…"></textarea></label>
@@ -171,8 +173,8 @@
           </div>
         </header>
         <section class="card hidden" id="criticalAlertsSection">
-          <h3>Alertas críticas</h3>
-          <p class="muted small">Clic en una alerta para ir al instante en el reproductor.</p>
+          <h3>Hallazgos prioritarios</h3>
+          <p class="muted small">EPP, proximidad, zonas, conducta, fuego u otros — clic para ir al instante en el video.</p>
           <div id="criticalAlerts" class="alert-grid"></div>
         </section>
         <section class="card hidden" id="knowledgeSection">
@@ -185,7 +187,7 @@
         </section>
         <section class="card" id="refocusSection">
           <h3>Re-enfocar incidente</h3>
-          <p class="muted small">Si el análisis inicial no captó el momento, indicá la ventana temporal y re-analizamos solo ese tramo con IA visual.</p>
+          <p class="muted small">Si el análisis inicial no captó el momento, indicá la ventana temporal y re-analizamos ese tramo.</p>
           <label>¿Qué buscamos?<textarea id="refocusDescription" rows="2" placeholder="Ej.: caída de paquete, persona bajo carga…"></textarea></label>
           <div class="form-row">
             <label>Desde (seg)<input type="number" id="refocusFrom" min="0" step="0.1" placeholder="65" /></label>

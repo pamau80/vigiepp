@@ -71,28 +71,16 @@ def _section_kinematics(kin: dict[str, Any], job: dict[str, Any]) -> str:
 
 
 def _section_executive_alerts(timeline: list[dict[str, Any]], job: dict[str, Any]) -> str:
-    fires = [e for e in timeline if e.get("type") in {"fire", "smoke"}]
-    epp_ref = [e for e in timeline if e.get("type") == "epp_reflective"]
-    brigade = [e for e in timeline if e.get("type") == "emergency_response"]
-    if not fires and not epp_ref and not brigade:
-        va = (job.get("video_ai") or {}).get("parsed") or {}
-        bits = []
-        if va.get("fuego_contenedor"):
-            bits.append(f"**Fuego:** {va['fuego_contenedor']}")
-        if va.get("epp_chaleco_reflectante"):
-            bits.append(f"**EPP reflectante:** {va['epp_chaleco_reflectante']}")
-        if va.get("brigada_incendios"):
-            bits.append(f"**Brigada:** {va['brigada_incendios']}")
-        if bits:
-            return "### Alertas críticas detectadas\n\n" + "\n".join(f"- {b}" for b in bits) + "\n"
+    from .timeline_evidence import critical_alerts_summary
+
+    alerts = critical_alerts_summary(timeline, job)
+    if not alerts:
         return ""
-    lines = ["### Alertas críticas detectadas\n"]
-    if fires:
-        lines.append(f"- **Incendio/humo:** {len(fires)} registro(s) en video — revisar secuencia cronológica.")
-    if epp_ref:
-        lines.append(f"- **Ropa reflectante:** {len(epp_ref)} registro(s) de personal sin chaleco/alta visibilidad.")
-    if brigade:
-        lines.append(f"- **Respuesta emergencia:** {len(brigade)} registro(s) de brigada o maniobra de emergencia.")
+    lines = ["### Hallazgos prioritarios\n"]
+    for a in alerts[:10]:
+        when = a.get("time_label") or "—"
+        msg = (a.get("message") or "").strip()
+        lines.append(f"- **{a.get('label', 'Alerta')}** ({when}): {msg}")
     return "\n".join(lines) + "\n"
 
 
@@ -210,20 +198,22 @@ def _narrative_block(job: dict[str, Any]) -> str:
     types = {e.get("type") for e in timeline}
     comp = job.get("comparison") or {}
     parts = []
-    if "fire" in types or "smoke" in types:
-        parts.append("- Posible factor: emergencia con fuego/humo — revisar plan de respuesta y controles de ignición.")
-    if "epp_reflective" in types:
-        parts.append("- Posible factor: personal sin ropa reflectante de alta visibilidad en zona de riesgo.")
-    if "emergency_response" in types:
-        parts.append("- Posible factor: respuesta de brigada/emergencia en curso — evaluar tiempos y coordinación.")
-    if "epp_non_compliant" in types:
+    if "epp_non_compliant" in types or "epp_reflective" in types:
         parts.append("- Posible factor: incumplimiento de EPP detectado antes o durante el evento.")
-    if "action" in types:
-        parts.append("- Posible factor: proximidad o conducta insegura según reglas Acciones.")
     if "proximity" in types or "speed_violation" in types:
-        parts.append("- Posible factor: exceso de velocidad o proximidad crítica persona–maquinaria.")
+        parts.append("- Posible factor: proximidad crítica o exceso de velocidad persona–maquinaria.")
+    if "action" in types or "unsafe_act" in types:
+        parts.append("- Posible factor: conducta o acto inseguro según reglas de faena.")
+    if "fall_risk" in types:
+        parts.append("- Posible factor: riesgo de caída o postura insegura en el tramo analizado.")
     if "zone" in types:
-        parts.append("- Posible factor: tránsito por zona no autorizada o de riesgo.")
+        parts.append("- Posible factor: tránsito por zona restringida o exposición a línea de fuego/carga.")
+    if "fire" in types or "smoke" in types:
+        parts.append("- Posible factor: fuego o humo visible — evaluar controles de ignición y respuesta.")
+    if "emergency_response" in types:
+        parts.append("- Posible factor: respuesta de emergencia en curso — documentar tiempos y coordinación.")
+    if "collision" in types:
+        parts.append("- Posible factor: colisión o cruce de trayectorias en el sector.")
     if comp.get("available"):
         parts.append("- Posible factor: desviación respecto al escenario de referencia analizado.")
     knowledge = job.get("knowledge") or {}

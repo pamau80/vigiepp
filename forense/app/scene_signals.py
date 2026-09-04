@@ -1,26 +1,15 @@
-"""Señales de escena por visión clásica (fuego/humo) — sin modelo extra."""
+"""Señales de escena por visión clásica — complemento al detector YOLO."""
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 import cv2
 import numpy as np
 
-_EMERGENCY_KW = re.compile(
-    r"\b(incendio|fuego|fire|flama|humo|smoke|lithium|litio|emergenc|brigada|contenedor)\b",
-    re.I,
-)
-
-
-def is_emergency_context(*texts: str | None) -> bool:
-    blob = " ".join(t for t in texts if t).strip()
-    return bool(blob and _EMERGENCY_KW.search(blob))
-
 
 def detect_fire_smoke(frame_bgr: np.ndarray) -> dict[str, Any]:
-    """Heurística HSV para llamas (naranjo/rojo brillante) y humo (gris de baja saturación)."""
+    """Heurística HSV para llamas (naranjo/rojo) y humo (gris de baja saturación)."""
     if frame_bgr is None or frame_bgr.size == 0:
         return {"fire": False, "smoke": False, "fire_ratio": 0.0, "smoke_ratio": 0.0}
 
@@ -28,13 +17,11 @@ def detect_fire_smoke(frame_bgr: np.ndarray) -> dict[str, Any]:
     small = cv2.resize(frame_bgr, (320, max(1, int(320 * h / max(w, 1)))))
     hsv = cv2.cvtColor(small, cv2.COLOR_BGR2HSV)
 
-    # Llamas: rojo/naranjo saturado y brillante
     m1 = cv2.inRange(hsv, (0, 120, 140), (18, 255, 255))
     m2 = cv2.inRange(hsv, (165, 120, 140), (180, 255, 255))
     fire_mask = cv2.bitwise_or(m1, m2)
     fire_ratio = float(np.count_nonzero(fire_mask)) / fire_mask.size
 
-    # Humo: baja saturación, valor medio-alto (zonas grises difusas)
     s = hsv[:, :, 1]
     v = hsv[:, :, 2]
     smoke_mask = ((s < 55) & (v > 95) & (v < 220)).astype(np.uint8) * 255
@@ -63,7 +50,7 @@ def fire_smoke_events(
                 "time_label": time_label,
                 "type": "fire",
                 "severity": "critical",
-                "message": "Llamas o fuego visible en escena (contenedor/equipo)",
+                "message": "Llamas o fuego visible en escena",
                 "source": "scene_cv",
             }
         )
