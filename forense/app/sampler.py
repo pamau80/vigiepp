@@ -129,3 +129,40 @@ def enrich_focus_window(
         return samples
     merged = sorted(samples + extras, key=lambda s: s.time_sec)
     return merged
+
+
+def sample_window_frames(
+    video_path: str,
+    *,
+    focus_from_sec: float,
+    focus_until_sec: float,
+    interval_sec: float = 0.25,
+    max_frames: int = 80,
+) -> list[SampledFrame]:
+    """Extrae fotogramas densos solo en la ventana del incidente."""
+    if focus_until_sec <= focus_from_sec:
+        return []
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return []
+    fps = float(cap.get(cv2.CAP_PROP_FPS) or 25.0)
+    if fps <= 0:
+        cap.release()
+        return []
+    out: list[SampledFrame] = []
+    t = focus_from_sec
+    while t <= focus_until_sec and len(out) < max_frames:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(t * fps))
+        ok, frame = cap.read()
+        if ok and frame is not None:
+            out.append(
+                SampledFrame(
+                    index=int(t * fps),
+                    time_sec=round(t, 3),
+                    frame_bgr=frame.copy(),
+                    burst=True,
+                )
+            )
+        t += interval_sec
+    cap.release()
+    return out

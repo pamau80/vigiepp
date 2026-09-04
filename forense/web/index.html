@@ -167,6 +167,19 @@
           <h3>Comparación vs escenario de referencia</h3>
           <p id="comparisonText" class="comparison-text"></p>
         </section>
+        <section class="card" id="refocusSection">
+          <h3>Re-enfocar incidente</h3>
+          <p class="muted small">Si el análisis inicial no captó el momento, indicá la ventana temporal y re-analizamos solo ese tramo con IA visual.</p>
+          <label>¿Qué buscamos?<textarea id="refocusDescription" rows="2" placeholder="Ej.: caída de paquete, persona bajo carga…"></textarea></label>
+          <div class="form-row">
+            <label>Desde (seg)<input type="number" id="refocusFrom" min="0" step="0.1" placeholder="65" /></label>
+            <label>Hasta (seg)<input type="number" id="refocusUntil" min="0" step="0.1" placeholder="95" /></label>
+          </div>
+          <label class="checkbox"><input type="checkbox" id="refocusStrict" /> Detección estricta (menos falsos positivos)</label>
+          <div class="btn-row">
+            <button type="button" class="btn primary small" id="btnRefocus">Aplicar enfoque y re-interpretar</button>
+          </div>
+        </section>
         <section class="card hidden" id="videoSection">
           <h3>Reproductor forense — análisis en vivo</h3>
           <p class="muted small">Personas, vehículos, velocidades y distancias persona–maquinaria mientras avanza el video.</p>

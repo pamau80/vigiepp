@@ -24,8 +24,15 @@ def _api_config() -> tuple[str, str, str] | None:
     return key, base, model
 
 
+def _format_ts(sec: float) -> str:
+    s = int(sec)
+    h, rem = divmod(s, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h:02d}:{m:02d}:{s:02d}"
+
+
 def _pick_frames(job: dict[str, Any]) -> list[dict[str, Any]]:
-    from .jobs import keyframe_path
+    from .jobs import extract_frame_jpeg, keyframe_path
 
     job_id = job["id"]
     analysis = job.get("analysis") or {}
@@ -70,6 +77,35 @@ def _pick_frames(job: dict[str, Any]) -> list[dict[str, Any]]:
         )
         if len(picked) >= _MAX_FRAMES:
             break
+
+    # Sin capturas con eventos: extraer directo del video en la ventana de enfoque
+    if len(picked) < 3 and has_focus:
+        span = float(focus_until) - float(focus_from)
+        n = min(_MAX_FRAMES, max(3, int(span / 4) + 1))
+        step_t = span / max(n - 1, 1)
+        for i in range(n):
+            t = float(focus_from) + i * step_t
+            jpeg = extract_frame_jpeg(job_id, t)
+            if not jpeg:
+                continue
+            picked.append(
+                {
+                    "time_sec": round(t, 3),
+                    "time_label": _format_ts(t),
+                    "jpeg": jpeg,
+                }
+            )
+        # dedupe by time
+        seen: set[float] = set()
+        deduped: list[dict[str, Any]] = []
+        for fr in picked:
+            key = round(float(fr.get("time_sec") or 0), 1)
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(fr)
+        picked = deduped[:_MAX_FRAMES]
+
     return picked
 
 

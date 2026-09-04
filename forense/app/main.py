@@ -36,6 +36,7 @@ from .jobs import (
     learn_event_at_timestamp,
     list_jobs,
     report_pdf_path,
+    refocus_job,
 )
 from .knowledge import (
     SITUATION_TYPES,
@@ -336,6 +337,36 @@ class LearnEventBody(BaseModel):
     description: str = Field("", max_length=4000)
     situation_type: str = Field("other", max_length=64)
     industry: str = Field("general", max_length=64)
+
+
+class RefocusBody(BaseModel):
+    focus_description: str = Field("", max_length=4000)
+    focus_from_sec: float = Field(..., ge=0)
+    focus_until_sec: float = Field(..., gt=0)
+    strict_detection: bool | None = None
+
+
+@app.post("/api/forense/jobs/{job_id}/refocus")
+def jobs_refocus(job_id: str, body: RefocusBody, request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    if body.focus_until_sec <= body.focus_from_sec:
+        raise HTTPException(400, "focus_until_sec debe ser mayor que focus_from_sec")
+    try:
+        job = refocus_job(
+            job_id,
+            focus_description=body.focus_description,
+            focus_from_sec=body.focus_from_sec,
+            focus_until_sec=body.focus_until_sec,
+            strict_detection=body.strict_detection,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"ok": True, "job": {"id": job["id"], "status": job["status"]}}
 
 
 @app.post("/api/forense/jobs/{job_id}/events/learn")

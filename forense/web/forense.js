@@ -1237,6 +1237,23 @@ async function loadJob(id, quiet = false) {
 
   setupVideoViewer(j, id, { isPoll: quiet });
   renderVideoAi(j);
+  const refSec = $("#refocusSection");
+  if (refSec) {
+    const canRefocus = Boolean(j.has_video) && (j.sources?.length || 1) === 1;
+    refSec.classList.toggle("hidden", !canRefocus);
+    if (canRefocus) {
+      const desc = $("#refocusDescription");
+      const rf = $("#refocusFrom");
+      const ru = $("#refocusUntil");
+      const rs = $("#refocusStrict");
+      if (desc && !desc.dataset.touched) {
+        desc.value = j.focus_description || "";
+      }
+      if (rf && !rf.dataset.touched && j.focus_from_sec != null) rf.value = String(j.focus_from_sec);
+      if (ru && !ru.dataset.touched && j.focus_until_sec != null) ru.value = String(j.focus_until_sec);
+      if (rs) rs.checked = Boolean(j.strict_detection);
+    }
+  }
   if (j.status === "processing" || j.status === "queued") {
     await fetchIncrementalFrames(id);
   }
@@ -1339,9 +1356,14 @@ async function loadJob(id, quiet = false) {
 
   const tl = $("#timeline");
   tl.innerHTML = "";
+  const f0 = j.focus_from_sec;
+  const f1 = j.focus_until_sec;
+  const hasFocusWindow = f0 != null && f1 != null && Number(f1) > Number(f0);
   for (const ev of j.analysis?.timeline || []) {
     const li = document.createElement("li");
-    li.className = `sev-${ev.severity || "medium"}${ev.type === "knowledge_match" ? " knowledge-ev" : ""}${ev.type === "knowledge_conjecture" ? " knowledge-conj" : ""}`;
+    const t = Number(ev.time_sec ?? 0);
+    const inFocus = hasFocusWindow && t >= Number(f0) && t <= Number(f1);
+    li.className = `sev-${ev.severity || "medium"}${ev.type === "knowledge_match" ? " knowledge-ev" : ""}${ev.type === "knowledge_conjecture" ? " knowledge-conj" : ""}${inFocus ? " focus-ev" : ""}`;
     const cam = ev.camera ? ` [${ev.camera}]` : "";
     li.textContent = `${ev.time_label}${cam} · ${eventTypeLabel(ev.type)}: ${ev.message}`;
     tl.appendChild(li);
@@ -1437,6 +1459,44 @@ $("#btnDeleteJob")?.addEventListener("click", async () => {
     resetNewCaseForm();
   } catch (err) {
     alert(err.message);
+  }
+});
+
+for (const id of ["refocusDescription", "refocusFrom", "refocusUntil"]) {
+  const el = document.getElementById(id);
+  el?.addEventListener("input", () => {
+    el.dataset.touched = "1";
+  });
+}
+
+$("#btnRefocus")?.addEventListener("click", async () => {
+  if (!currentJobId) return;
+  const fromSec = parseFloat($("#refocusFrom")?.value || "");
+  const untilSec = parseFloat($("#refocusUntil")?.value || "");
+  if (!Number.isFinite(fromSec) || !Number.isFinite(untilSec) || untilSec <= fromSec) {
+    alert("Indicá una ventana válida (hasta > desde).");
+    return;
+  }
+  const btn = $("#btnRefocus");
+  if (btn) btn.disabled = true;
+  try {
+    await api(`/api/forense/jobs/${currentJobId}/refocus`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        focus_description: $("#refocusDescription")?.value || "",
+        focus_from_sec: fromSec,
+        focus_until_sec: untilSec,
+        strict_detection: Boolean($("#refocusStrict")?.checked),
+      }),
+    });
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(() => loadJob(currentJobId, true), 2000);
+    await loadJob(currentJobId);
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    if (btn) btn.disabled = false;
   }
 });
 
