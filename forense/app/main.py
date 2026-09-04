@@ -30,6 +30,7 @@ from .jobs import (
     export_job_ehs,
     get_job,
     heatmap_path,
+    has_job_video,
     job_video_path,
     keyframe_path,
     learn_event_at_timestamp,
@@ -57,6 +58,7 @@ from .teach_bridge import (
     teach_status,
 )
 from .templates import list_templates
+from .video_formats import SUPPORTED_FORMATS_HINT, is_supported_video_filename
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("vigiepp.forense")
@@ -89,6 +91,8 @@ class LoginBody(BaseModel):
 async def _read_upload(video: UploadFile | None, label: str) -> dict | None:
     if video is None or not video.filename:
         return None
+    if not is_supported_video_filename(video.filename):
+        raise HTTPException(400, f"{label}: formato no soportado. Admitidos: {SUPPORTED_FORMATS_HINT}")
     data = await video.read()
     max_b = MAX_UPLOAD_MB * 1024 * 1024
     if len(data) > max_b:
@@ -244,7 +248,7 @@ def _job_payload(job: dict) -> dict:
         "has_pdf": report_pdf_path(job["id"]) is not None,
         "has_bundle": case_bundle_path(job["id"]) is not None,
         "has_committee": committee_md_path(job["id"]) is not None,
-        "has_video": job_video_path(job["id"]) is not None,
+        "has_video": has_job_video(job["id"]),
         "frames_analyzed": count_frames(job["id"]),
         "ehs_push": job.get("ehs_push"),
         "knowledge": job.get("knowledge"),
@@ -673,9 +677,13 @@ def knowledge_thumb(entry_id: str, request: Request) -> FileResponse:
     _require_license()
     require_forense_admin(request)
     from .config import KNOWLEDGE_DIR
+    from .path_safety import resolve_under, safe_entry_id
 
-    path = KNOWLEDGE_DIR / entry_id / "thumb.jpg"
-    if not path.is_file():
+    safe = safe_entry_id(entry_id)
+    if not safe:
+        raise HTTPException(404, "Miniatura no disponible")
+    path = resolve_under(KNOWLEDGE_DIR, safe, "thumb.jpg")
+    if not path or not path.is_file():
         raise HTTPException(404, "Miniatura no disponible")
     return FileResponse(path, media_type="image/jpeg")
 

@@ -2,6 +2,19 @@ import { statusLabel, kindLabel, eventTypeLabel, sourceLabel } from "./i18n-es-c
 
 const API = "";
 const TOKEN_KEY = "forense.token";
+const SUPPORTED_VIDEO_EXT = [
+  ".avi", ".mp4", ".m4v", ".mov", ".mkv", ".webm", ".ts", ".mts", ".m2ts",
+  ".wmv", ".asf", ".flv", ".f4v", ".3gp", ".3g2", ".mpg", ".mpeg", ".mpe",
+  ".dav", ".h264", ".264", ".ogv", ".ogg",
+];
+
+function isSupportedVideoFile(file) {
+  if (!file?.name) return false;
+  const dot = file.name.lastIndexOf(".");
+  if (dot < 0) return (file.type || "").startsWith("video/");
+  const ext = file.name.slice(dot).toLowerCase();
+  return SUPPORTED_VIDEO_EXT.includes(ext);
+}
 
 function getForenseToken() {
   return sessionStorage.getItem(TOKEN_KEY) || "";
@@ -123,6 +136,52 @@ let frameCache = [];
 let lastFrameFetchSec = -1;
 let overlayRaf = null;
 let videoSyncBound = false;
+let videoBlobUrl = null;
+let videoLoadedJobId = null;
+let videoLoadingJobId = null;
+let videoLoadPromise = null;
+let videoLoadRetryAfter = 0;
+const imageBlobUrls = new Map();
+
+function revokeImageBlobs(prefix = "") {
+  for (const [key, url] of imageBlobUrls.entries()) {
+    if (!prefix || key.startsWith(prefix)) {
+      URL.revokeObjectURL(url);
+      imageBlobUrls.delete(key);
+    }
+  }
+}
+
+async function loadAuthedImage(imgEl, url, blobKey = "") {
+  if (!imgEl || !url) return;
+  try {
+    const res = await fetch(url, { credentials: "include", headers: authHeaders() });
+    if (res.status === 401) {
+      clearForenseToken();
+      const st = await fetchAuthStatus();
+      hydrateTokenFromStatus(st);
+      if (!st.can_access) throw new Error("auth");
+      return loadAuthedImage(imgEl, url, blobKey);
+    }
+    if (!res.ok) throw new Error(String(res.status));
+    const blob = await res.blob();
+    if (!blob.size) throw new Error("empty");
+    if (blobKey) {
+      const prev = imageBlobUrls.get(blobKey);
+      if (prev) URL.revokeObjectURL(prev);
+      const blobUrl = URL.createObjectURL(blob);
+      imageBlobUrls.set(blobKey, blobUrl);
+      imgEl.src = blobUrl;
+    } else {
+      imgEl.src = URL.createObjectURL(blob);
+    }
+    imgEl.classList.remove("kn-thumb-broken");
+  } catch {
+    imgEl.removeAttribute("src");
+    imgEl.classList.add("kn-thumb-broken");
+    imgEl.alt = "sin vista previa";
+  }
+}
 
 function formatTs(sec) {
   const s = Math.max(0, Math.floor(sec));
@@ -283,6 +342,14 @@ function bindVideoSync() {
     if (overlayRaf) cancelAnimationFrame(overlayRaf);
     onVideoTimeUpdate();
   });
+  video.addEventListener("error", () => {
+    const code = video.error?.code;
+    if (code === 4) {
+      showToast("Formato de video no soportado en este navegador. Reintentá recargar el caso.", "error");
+    } else if (code) {
+      showToast("No se pudo reproducir el video en el navegador.", "error");
+    }
+  });
 }
 
 async function fetchIncrementalFrames(jobId) {
@@ -313,27 +380,118 @@ async function fetchIncrementalFrames(jobId) {
   }
 }
 
-function setupVideoViewer(job, jobId) {
+function releaseVideoBlob() {
+  if (videoBlobUrl) {
+    URL.revokeObjectURL(videoBlobUrl);
+    videoBlobUrl = null;
+  }
+}
+
+function resetVideoViewerState() {
+  releaseVideoBlob();
+  videoLoadedJobId = null;
+  videoLoadingJobId = null;
+  videoLoadPromise = null;
+  videoLoadRetryAfter = 0;
+  const video = $("#forenseVideo");
+  if (video) {
+    video.removeAttribute("src");
+    video.removeAttribute("data-src");
+    video.removeAttribute("data-job-id");
+  }
+}
+
+async function loadJobVideo(jobId, { quiet = false } = {}) {
+  const video = $("#forenseVideo");
+  if (!video) return;
+  const path = `/api/forense/jobs/${jobId}/video`;
+
+  if (videoLoadedJobId === jobId && video.src && video.getAttribute("data-src") === path) return;
+  if (videoLoadingJobId === jobId && videoLoadPromise) return videoLoadPromise;
+  if (Date.now() < videoLoadRetryAfter) return;
+
+  videoLoadingJobId = jobId;
+  video.setAttribute("data-src", path);
+  video.setAttribute("data-job-id", jobId);
+
+  if (!quiet) {
+    showToast("Preparando video para reproducción (puede tardar si requiere conversión)…", "info");
+  }
+
+  videoLoadPromise = (async () => {
+    try {
+      const res = await fetch(path, { credentials: "include", headers: authHeaders() });
+      if (res.status === 401) {
+        clearForenseToken();
+        const st = await fetchAuthStatus();
+        hydrateTokenFromStatus(st);
+        if (!st.can_access) throw new Error("Sesión expirada");
+        videoLoadingJobId = null;
+        videoLoadPromise = null;
+        return loadJobVideo(jobId, { quiet });
+      }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        if (res.status === 404) {
+          videoLoadRetryAfter = Date.now() + 8000;
+          return;
+        }
+        throw new Error(err.detail || "No se pudo cargar el video");
+      }
+      const blob = await res.blob();
+      if (!blob.size) throw new Error("El video está vacío o no se pudo convertir");
+      if (videoLoadingJobId !== jobId) return;
+      releaseVideoBlob();
+      videoBlobUrl = URL.createObjectURL(blob);
+      video.src = videoBlobUrl;
+      videoLoadedJobId = jobId;
+      await video.play().catch(() => {});
+      video.pause();
+      video.currentTime = 0;
+    } catch (err) {
+      if (!quiet) showToast(err.message || "Error al cargar el video", "error");
+      video.removeAttribute("data-src");
+      videoLoadRetryAfter = Date.now() + 5000;
+    } finally {
+      if (videoLoadingJobId === jobId) {
+        videoLoadingJobId = null;
+        videoLoadPromise = null;
+      }
+    }
+  })();
+
+  return videoLoadPromise;
+}
+
+function setupVideoViewer(job, jobId, { isPoll = false } = {}) {
   const section = $("#videoSection");
   const video = $("#forenseVideo");
   if (!section || !video) return;
   if (!job.has_video) {
     section.classList.add("hidden");
-    video.removeAttribute("src");
+    resetVideoViewerState();
     frameCache = [];
     lastFrameFetchSec = -1;
     return;
   }
   section.classList.remove("hidden");
-  const src = `/api/forense/jobs/${jobId}/video`;
-  if (video.getAttribute("data-src") !== src) {
-    video.setAttribute("data-src", src);
-    video.src = `${src}?t=${Date.now()}`;
+  const sameJob = video.getAttribute("data-job-id") === jobId;
+  if (!sameJob) {
+    resetVideoViewerState();
     frameCache = [];
     lastFrameFetchSec = -1;
+    video.setAttribute("data-job-id", jobId);
   }
   bindVideoSync();
-  fetchIncrementalFrames(jobId);
+
+  const processing = job.status === "processing" || job.status === "queued";
+  const shouldLoad =
+    !isPoll ||
+    (!processing && videoLoadedJobId !== jobId && videoLoadingJobId !== jobId);
+  if (shouldLoad && (!video.src || videoLoadedJobId !== jobId)) {
+    void loadJobVideo(jobId, { quiet: processing || isPoll });
+  }
+  if (!isPoll || !sameJob) fetchIncrementalFrames(jobId);
 }
 
 $("#btnLearnMoment")?.addEventListener("click", async () => {
@@ -399,12 +557,37 @@ async function loadTemplates() {
   applyTemplateDefaults(sel.value || "general");
 }
 
-function resetNewCaseForm() {
+function clearUploadForm() {
   $("#uploadForm")?.reset();
-  $("#caseTemplate").value = "general";
+  const title = $("#caseTitle");
+  const notes = $("#caseNotes");
+  const site = $("#caseSite");
+  if (title) title.value = "";
+  if (notes) notes.value = "";
+  if (site) site.value = "";
+  const tpl = $("#caseTemplate");
+  if (tpl) tpl.value = "general";
   applyTemplateDefaults("general");
-  $("#caseReference").value = "";
-  $("#uploadHint")?.classList.add("hidden");
+  const ref = $("#caseReference");
+  if (ref) ref.value = "";
+  const off2 = $("#caseOffset2");
+  const off3 = $("#caseOffset3");
+  if (off2) off2.value = "0";
+  if (off3) off3.value = "0";
+  for (const id of ["caseVideo", "caseVideo2", "caseVideo3"]) {
+    const el = document.getElementById(id);
+    if (el) el.value = "";
+  }
+  const hint = $("#uploadHint");
+  if (hint) {
+    hint.textContent = "";
+    hint.style.color = "";
+    hint.classList.add("hidden");
+  }
+}
+
+function resetNewCaseForm() {
+  clearUploadForm();
   if (pollTimer) {
     clearInterval(pollTimer);
     pollTimer = null;
@@ -412,11 +595,7 @@ function resetNewCaseForm() {
   currentJobId = null;
   frameCache = [];
   lastFrameFetchSec = -1;
-  const video = $("#forenseVideo");
-  if (video) {
-    video.removeAttribute("src");
-    video.removeAttribute("data-src");
-  }
+  resetVideoViewerState();
   $("#jobView")?.classList.add("hidden");
   $("#emptyState")?.classList.remove("hidden");
   refreshJobs();
@@ -649,18 +828,7 @@ async function loadKnowledge() {
 }
 
 async function loadKnowledgeThumb(entryId, imgEl) {
-  try {
-    const res = await fetch(`/api/forense/knowledge/${entryId}/thumb.jpg`, {
-      credentials: "include",
-      headers: authHeaders(),
-    });
-    if (!res.ok) throw new Error("thumb");
-    const blob = await res.blob();
-    imgEl.src = URL.createObjectURL(blob);
-  } catch {
-    imgEl.classList.add("kn-thumb-broken");
-    imgEl.alt = "sin vista previa";
-  }
+  await loadAuthedImage(imgEl, `/api/forense/knowledge/${entryId}/thumb.jpg`, `kn:${entryId}`);
 }
 
 function updateVigiEppLink() {
@@ -726,9 +894,8 @@ $("#authForm")?.addEventListener("submit", async (e) => {
 
 $("#btnNewCase")?.addEventListener("click", resetNewCaseForm);
 $("#btnResetForm")?.addEventListener("click", () => {
-  $("#uploadForm")?.reset();
-  applyTemplateDefaults($("#caseTemplate").value || "general");
-  $("#uploadHint")?.classList.add("hidden");
+  clearUploadForm();
+  showToast("Formulario limpiado", "info");
 });
 
 $("#btnTeachActivate")?.addEventListener("click", async () => {
@@ -1008,7 +1175,7 @@ async function loadJob(id, quiet = false) {
     `${j.site || ""} · ${j.template_name || j.template_id || ""} · ${statusLabel(j.status)} · ` +
     `${j.analysis?.event_count || 0} eventos · ${j.frames_analyzed || 0} fotogramas · ${srcCount} cámara(s)`;
 
-  setupVideoViewer(j, id);
+  setupVideoViewer(j, id, { isPoll: quiet });
   if (j.status === "processing" || j.status === "queued") {
     await fetchIncrementalFrames(id);
   }
@@ -1102,9 +1269,11 @@ async function loadJob(id, quiet = false) {
   const hmSec = $("#heatmapSection");
   if (j.has_heatmap) {
     hmSec.classList.remove("hidden");
-    $("#heatmapImg").src = `/api/forense/jobs/${id}/heatmap.jpg?t=${Date.now()}`;
+    const hmImg = $("#heatmapImg");
+    if (hmImg) void loadAuthedImage(hmImg, `/api/forense/jobs/${id}/heatmap.jpg`, `hm:${id}`);
   } else {
     hmSec.classList.add("hidden");
+    revokeImageBlobs(`hm:${id}`);
   }
 
   const tl = $("#timeline");
@@ -1121,6 +1290,7 @@ async function loadJob(id, quiet = false) {
   }
 
   const kf = $("#keyframes");
+  revokeImageBlobs(`kf:${id}:`);
   kf.innerHTML = "";
   selectedKeyframeName = null;
   $("#btnKeyframeTeach")?.setAttribute("disabled", "disabled");
@@ -1131,9 +1301,13 @@ async function loadJob(id, quiet = false) {
     wrap.className = "keyframe-btn";
     wrap.title = "Clic: seleccionar · doble clic: guardar en biblioteca";
     const img = document.createElement("img");
-    img.src = `/api/forense/jobs/${id}/keyframes/${frame.image}`;
     img.alt = frame.time_label;
     wrap.appendChild(img);
+    void loadAuthedImage(
+      img,
+      `/api/forense/jobs/${id}/keyframes/${frame.image}`,
+      `kf:${id}:${frame.image}`,
+    );
     const cap = document.createElement("span");
     cap.className = "small muted";
     cap.textContent = frame.time_label;
@@ -1221,8 +1395,18 @@ $("#uploadForm")?.addEventListener("submit", async (e) => {
   e.preventDefault();
   const file = $("#caseVideo").files?.[0];
   if (!file) {
-    alert("Seleccioná un video principal (MP4 o MOV) antes de iniciar el análisis.");
+    alert("Seleccioná un video principal antes de iniciar el análisis.");
     return;
+  }
+  if (!isSupportedVideoFile(file)) {
+    alert("Formato no soportado. Usá AVI, MP4, MOV, MKV, WMV, TS, MPG, FLV, 3GP, DAV u otro contenedor de video.");
+    return;
+  }
+  for (const extra of [$("#caseVideo2").files?.[0], $("#caseVideo3").files?.[0]]) {
+    if (extra && !isSupportedVideoFile(extra)) {
+      alert(`Formato no soportado en cámara adicional: ${extra.name}`);
+      return;
+    }
   }
   const btn = $("#btnStartAnalysis");
   const hint = $("#uploadHint");

@@ -16,10 +16,12 @@ from .config import BUILD, JOBS_DIR, ensure_dirs
 from .export import committee_section, export_case_bundle, push_to_ehs
 from .knowledge import apply_knowledge_insights, match_knowledge_for_job, reinforce_knowledge_from_job
 from .multi_source import run_multi_source_analysis
+from .path_safety import resolve_under, safe_job_id, safe_keyframe_name
 from .pdf_export import export_report_pdf
 from .report import build_report_markdown, maybe_enrich_with_llm
 from .sampler import adaptive_sample_video
 from .templates import inference_settings, resolve_template
+from .video_formats import resolve_source_path, video_extension
 
 logger = logging.getLogger("vigiepp.forense.jobs")
 _lock = threading.Lock()
@@ -27,7 +29,10 @@ _jobs: dict[str, dict[str, Any]] = {}
 
 
 def _job_dir(job_id: str) -> Path:
-    return JOBS_DIR / job_id
+    safe = safe_job_id(job_id)
+    if not safe:
+        raise ValueError("job_id inválido")
+    return JOBS_DIR / safe
 
 
 def _save_job(job: dict[str, Any]) -> None:
@@ -60,6 +65,8 @@ def list_jobs() -> list[dict[str, Any]]:
 
 
 def get_job(job_id: str) -> dict[str, Any] | None:
+    if not safe_job_id(job_id):
+        return None
     with _lock:
         if job_id not in _jobs:
             _load_jobs_from_disk()
@@ -99,13 +106,14 @@ def create_job(
 
     sources_dir = job_dir / "sources"
     sources_dir.mkdir(exist_ok=True)
-    ext = Path(filename).suffix.lower() or ".mp4"
+    ext = video_extension(filename) or ".mp4"
     primary_path = sources_dir / f"cam0{ext}"
     primary_path.write_bytes(video_bytes)
 
     source_meta = [{"label": "Cám. 1", "offset_sec": 0.0, "path": str(primary_path), "filename": filename}]
     for i, extra in enumerate(extra_sources or [], start=1):
-        ex_ext = Path(extra.get("filename") or "video.mp4").suffix.lower() or ".mp4"
+        ex_name = extra.get("filename") or "video.mp4"
+        ex_ext = video_extension(ex_name) or ".mp4"
         p = sources_dir / f"cam{i}{ex_ext}"
         p.write_bytes(extra["bytes"])
         source_meta.append(
@@ -159,6 +167,7 @@ def _process_job(job_id: str) -> None:
     try:
         job["status"] = "processing"
         _set_progress(job_id, 5, "Preparando fuentes de video")
+        ensure_web_playback(job_id)
 
         inf = inference_settings(job.get("template_id"))
         sample_kw = {
@@ -299,8 +308,13 @@ def delete_job(job_id: str) -> bool:
 
 
 def keyframe_path(job_id: str, name: str) -> Path | None:
-    p = _job_dir(job_id) / "keyframes" / name
-    return p if p.is_file() else None
+    safe_id = safe_job_id(job_id)
+    safe_name = safe_keyframe_name(name)
+    if not safe_id or not safe_name:
+        return None
+    base = JOBS_DIR / safe_id
+    p = resolve_under(base, "keyframes", safe_name)
+    return p if p and p.is_file() else None
 
 
 def heatmap_path(job_id: str) -> Path | None:
@@ -323,15 +337,28 @@ def committee_md_path(job_id: str) -> Path | None:
     return p if p.is_file() else None
 
 
+def job_source_video_path(job_id: str, cam: int = 0) -> Path | None:
+    """Archivo original subido (p. ej. AVI HEVC) — usado por OpenCV y análisis."""
+    return resolve_source_path(_job_dir(job_id) / "sources", cam)
+
+
 def job_video_path(job_id: str, cam: int = 0) -> Path | None:
+    """MP4 H.264 listo para <video> en navegador; transcodifica bajo demanda."""
     d = _job_dir(job_id) / "sources"
     if not d.is_dir():
         return None
-    for ext in (".mp4", ".avi", ".mov", ".webm", ".mkv"):
-        p = d / f"cam{cam}{ext}"
-        if p.is_file():
-            return p
-    return None
+    from .video_transcode import web_playback_path
+
+    return web_playback_path(d, cam)
+
+
+def has_job_video(job_id: str, cam: int = 0) -> bool:
+    return job_source_video_path(job_id, cam) is not None
+
+
+def ensure_web_playback(job_id: str, cam: int = 0) -> Path | None:
+    """Genera cam{N}_web.mp4 si el original no es reproducible en Chrome."""
+    return job_video_path(job_id, cam)
 
 
 def learn_event_at_timestamp(
@@ -367,7 +394,7 @@ def learn_event_at_timestamp(
 def extract_frame_jpeg(job_id: str, time_sec: float, *, cam: int = 0) -> bytes | None:
     import cv2
 
-    path = job_video_path(job_id, cam)
+    path = job_source_video_path(job_id, cam)
     if not path:
         return None
     cap = cv2.VideoCapture(str(path))
