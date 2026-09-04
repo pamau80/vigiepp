@@ -137,6 +137,10 @@ let lastFrameFetchSec = -1;
 let overlayRaf = null;
 let videoSyncBound = false;
 let videoBlobUrl = null;
+let videoLoadedJobId = null;
+let videoLoadingJobId = null;
+let videoLoadPromise = null;
+let videoLoadRetryAfter = 0;
 
 function formatTs(sec) {
   const s = Math.max(0, Math.floor(sec));
@@ -342,62 +346,111 @@ function releaseVideoBlob() {
   }
 }
 
-async function loadJobVideo(jobId) {
-  const video = $("#forenseVideo");
-  if (!video) return;
-  const path = `/api/forense/jobs/${jobId}/video`;
-  if (video.getAttribute("data-src") === path && video.src) return;
-
+function resetVideoViewerState() {
   releaseVideoBlob();
-  video.removeAttribute("src");
-  video.setAttribute("data-src", path);
-
-  showToast("Cargando video (puede tardar si requiere conversión H.264)…", "info");
-  try {
-    const res = await fetch(path, { credentials: "include", headers: authHeaders() });
-    if (res.status === 401) {
-      clearForenseToken();
-      const st = await fetchAuthStatus();
-      hydrateTokenFromStatus(st);
-      if (!st.can_access) throw new Error("Sesión expirada");
-      return loadJobVideo(jobId);
-    }
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || "No se pudo cargar el video");
-    }
-    const blob = await res.blob();
-    if (!blob.size) throw new Error("El video está vacío o no se pudo convertir");
-    videoBlobUrl = URL.createObjectURL(blob);
-    video.src = videoBlobUrl;
-    await video.play().catch(() => {});
-    video.pause();
-    video.currentTime = 0;
-  } catch (err) {
-    showToast(err.message || "Error al cargar el video", "error");
+  videoLoadedJobId = null;
+  videoLoadingJobId = null;
+  videoLoadPromise = null;
+  videoLoadRetryAfter = 0;
+  const video = $("#forenseVideo");
+  if (video) {
+    video.removeAttribute("src");
     video.removeAttribute("data-src");
+    video.removeAttribute("data-job-id");
   }
 }
 
-function setupVideoViewer(job, jobId) {
+async function loadJobVideo(jobId, { quiet = false } = {}) {
+  const video = $("#forenseVideo");
+  if (!video) return;
+  const path = `/api/forense/jobs/${jobId}/video`;
+
+  if (videoLoadedJobId === jobId && video.src && video.getAttribute("data-src") === path) return;
+  if (videoLoadingJobId === jobId && videoLoadPromise) return videoLoadPromise;
+  if (Date.now() < videoLoadRetryAfter) return;
+
+  videoLoadingJobId = jobId;
+  video.setAttribute("data-src", path);
+  video.setAttribute("data-job-id", jobId);
+
+  if (!quiet) {
+    showToast("Preparando video para reproducción (puede tardar si requiere conversión)…", "info");
+  }
+
+  videoLoadPromise = (async () => {
+    try {
+      const res = await fetch(path, { credentials: "include", headers: authHeaders() });
+      if (res.status === 401) {
+        clearForenseToken();
+        const st = await fetchAuthStatus();
+        hydrateTokenFromStatus(st);
+        if (!st.can_access) throw new Error("Sesión expirada");
+        videoLoadingJobId = null;
+        videoLoadPromise = null;
+        return loadJobVideo(jobId, { quiet });
+      }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        if (res.status === 404) {
+          videoLoadRetryAfter = Date.now() + 8000;
+          return;
+        }
+        throw new Error(err.detail || "No se pudo cargar el video");
+      }
+      const blob = await res.blob();
+      if (!blob.size) throw new Error("El video está vacío o no se pudo convertir");
+      if (videoLoadingJobId !== jobId) return;
+      releaseVideoBlob();
+      videoBlobUrl = URL.createObjectURL(blob);
+      video.src = videoBlobUrl;
+      videoLoadedJobId = jobId;
+      await video.play().catch(() => {});
+      video.pause();
+      video.currentTime = 0;
+    } catch (err) {
+      if (!quiet) showToast(err.message || "Error al cargar el video", "error");
+      video.removeAttribute("data-src");
+      videoLoadRetryAfter = Date.now() + 5000;
+    } finally {
+      if (videoLoadingJobId === jobId) {
+        videoLoadingJobId = null;
+        videoLoadPromise = null;
+      }
+    }
+  })();
+
+  return videoLoadPromise;
+}
+
+function setupVideoViewer(job, jobId, { isPoll = false } = {}) {
   const section = $("#videoSection");
   const video = $("#forenseVideo");
   if (!section || !video) return;
   if (!job.has_video) {
     section.classList.add("hidden");
-    releaseVideoBlob();
-    video.removeAttribute("src");
-    video.removeAttribute("data-src");
+    resetVideoViewerState();
     frameCache = [];
     lastFrameFetchSec = -1;
     return;
   }
   section.classList.remove("hidden");
-  frameCache = [];
-  lastFrameFetchSec = -1;
+  const sameJob = video.getAttribute("data-job-id") === jobId;
+  if (!sameJob) {
+    resetVideoViewerState();
+    frameCache = [];
+    lastFrameFetchSec = -1;
+    video.setAttribute("data-job-id", jobId);
+  }
   bindVideoSync();
-  void loadJobVideo(jobId);
-  fetchIncrementalFrames(jobId);
+
+  const processing = job.status === "processing" || job.status === "queued";
+  const shouldLoad =
+    !isPoll ||
+    (!processing && videoLoadedJobId !== jobId && videoLoadingJobId !== jobId);
+  if (shouldLoad && (!video.src || videoLoadedJobId !== jobId)) {
+    void loadJobVideo(jobId, { quiet: processing || isPoll });
+  }
+  if (!isPoll || !sameJob) fetchIncrementalFrames(jobId);
 }
 
 $("#btnLearnMoment")?.addEventListener("click", async () => {
@@ -477,11 +530,7 @@ function resetNewCaseForm() {
   frameCache = [];
   lastFrameFetchSec = -1;
   const video = $("#forenseVideo");
-  if (video) {
-    releaseVideoBlob();
-    video.removeAttribute("src");
-    video.removeAttribute("data-src");
-  }
+  if (video) resetVideoViewerState();
   $("#jobView")?.classList.add("hidden");
   $("#emptyState")?.classList.remove("hidden");
   refreshJobs();
@@ -1073,7 +1122,7 @@ async function loadJob(id, quiet = false) {
     `${j.site || ""} · ${j.template_name || j.template_id || ""} · ${statusLabel(j.status)} · ` +
     `${j.analysis?.event_count || 0} eventos · ${j.frames_analyzed || 0} fotogramas · ${srcCount} cámara(s)`;
 
-  setupVideoViewer(j, id);
+  setupVideoViewer(j, id, { isPoll: quiet });
   if (j.status === "processing" || j.status === "queued") {
     await fetchIncrementalFrames(id);
   }
