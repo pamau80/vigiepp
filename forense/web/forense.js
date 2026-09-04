@@ -141,6 +141,47 @@ let videoLoadedJobId = null;
 let videoLoadingJobId = null;
 let videoLoadPromise = null;
 let videoLoadRetryAfter = 0;
+const imageBlobUrls = new Map();
+
+function revokeImageBlobs(prefix = "") {
+  for (const [key, url] of imageBlobUrls.entries()) {
+    if (!prefix || key.startsWith(prefix)) {
+      URL.revokeObjectURL(url);
+      imageBlobUrls.delete(key);
+    }
+  }
+}
+
+async function loadAuthedImage(imgEl, url, blobKey = "") {
+  if (!imgEl || !url) return;
+  try {
+    const res = await fetch(url, { credentials: "include", headers: authHeaders() });
+    if (res.status === 401) {
+      clearForenseToken();
+      const st = await fetchAuthStatus();
+      hydrateTokenFromStatus(st);
+      if (!st.can_access) throw new Error("auth");
+      return loadAuthedImage(imgEl, url, blobKey);
+    }
+    if (!res.ok) throw new Error(String(res.status));
+    const blob = await res.blob();
+    if (!blob.size) throw new Error("empty");
+    if (blobKey) {
+      const prev = imageBlobUrls.get(blobKey);
+      if (prev) URL.revokeObjectURL(prev);
+      const blobUrl = URL.createObjectURL(blob);
+      imageBlobUrls.set(blobKey, blobUrl);
+      imgEl.src = blobUrl;
+    } else {
+      imgEl.src = URL.createObjectURL(blob);
+    }
+    imgEl.classList.remove("kn-thumb-broken");
+  } catch {
+    imgEl.removeAttribute("src");
+    imgEl.classList.add("kn-thumb-broken");
+    imgEl.alt = "sin vista previa";
+  }
+}
 
 function formatTs(sec) {
   const s = Math.max(0, Math.floor(sec));
@@ -787,18 +828,7 @@ async function loadKnowledge() {
 }
 
 async function loadKnowledgeThumb(entryId, imgEl) {
-  try {
-    const res = await fetch(`/api/forense/knowledge/${entryId}/thumb.jpg`, {
-      credentials: "include",
-      headers: authHeaders(),
-    });
-    if (!res.ok) throw new Error("thumb");
-    const blob = await res.blob();
-    imgEl.src = URL.createObjectURL(blob);
-  } catch {
-    imgEl.classList.add("kn-thumb-broken");
-    imgEl.alt = "sin vista previa";
-  }
+  await loadAuthedImage(imgEl, `/api/forense/knowledge/${entryId}/thumb.jpg`, `kn:${entryId}`);
 }
 
 function updateVigiEppLink() {
@@ -1239,9 +1269,11 @@ async function loadJob(id, quiet = false) {
   const hmSec = $("#heatmapSection");
   if (j.has_heatmap) {
     hmSec.classList.remove("hidden");
-    $("#heatmapImg").src = `/api/forense/jobs/${id}/heatmap.jpg?t=${Date.now()}`;
+    const hmImg = $("#heatmapImg");
+    if (hmImg) void loadAuthedImage(hmImg, `/api/forense/jobs/${id}/heatmap.jpg`, `hm:${id}`);
   } else {
     hmSec.classList.add("hidden");
+    revokeImageBlobs(`hm:${id}`);
   }
 
   const tl = $("#timeline");
@@ -1258,6 +1290,7 @@ async function loadJob(id, quiet = false) {
   }
 
   const kf = $("#keyframes");
+  revokeImageBlobs(`kf:${id}:`);
   kf.innerHTML = "";
   selectedKeyframeName = null;
   $("#btnKeyframeTeach")?.setAttribute("disabled", "disabled");
@@ -1268,9 +1301,13 @@ async function loadJob(id, quiet = false) {
     wrap.className = "keyframe-btn";
     wrap.title = "Clic: seleccionar · doble clic: guardar en biblioteca";
     const img = document.createElement("img");
-    img.src = `/api/forense/jobs/${id}/keyframes/${frame.image}`;
     img.alt = frame.time_label;
     wrap.appendChild(img);
+    void loadAuthedImage(
+      img,
+      `/api/forense/jobs/${id}/keyframes/${frame.image}`,
+      `kf:${id}:${frame.image}`,
+    );
     const cap = document.createElement("span");
     cap.className = "small muted";
     cap.textContent = frame.time_label;
