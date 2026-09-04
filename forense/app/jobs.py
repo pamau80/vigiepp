@@ -19,7 +19,7 @@ from .multi_source import run_multi_source_analysis
 from .path_safety import resolve_under, safe_job_id, safe_keyframe_name
 from .pdf_export import export_report_pdf
 from .report import build_report_markdown, maybe_enrich_with_llm
-from .sampler import adaptive_sample_video
+from .sampler import adaptive_sample_video, enrich_focus_window
 from .templates import inference_settings, resolve_template
 from .video_formats import resolve_source_path, video_extension
 
@@ -97,6 +97,10 @@ def create_job(
     min_distance_m: float | None = None,
     reference_job_id: str | None = None,
     extra_sources: list[dict[str, Any]] | None = None,
+    focus_description: str = "",
+    focus_from_sec: float | None = None,
+    focus_until_sec: float | None = None,
+    strict_detection: bool = False,
 ) -> dict[str, Any]:
     tpl = resolve_template(template_id)
     ensure_dirs()
@@ -131,6 +135,10 @@ def create_job(
         "title": title.strip() or "Análisis forense",
         "site": site.strip() or "Faena",
         "case_notes": case_notes.strip(),
+        "focus_description": focus_description.strip(),
+        "focus_from_sec": focus_from_sec,
+        "focus_until_sec": focus_until_sec,
+        "strict_detection": bool(strict_detection),
         "template_id": tpl["id"],
         "template_name": tpl["name"],
         "profile": profile or tpl["profile"],
@@ -170,6 +178,9 @@ def _process_job(job_id: str) -> None:
         ensure_web_playback(job_id)
 
         inf = inference_settings(job.get("template_id"))
+        from .detection_filter import strict_inference_overrides
+
+        inf = {**inf, **strict_inference_overrides(bool(job.get("strict_detection")))}
         sample_kw = {
             "base_interval_sec": inf.get("base_interval_sec", 0.45),
             "motion_threshold": inf.get("motion_threshold", 11.0),
@@ -178,11 +189,34 @@ def _process_job(job_id: str) -> None:
             "max_frames": int(inf.get("max_frames", 5000)),
         }
         imgsz = int(inf.get("imgsz", 320))
+        det_conf = float(inf.get("min_detection_confidence", 0.42))
+        det_area = float(inf.get("min_box_area_ratio", 0.0008))
+        focus_from = job.get("focus_from_sec")
+        focus_until = job.get("focus_until_sec")
+        has_focus = (
+            focus_from is not None
+            and focus_until is not None
+            and float(focus_until) > float(focus_from)
+        )
 
         sources = job.get("sources") or []
         if len(sources) <= 1:
             path = sources[0]["path"] if sources else ""
             samples, meta = adaptive_sample_video(path, **sample_kw)
+            if has_focus:
+                samples = enrich_focus_window(
+                    samples,
+                    path,
+                    focus_from_sec=float(focus_from),
+                    focus_until_sec=float(focus_until),
+                    interval_sec=float(inf.get("focus_burst_interval_sec", 0.12)),
+                )
+                meta["focus_window"] = {
+                    "from_sec": float(focus_from),
+                    "until_sec": float(focus_until),
+                    "extra_frames": meta.get("sampled_frames"),
+                }
+                meta["sampled_frames"] = len(samples)
             job["meta"] = meta
             from .analyzer import run_analysis
 
@@ -197,6 +231,8 @@ def _process_job(job_id: str) -> None:
                 heatmap_path=_job_dir(job_id) / "heatmap.jpg",
                 progress_cb=lambda p, m: _set_progress(job_id, p, m),
                 imgsz=imgsz,
+                min_detection_confidence=det_conf,
+                min_box_area_ratio=det_area,
             )
         else:
             job["meta"] = {"sources": len(sources), "multi_camera": True}
@@ -249,6 +285,13 @@ def _process_job(job_id: str) -> None:
         reinforced = reinforce_knowledge_from_job(job, knowledge_matches)
         if reinforced:
             job["knowledge"]["reinforced_entries"] = reinforced
+
+        _set_progress(job_id, 91, "Interpretación visual IA (ventana de enfoque)")
+        from .video_ai import analyze_job_with_vision
+
+        vision = analyze_job_with_vision(job)
+        if vision:
+            job["video_ai"] = vision
 
         _set_progress(job_id, 92, "Generando informes")
 

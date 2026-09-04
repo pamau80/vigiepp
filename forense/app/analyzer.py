@@ -16,6 +16,7 @@ from .kinematics import (
     snapshot_proximity,
     snapshot_track_speeds,
 )
+from .detection_filter import filter_detections
 from .tracker import IoUTracker, _classify
 
 logger = logging.getLogger("vigiepp.forense.analyzer")
@@ -36,6 +37,8 @@ def analyze_frame(
     profile: str = DEFAULT_PROFILE,
     meters_per_pixel: float = 0.045,
     imgsz: int = 320,
+    min_detection_confidence: float = 0.42,
+    min_box_area_ratio: float = 0.0008,
 ) -> dict[str, Any]:
     """Ejecuta detección + compliance + zonas + acciones sobre un frame."""
     from app import actions as actions_mod
@@ -45,6 +48,13 @@ def analyze_frame(
     h, w = frame_bgr.shape[:2]
     det = PPEDetector.get()
     detections, _ = det.predict(frame_bgr, annotate=False, imgsz=imgsz)
+    detections = filter_detections(
+        detections,
+        w,
+        h,
+        min_confidence=min_detection_confidence,
+        min_area_ratio=min_box_area_ratio,
+    )
 
     settings = actions_mod.get_settings()
     settings["meters_per_pixel"] = meters_per_pixel
@@ -179,6 +189,8 @@ def run_analysis(
     progress_span: int = 75,
     imgsz: int = 320,
     record_frames: bool = True,
+    min_detection_confidence: float = 0.42,
+    min_box_area_ratio: float = 0.0008,
 ) -> dict[str, Any]:
     suffix = f":{source_suffix}" if source_suffix else ""
     source_id = f"forense:{job_id}{suffix}"
@@ -210,6 +222,8 @@ def run_analysis(
                 profile=profile,
                 meters_per_pixel=meters_per_pixel,
                 imgsz=imgsz,
+                min_detection_confidence=min_detection_confidence,
+                min_box_area_ratio=min_box_area_ratio,
             )
             frame_w = max(frame_w, int(result.get("frame_w") or 0))
             frame_h = max(frame_h, int(result.get("frame_h") or 0))

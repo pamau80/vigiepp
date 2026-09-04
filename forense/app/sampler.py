@@ -83,3 +83,49 @@ def adaptive_sample_video(
         "sampled_frames": len(samples),
     }
     return samples, meta
+
+
+def enrich_focus_window(
+    samples: list[SampledFrame],
+    video_path: str,
+    *,
+    focus_from_sec: float,
+    focus_until_sec: float,
+    interval_sec: float = 0.12,
+    max_extra: int = 120,
+) -> list[SampledFrame]:
+    """Agrega fotogramas densos en la ventana del incidente indicada por el operador."""
+    if focus_until_sec <= focus_from_sec:
+        return samples
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return samples
+    fps = float(cap.get(cv2.CAP_PROP_FPS) or 25.0)
+    if fps <= 0:
+        cap.release()
+        return samples
+
+    existing = {round(s.time_sec, 2) for s in samples}
+    extras: list[SampledFrame] = []
+    t = focus_from_sec
+    while t <= focus_until_sec and len(extras) < max_extra:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(t * fps))
+        ok, frame = cap.read()
+        if ok and frame is not None:
+            key = round(t, 2)
+            if key not in existing:
+                extras.append(
+                    SampledFrame(
+                        index=int(t * fps),
+                        time_sec=round(t, 3),
+                        frame_bgr=frame.copy(),
+                        burst=True,
+                    )
+                )
+                existing.add(key)
+        t += interval_sec
+    cap.release()
+    if not extras:
+        return samples
+    merged = sorted(samples + extras, key=lambda s: s.time_sec)
+    return merged

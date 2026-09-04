@@ -45,6 +45,13 @@
       <form id="uploadForm" class="card">
         <label>Título del caso<input type="text" id="caseTitle" placeholder="Ej.: acto inseguro en patio de faena" /></label>
         <label>Descripción de lo ocurrido<textarea id="caseNotes" rows="2" placeholder="Ej.: conductor retrocede sin guía, invade zona peatonal…"></textarea></label>
+        <label>¿Qué buscamos en el video? (enfoque IA)<textarea id="caseFocus" rows="2" placeholder="Ej.: caída de paquete en muelle, retroceso sin guía, persona bajo carga suspendida…"></textarea></label>
+        <div class="focus-window-row">
+          <label>Incidente desde (seg)<input type="number" id="caseFocusFrom" min="0" step="0.1" placeholder="ej. 65" /></label>
+          <label>hasta (seg)<input type="number" id="caseFocusUntil" min="0" step="0.1" placeholder="ej. 95" /></label>
+        </div>
+        <p class="muted small">La IA interpretará con prioridad esos segundos y tu descripción (requiere API OpenAI).</p>
+        <label class="checkbox-row"><input type="checkbox" id="caseStrict" /> Modo estricto — menos falsos positivos del detector</label>
         <label>Faena / sitio<input type="text" id="caseSite" placeholder="Faena principal" /></label>
         <label>Plantilla industria
           <select id="caseTemplate"></select>
@@ -205,6 +212,11 @@
             <button type="button" class="btn ghost small" id="btnKeyframeTeach" disabled>Enviar captura a enseñanza</button>
           </div>
           <div id="keyframes" class="keyframes"></div>
+        </section>
+        <section class="card hidden" id="videoAiSection">
+          <h3>Interpretación visual IA</h3>
+          <p class="muted small" id="videoAiMeta"></p>
+          <pre id="videoAiBody" class="report-md"></pre>
         </section>
         <section class="card">
           <h3>Informe IA</h3>

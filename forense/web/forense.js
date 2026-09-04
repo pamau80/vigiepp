@@ -565,6 +565,14 @@ function clearUploadForm() {
   if (title) title.value = "";
   if (notes) notes.value = "";
   if (site) site.value = "";
+  const focus = $("#caseFocus");
+  if (focus) focus.value = "";
+  const ff = $("#caseFocusFrom");
+  const fu = $("#caseFocusUntil");
+  if (ff) ff.value = "";
+  if (fu) fu.value = "";
+  const strict = $("#caseStrict");
+  if (strict) strict.checked = false;
   const tpl = $("#caseTemplate");
   if (tpl) tpl.value = "general";
   applyTemplateDefaults("general");
@@ -596,6 +604,7 @@ function resetNewCaseForm() {
   frameCache = [];
   lastFrameFetchSec = -1;
   resetVideoViewerState();
+  revokeImageBlobs();
   $("#jobView")?.classList.add("hidden");
   $("#emptyState")?.classList.remove("hidden");
   refreshJobs();
@@ -1166,6 +1175,57 @@ async function promoteKeyframe(jobId, keyframeName, timeLabel) {
   }
 }
 
+function renderVideoAi(job) {
+  const sec = $("#videoAiSection");
+  const body = $("#videoAiBody");
+  const meta = $("#videoAiMeta");
+  if (!sec || !body) return;
+  const va = job.video_ai;
+  if (!va) {
+    sec.classList.add("hidden");
+    body.textContent = "";
+    return;
+  }
+  sec.classList.remove("hidden");
+  const fw = va.focus_window || {};
+  const fwTxt =
+    fw.from_sec != null && fw.until_sec != null
+      ? `Ventana ${fw.from_sec}s–${fw.until_sec}s · `
+      : "";
+  if (meta) {
+    meta.textContent = `${fwTxt}${va.frames_used || 0} capturas · modelo ${va.model || "—"}`;
+  }
+  const p = va.parsed;
+  if (p) {
+    const lines = [];
+    if (p.resumen) lines.push(String(p.resumen));
+    const seq = p.secuencia || [];
+    if (seq.length) {
+      lines.push("\nSecuencia observada:");
+      for (const item of seq) {
+        if (item && typeof item === "object") {
+          lines.push(`• ${item.hora || "—"}: ${item.observacion || ""}`);
+        } else {
+          lines.push(`• ${item}`);
+        }
+      }
+    }
+    const fp = p.posibles_falsos_positivos || [];
+    if (fp.length) {
+      lines.push("\nPosibles falsos positivos del detector:");
+      for (const f of fp) lines.push(`• ${f}`);
+    }
+    const rec = p.recomendaciones || [];
+    if (rec.length) {
+      lines.push("\nRecomendaciones:");
+      for (const r of rec) lines.push(`• ${r}`);
+    }
+    body.textContent = lines.join("\n");
+  } else {
+    body.textContent = va.raw || "—";
+  }
+}
+
 async function loadJob(id, quiet = false) {
   const data = await api(`/api/forense/jobs/${id}`);
   const j = data.job;
@@ -1176,6 +1236,7 @@ async function loadJob(id, quiet = false) {
     `${j.analysis?.event_count || 0} eventos · ${j.frames_analyzed || 0} fotogramas · ${srcCount} cámara(s)`;
 
   setupVideoViewer(j, id, { isPoll: quiet });
+  renderVideoAi(j);
   if (j.status === "processing" || j.status === "queued") {
     await fetchIncrementalFrames(id);
   }
@@ -1428,6 +1489,12 @@ $("#uploadForm")?.addEventListener("submit", async (e) => {
   fd.append("title", $("#caseTitle").value);
   fd.append("site", $("#caseSite").value);
   fd.append("case_notes", $("#caseNotes")?.value || "");
+  fd.append("focus_description", $("#caseFocus")?.value || "");
+  const ff = $("#caseFocusFrom")?.value;
+  const fu = $("#caseFocusUntil")?.value;
+  if (ff) fd.append("focus_from_sec", ff);
+  if (fu) fd.append("focus_until_sec", fu);
+  if ($("#caseStrict")?.checked) fd.append("strict_detection", "1");
   fd.append("template_id", $("#caseTemplate").value);
   fd.append("meters_per_pixel", $("#caseMpp").value);
   fd.append("max_machinery_kmh", $("#caseMachKmh").value);

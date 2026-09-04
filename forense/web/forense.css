@@ -114,3 +114,6 @@ textarea { resize: vertical; min-height: 4rem; font-family: inherit; }
   .app { grid-template-columns: 1fr; }
   .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
 }
+.focus-window-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+.checkbox-row { display: flex; align-items: center; gap: 0.45rem; font-size: 0.88rem; }
+.checkbox-row input { width: auto; margin: 0; }

@@ -11,6 +11,9 @@ _DEFAULT_INFERENCE: dict[str, Any] = {
     "burst_interval_sec": 0.1,
     "burst_duration_sec": 4.5,
     "max_frames": 5000,
+    "min_detection_confidence": 0.42,
+    "min_box_area_ratio": 0.0008,
+    "focus_burst_interval_sec": 0.12,
 }
 
 TEMPLATES: dict[str, dict[str, Any]] = {

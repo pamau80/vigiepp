@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from .i18n_es_cl import label_event_type, label_kind, label_severity
+from .video_ai import format_video_ai_markdown
 
 
 DISCLAIMER = (
@@ -104,6 +105,12 @@ def build_report_markdown(job: dict[str, Any]) -> str:
 
 Se analizó un video de **{duration_txt}** ({frames_txt} frames muestreados{cameras_txt}).  
 Se detectaron **{analysis.get('event_count', 0)} eventos** relevantes.
+
+{_section_focus(job)}
+
+## 1b. Interpretación visual IA (fotogramas clave)
+
+{format_video_ai_markdown(job.get('video_ai'))}
 
 ## 2. Comparación vs escenario de referencia
 
@@ -203,6 +210,22 @@ def _section_knowledge(knowledge: dict[str, Any]) -> str:
     conjectures = knowledge.get("conjectures") or 0
     if conjectures:
         lines.append(f"\n_{conjectures} conjetura(s) de aprendizaje (similitud parcial)._")
+    return "\n".join(lines) + "\n"
+
+
+def _section_focus(job: dict[str, Any]) -> str:
+    desc = (job.get("focus_description") or "").strip()
+    f0 = job.get("focus_from_sec")
+    f1 = job.get("focus_until_sec")
+    if not desc and f0 is None:
+        return ""
+    lines = ["**Enfoque del operador:**"]
+    if desc:
+        lines.append(f"- {desc}")
+    if f0 is not None and f1 is not None:
+        lines.append(f"- Ventana prioritaria analizada: **{f0}s — {f1}s**")
+    if job.get("strict_detection"):
+        lines.append("- Modo estricto activo (menos falsos positivos del detector).")
     return "\n".join(lines) + "\n"
 
 

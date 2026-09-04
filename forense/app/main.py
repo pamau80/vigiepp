@@ -187,6 +187,10 @@ async def jobs_create(
     reference_job_id: str = Form(""),
     offset2: float = Form(0.0),
     offset3: float = Form(0.0),
+    focus_description: str = Form(""),
+    focus_from_sec: float | None = Form(None),
+    focus_until_sec: float | None = Form(None),
+    strict_detection: str = Form(""),
 ) -> dict:
     _require_license()
     require_forense_admin(request)
@@ -218,6 +222,10 @@ async def jobs_create(
         min_distance_m=max(0.5, min(20.0, min_distance_m)) if min_distance_m is not None else None,
         reference_job_id=ref_id,
         extra_sources=extra_sources or None,
+        focus_description=focus_description,
+        focus_from_sec=focus_from_sec if focus_from_sec is not None and focus_from_sec >= 0 else None,
+        focus_until_sec=focus_until_sec if focus_until_sec is not None and focus_until_sec > 0 else None,
+        strict_detection=strict_detection.strip().lower() in {"1", "true", "on", "yes", "si", "sí"},
     )
     return {"ok": True, "job": {"id": job["id"], "status": job["status"]}}
 
@@ -229,6 +237,11 @@ def _job_payload(job: dict) -> dict:
         "title": job.get("title"),
         "site": job.get("site"),
         "case_notes": job.get("case_notes"),
+        "focus_description": job.get("focus_description"),
+        "focus_from_sec": job.get("focus_from_sec"),
+        "focus_until_sec": job.get("focus_until_sec"),
+        "strict_detection": job.get("strict_detection"),
+        "video_ai": job.get("video_ai"),
         "status": job.get("status"),
         "progress": job.get("progress"),
         "progress_message": job.get("progress_message"),
