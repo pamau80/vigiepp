@@ -79,6 +79,8 @@ def critical_alerts_summary(
     seen: set[str] = set()
     alerts: list[dict[str, Any]] = []
     for ev in sorted(timeline or [], key=lambda e: float(e.get("time_sec") or 0)):
+        if ev.get("review_status") == "dismissed":
+            continue
         etype = str(ev.get("type") or "")
         if etype not in _PRIORITY_TYPES or etype in seen:
             continue

@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from .expert_report import section_barrier_analysis, section_expert_recommendations, section_observed_facts
+from .event_feedback import active_timeline, apply_review_state, ensure_event_ids
 from .i18n_es_cl import label_event_type, label_kind, label_severity
 from .timeline_evidence import enrich_timeline_evidence
 from .video_ai import format_video_ai_markdown
@@ -70,6 +71,19 @@ def _section_kinematics(kin: dict[str, Any], job: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _section_dismissed_events(timeline: list[dict[str, Any]], feedback: dict[str, Any]) -> str:
+    dismissed = [e for e in timeline if e.get("review_status") == "dismissed"]
+    if not dismissed:
+        return ""
+    lines = ["\n### Eventos descartados por el operador (no cuentan en el análisis)\n"]
+    for ev in dismissed[:30]:
+        lines.append(
+            f"- {ev.get('time_label', '—')} · {label_event_type(ev.get('type', ''))}: "
+            f"{(ev.get('message') or '').replace('|', '/')}"
+        )
+    return "\n".join(lines) + "\n"
+
+
 def _section_executive_alerts(timeline: list[dict[str, Any]], job: dict[str, Any]) -> str:
     from .timeline_evidence import critical_alerts_summary
 
@@ -89,7 +103,10 @@ def build_report_markdown(job: dict[str, Any]) -> str:
     analysis = job.get("analysis") or {}
     raw_timeline = analysis.get("timeline") or []
     keyframes = analysis.get("keyframes") or []
-    timeline = enrich_timeline_evidence(raw_timeline, keyframes)
+    feedback = job.get("event_feedback") or {}
+    timeline = enrich_timeline_evidence(ensure_event_ids(raw_timeline), keyframes)
+    timeline = apply_review_state(timeline, feedback)
+    report_timeline = active_timeline(timeline, feedback)
     kin = analysis.get("kinematics") or {}
     comp = job.get("comparison") or {}
     knowledge = job.get("knowledge") or {}
@@ -126,9 +143,9 @@ def build_report_markdown(job: dict[str, Any]) -> str:
 ## 1. Resumen ejecutivo
 
 Se analizó un video de **{duration_txt}** ({frames_txt} frames muestreados{cameras_txt}).  
-Se detectaron **{analysis.get('event_count', 0)} eventos** relevantes.
+Se detectaron **{len(report_timeline)} eventos** relevantes (excluye falsos positivos descartados por el operador).
 
-{_section_executive_alerts(timeline, job)}
+{_section_executive_alerts(report_timeline, job)}
 
 {_section_focus(job)}
 
@@ -138,17 +155,17 @@ Se detectaron **{analysis.get('event_count', 0)} eventos** relevantes.
 
 ## 2. Hechos observados (evidencia en video)
 
-{section_observed_facts(timeline)}
+{section_observed_facts(report_timeline)}
 
 ## 3. Hipótesis contribuyentes (requieren validación)
 
-{_narrative_block(job)}
+{_narrative_block({**job, "analysis": {**analysis, "timeline": report_timeline}})}
 
 > _Las hipótesis son inferencias asistidas por IA. Deben contrastarse con entrevistas, registros y peritaje._
 
 ## 4. Barreras que podrían haber fallado
 
-{section_barrier_analysis(timeline, job)}
+{section_barrier_analysis(report_timeline, job)}
 
 ## 5. Comparación vs escenario de referencia
 
@@ -168,11 +185,13 @@ Se detectaron **{analysis.get('event_count', 0)} eventos** relevantes.
 
 ## 8. Secuencia cronológica (con evidencia)
 
-{_section_timeline(timeline)}
+{_section_timeline(report_timeline)}
+
+{_section_dismissed_events(timeline, feedback)}
 
 ## 9. Recomendaciones preventivas (experto)
 
-{section_expert_recommendations(timeline, job)}
+{section_expert_recommendations(report_timeline, job)}
 
 ## 10. Limitaciones del análisis
 

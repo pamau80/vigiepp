@@ -17,6 +17,7 @@ from .kinematics import (
     snapshot_track_speeds,
 )
 from .detection_filter import filter_detections
+from .event_feedback import filter_suppressed_events
 from .scene_signals import detect_fire_smoke, fire_smoke_events
 from .tracker import IoUTracker, _classify
 
@@ -120,6 +121,8 @@ def analyze_frame(
                 "message": zalert.get("message") or "Alerta de zona",
             }
         )
+
+    events = filter_suppressed_events(events)
 
     keyframe_jpeg = None
     if events:

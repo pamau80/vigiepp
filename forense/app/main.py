@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Literal
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -38,7 +39,9 @@ from .jobs import (
     report_pdf_path,
     refocus_job,
     reanalyze_job,
+    review_event,
 )
+from .event_feedback import apply_review_state, ensure_event_ids
 from .timeline_evidence import critical_alerts_summary, enrich_timeline_evidence
 from .knowledge import (
     SITUATION_TYPES,
@@ -235,12 +238,14 @@ async def jobs_create(
 
 def _job_payload(job: dict) -> dict:
     analysis = dict(job.get("analysis") or {})
+    feedback = job.get("event_feedback") or {}
     timeline = enrich_timeline_evidence(
-        analysis.get("timeline") or [],
+        ensure_event_ids(analysis.get("timeline") or []),
         analysis.get("keyframes") or [],
     )
+    timeline = apply_review_state(timeline, feedback)
     if timeline:
-        analysis = {**analysis, "timeline": timeline}
+        analysis = {**analysis, "timeline": timeline, "event_count": len([e for e in timeline if e.get("review_status") != "dismissed"])}
     return {
         "id": job["id"],
         "title": job.get("title"),
@@ -274,7 +279,11 @@ def _job_payload(job: dict) -> dict:
         "frames_analyzed": count_frames(job["id"]),
         "ehs_push": job.get("ehs_push"),
         "knowledge": job.get("knowledge"),
-        "critical_alerts": critical_alerts_summary(timeline, job),
+        "event_feedback": feedback,
+        "critical_alerts": critical_alerts_summary(
+            [e for e in timeline if e.get("review_status") != "dismissed"],
+            job,
+        ),
     }
 
 
@@ -389,6 +398,24 @@ def jobs_reanalyze(job_id: str, request: Request) -> dict:
     except RuntimeError as exc:
         raise HTTPException(409, str(exc)) from exc
     return {"ok": True, "job": {"id": job["id"], "status": job["status"]}}
+
+
+class EventReviewBody(BaseModel):
+    verdict: Literal["confirmed", "dismissed"]
+    note: str = Field("", max_length=500)
+
+
+@app.post("/api/forense/jobs/{job_id}/events/{event_id}/review")
+def jobs_review_event(job_id: str, event_id: str, body: EventReviewBody, request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    try:
+        job = review_event(job_id, event_id, verdict=body.verdict, note=body.note)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "job": _job_payload(job)}
 
 
 @app.post("/api/forense/jobs/{job_id}/events/learn")

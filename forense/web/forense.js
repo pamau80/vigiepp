@@ -1244,6 +1244,23 @@ async function selectJob(id) {
   pollTimer = setInterval(() => loadJob(id, true), 2000);
 }
 
+async function reviewTimelineEvent(jobId, eventId, verdict) {
+  try {
+    await api(`/api/forense/jobs/${jobId}/events/${eventId}/review`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ verdict }),
+    });
+    showToast(
+      verdict === "dismissed" ? "Evento descartado como falso positivo" : "Evento confirmado",
+      "ok",
+    );
+    await loadJob(jobId, true);
+  } catch (err) {
+    showToast(err.message || "Error al revisar evento", "error");
+  }
+}
+
 async function promoteKeyframe(jobId, keyframeName, timeLabel) {
   const title = prompt("Título de la situación:", `Incidente en ${timeLabel}`);
   if (!title) return;
@@ -1454,6 +1471,9 @@ async function loadJob(id, quiet = false) {
   const hasFocusWindow = f0 != null && f1 != null && Number(f1) > Number(f0);
   for (const ev of j.analysis?.timeline || []) {
     const li = document.createElement("li");
+    const status = ev.review_status || "";
+    if (status === "confirmed") li.classList.add("ev-confirmed");
+    if (status === "dismissed") li.classList.add("ev-dismissed");
     const btn = document.createElement("button");
     btn.type = "button";
     const t = Number(ev.time_sec ?? 0);
@@ -1461,12 +1481,51 @@ async function loadJob(id, quiet = false) {
     btn.className = `timeline-ev-btn sev-${ev.severity || "medium"}${ev.type === "knowledge_match" ? " knowledge-ev" : ""}${ev.type === "knowledge_conjecture" ? " knowledge-conj" : ""}${inFocus ? " focus-ev" : ""}`;
     const cam = ev.camera ? ` [${ev.camera}]` : "";
     const evImg = ev.evidence_image ? `<span class="ev-evidence">📷 evidencia: ${ev.evidence_image}</span>` : "";
-    btn.innerHTML = `${ev.time_label}${cam} · ${eventTypeLabel(ev.type)}: ${ev.message}${evImg}`;
+    const reviewTag =
+      status === "confirmed"
+        ? '<span class="ev-review-tag ok">✓ confirmado</span>'
+        : status === "dismissed"
+          ? '<span class="ev-review-tag muted">✗ descartado</span>'
+          : "";
+    btn.innerHTML = `${ev.time_label}${cam} · ${eventTypeLabel(ev.type)}: ${ev.message}${reviewTag}${evImg}`;
     btn.onclick = () => {
       seekVideoTo(t);
       if (ev.evidence_image) highlightKeyframe(id, ev.evidence_image);
     };
     li.appendChild(btn);
+    const eventId = ev.event_id;
+    if (eventId) {
+      const actions = document.createElement("div");
+      actions.className = "timeline-ev-actions";
+      const confirmBtn = document.createElement("button");
+      confirmBtn.type = "button";
+      confirmBtn.className = "ev-act-confirm";
+      confirmBtn.textContent = status === "confirmed" ? "✓ Confirmado" : "✓ Confirmar";
+      confirmBtn.disabled = status === "confirmed";
+      confirmBtn.onclick = (e) => {
+        e.stopPropagation();
+        void reviewTimelineEvent(id, eventId, "confirmed");
+      };
+      const dismissBtn = document.createElement("button");
+      dismissBtn.type = "button";
+      dismissBtn.className = "ev-act-dismiss";
+      dismissBtn.textContent = status === "dismissed" ? "✗ Descartado" : "✗ Falso positivo";
+      dismissBtn.disabled = status === "dismissed";
+      dismissBtn.onclick = (e) => {
+        e.stopPropagation();
+        if (
+          !confirm(
+            "¿Marcar como falso positivo? No contará en el informe y el sistema aprenderá para futuros casos.",
+          )
+        ) {
+          return;
+        }
+        void reviewTimelineEvent(id, eventId, "dismissed");
+      };
+      actions.appendChild(confirmBtn);
+      actions.appendChild(dismissBtn);
+      li.appendChild(actions);
+    }
     tl.appendChild(li);
   }
   if (!tl.children.length) {

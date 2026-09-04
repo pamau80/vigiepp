@@ -22,6 +22,12 @@ from .path_safety import resolve_under, safe_job_id, safe_keyframe_name
 from .pdf_export import export_report_pdf
 from .report import build_report_markdown, maybe_enrich_with_llm
 from .sampler import adaptive_sample_video, enrich_focus_window
+from .event_feedback import (
+    active_timeline,
+    apply_review_state,
+    ensure_event_ids,
+    record_dismissal,
+)
 from .timeline_evidence import enrich_timeline_evidence
 from .templates import inference_settings, resolve_template
 from .video_formats import resolve_source_path, video_extension
@@ -349,11 +355,13 @@ def _process_job(job_id: str) -> None:
             "sources_count": analysis.get("sources_count", len(sources)),
         }
         analysis_block = job["analysis"]
+        analysis_block["timeline"] = ensure_event_ids(analysis_block.get("timeline") or [])
         analysis_block["timeline"] = enrich_timeline_evidence(
-            analysis_block.get("timeline") or [],
+            analysis_block["timeline"],
             analysis_block.get("keyframes") or [],
         )
-        analysis_block["event_count"] = len(analysis_block["timeline"])
+        active = active_timeline(analysis_block["timeline"], job.get("event_feedback"))
+        analysis_block["event_count"] = len(active)
 
         ref_id = job.get("reference_job_id")
         if ref_id:
@@ -446,10 +454,13 @@ def refocus_job(
                 "frames_analyzed": int(analysis.get("frames_analyzed") or 0)
                 + int(partial.get("frames_analyzed") or 0),
             }
+            job["analysis"]["timeline"] = ensure_event_ids(job["analysis"]["timeline"])
             job["analysis"]["timeline"] = enrich_timeline_evidence(
                 job["analysis"]["timeline"],
                 job["analysis"]["keyframes"],
             )
+            active = active_timeline(job["analysis"]["timeline"], job.get("event_feedback"))
+            job["analysis"]["event_count"] = len(active)
             meta = job.get("meta") or {}
             meta["focus_refocus"] = {
                 "from_sec": float(focus_from_sec),
@@ -512,6 +523,47 @@ def reanalyze_job(job_id: str) -> dict[str, Any]:
         _jobs[job_id] = job
     _save_job(job)
     threading.Thread(target=_process_job, args=(job_id,), daemon=True).start()
+    return job
+
+
+def review_event(
+    job_id: str,
+    event_id: str,
+    *,
+    verdict: str,
+    note: str = "",
+) -> dict[str, Any]:
+    """Operador confirma o descarta un evento de la línea de tiempo."""
+    if verdict not in {"confirmed", "dismissed"}:
+        raise ValueError("verdict debe ser confirmed o dismissed")
+    job = get_job(job_id)
+    if not job:
+        raise FileNotFoundError("Trabajo no encontrado")
+    analysis = job.get("analysis") or {}
+    timeline = ensure_event_ids(analysis.get("timeline") or [])
+    ev = next((e for e in timeline if e.get("event_id") == event_id), None)
+    if not ev:
+        raise FileNotFoundError("Evento no encontrado")
+
+    feedback = dict(job.get("event_feedback") or {})
+    feedback[event_id] = {
+        "verdict": verdict,
+        "note": (note or "").strip(),
+        "at": datetime.now(UTC).isoformat(),
+        "type": ev.get("type"),
+        "rule_id": ev.get("rule_id"),
+        "message": ev.get("message"),
+    }
+    if verdict == "dismissed":
+        record_dismissal(ev, job_id=job_id)
+
+    job["event_feedback"] = feedback
+    analysis["timeline"] = apply_review_state(timeline, feedback)
+    analysis["event_count"] = len(active_timeline(timeline, feedback))
+    job["analysis"] = analysis
+    _regenerate_job_outputs(job_id)
+    job["updated_at"] = datetime.now(UTC).isoformat()
+    _save_job(job)
     return job
 
 
