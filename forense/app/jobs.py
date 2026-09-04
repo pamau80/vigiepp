@@ -27,6 +27,8 @@ from .event_feedback import (
     apply_review_state,
     ensure_event_ids,
     record_dismissal,
+    remove_suppression_for_event,
+    review_summary,
 )
 from .timeline_evidence import enrich_timeline_evidence
 from .templates import inference_settings, resolve_template
@@ -533,9 +535,9 @@ def review_event(
     verdict: str,
     note: str = "",
 ) -> dict[str, Any]:
-    """Operador confirma o descarta un evento de la línea de tiempo."""
-    if verdict not in {"confirmed", "dismissed"}:
-        raise ValueError("verdict debe ser confirmed o dismissed")
+    """Operador confirma, descarta o restaura un evento de la línea de tiempo."""
+    if verdict not in {"confirmed", "dismissed", "restored"}:
+        raise ValueError("verdict debe ser confirmed, dismissed o restored")
     job = get_job(job_id)
     if not job:
         raise FileNotFoundError("Trabajo no encontrado")
@@ -546,16 +548,21 @@ def review_event(
         raise FileNotFoundError("Evento no encontrado")
 
     feedback = dict(job.get("event_feedback") or {})
-    feedback[event_id] = {
-        "verdict": verdict,
-        "note": (note or "").strip(),
-        "at": datetime.now(UTC).isoformat(),
-        "type": ev.get("type"),
-        "rule_id": ev.get("rule_id"),
-        "message": ev.get("message"),
-    }
-    if verdict == "dismissed":
-        record_dismissal(ev, job_id=job_id)
+    if verdict == "restored":
+        prior = feedback.pop(event_id, None)
+        if prior and prior.get("verdict") == "dismissed":
+            remove_suppression_for_event(ev)
+    else:
+        feedback[event_id] = {
+            "verdict": verdict,
+            "note": (note or "").strip(),
+            "at": datetime.now(UTC).isoformat(),
+            "type": ev.get("type"),
+            "rule_id": ev.get("rule_id"),
+            "message": ev.get("message"),
+        }
+        if verdict == "dismissed":
+            record_dismissal(ev, job_id=job_id)
 
     job["event_feedback"] = feedback
     analysis["timeline"] = apply_review_state(timeline, feedback)

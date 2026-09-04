@@ -141,36 +141,52 @@ let videoLoadedJobId = null;
 let videoLoadingJobId = null;
 let videoLoadPromise = null;
 let videoLoadRetryAfter = 0;
+let currentVideoCam = 0;
+let showDismissedEvents = localStorage.getItem("forenseShowDismissed") !== "0";
 const imageBlobUrls = new Map();
 
 const INCIDENT_PRESETS = {
   general: {
     template: "general",
     focus: "cualquier riesgo visible: EPP, proximidad, velocidad, zonas, conducta, caídas",
+    notes: "Incidente general — revisar secuencia completa del video.",
+    strict: false,
   },
   proximity: {
     template: "portuario",
     focus: "persona cerca de maquinaria móvil, proximidad crítica, retroceso sin guía, velocidad",
+    notes: "Proximidad persona–maquinaria o vehículo en movimiento.",
+    strict: true,
   },
   epp: {
     template: "general",
     focus: "personal sin casco, chaleco reflectante, lentes, guantes o EPP incompleto",
+    notes: "Incumplimiento o ausencia de elementos de protección personal.",
+    strict: false,
   },
   fall: {
     template: "construccion",
     focus: "caída de persona, golpe, atrapamiento, postura insegura en altura o superficie",
+    notes: "Caída, golpe contra objeto o atrapamiento.",
+    strict: true,
   },
   machinery: {
     template: "portuario",
     focus: "maniobras de grúa, reach stacker, carga suspendida, línea de fuego",
+    notes: "Maniobra de maquinaria pesada o carga suspendida.",
+    strict: true,
   },
   zone: {
     template: "mineria",
     focus: "ingreso a zona restringida, señalética, delimitación, tránsito no autorizado",
+    notes: "Ingreso o tránsito en zona restringida o no autorizada.",
+    strict: false,
   },
   fire: {
     template: "incendio_emergencia",
     focus: "fuego, humo, respuesta de emergencia, EPP, evacuación del sector",
+    notes: "Emergencia con fuego, humo o respuesta de brigada.",
+    strict: false,
   },
 };
 
@@ -222,27 +238,48 @@ function formatTs(sec) {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
 }
 
-function seekVideoTo(timeSec) {
+function seekVideoTo(timeSec, cameraLabel = null) {
   const video = $("#forenseVideo");
   const sec = $("#videoSection");
   if (!video || timeSec == null || Number.isNaN(Number(timeSec))) return;
   sec?.classList.remove("hidden");
-  video.currentTime = Math.max(0, Number(timeSec));
-  video.play().catch(() => {});
-  video.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  const doSeek = () => {
+    video.currentTime = Math.max(0, Number(timeSec));
+    video.play().catch(() => {});
+    video.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  };
+  if (cameraLabel && currentJobId) {
+    const cam = parseCameraIndex(cameraLabel);
+    if (cam !== currentVideoCam) {
+      void switchVideoCamera(currentJobId, cam, { quiet: true }).then(doSeek);
+      return;
+    }
+  }
+  doSeek();
+}
+
+function parseCameraIndex(cameraLabel) {
+  if (!cameraLabel) return currentVideoCam;
+  const m = String(cameraLabel).match(/(\d+)/);
+  if (m) return Math.max(0, parseInt(m[1], 10) - 1);
+  return currentVideoCam;
 }
 
 function applyIncidentPreset(presetId) {
   const preset = INCIDENT_PRESETS[presetId];
   if (!preset) return;
   const focus = $("#caseFocus");
+  const notes = $("#caseNotes");
+  const strict = $("#caseStrict");
   const tpl = $("#caseTemplate");
   if (focus) focus.value = preset.focus;
+  if (notes && preset.notes) notes.value = preset.notes;
+  if (strict) strict.checked = Boolean(preset.strict);
   if (tpl && preset.template) {
     tpl.value = preset.template;
     applyTemplateDefaults(preset.template);
   }
-  showToast(`Plantilla y enfoque: ${presetId}`, "info");
+  showToast(`Escenario: ${presetId}`, "info");
 }
 
 function renderCriticalAlerts(job, jobId) {
@@ -263,7 +300,7 @@ function renderCriticalAlerts(job, jobId) {
     const timeTxt = a.time_label ? `${a.time_label}` : "IA visual / global";
     btn.innerHTML = `<strong>${a.label}</strong><span class="alert-time">${timeTxt}</span><p class="muted small">${a.message || ""}</p>`;
     btn.onclick = () => {
-      if (a.time_sec != null) seekVideoTo(a.time_sec);
+      if (a.time_sec != null) seekVideoTo(a.time_sec, a.camera);
       else if (a.evidence_image) highlightKeyframe(jobId, a.evidence_image);
     };
     grid.appendChild(btn);
@@ -493,18 +530,20 @@ function resetVideoViewerState() {
   }
 }
 
-async function loadJobVideo(jobId, { quiet = false } = {}) {
+async function loadJobVideo(jobId, { quiet = false, cam = currentVideoCam } = {}) {
   const video = $("#forenseVideo");
   if (!video) return;
-  const path = `/api/forense/jobs/${jobId}/video`;
+  const path = `/api/forense/jobs/${jobId}/video?cam=${cam}`;
+  const loadKey = `${jobId}:${cam}`;
 
-  if (videoLoadedJobId === jobId && video.src && video.getAttribute("data-src") === path) return;
-  if (videoLoadingJobId === jobId && videoLoadPromise) return videoLoadPromise;
+  if (videoLoadedJobId === loadKey && video.src && video.getAttribute("data-src") === path) return;
+  if (videoLoadingJobId === loadKey && videoLoadPromise) return videoLoadPromise;
   if (Date.now() < videoLoadRetryAfter) return;
 
-  videoLoadingJobId = jobId;
+  videoLoadingJobId = loadKey;
   video.setAttribute("data-src", path);
   video.setAttribute("data-job-id", jobId);
+  video.setAttribute("data-cam", String(cam));
 
   if (!quiet) {
     showToast("Preparando video para reproducción (puede tardar si requiere conversión)…", "info");
@@ -520,7 +559,7 @@ async function loadJobVideo(jobId, { quiet = false } = {}) {
         if (!st.can_access) throw new Error("Sesión expirada");
         videoLoadingJobId = null;
         videoLoadPromise = null;
-        return loadJobVideo(jobId, { quiet });
+        return loadJobVideo(jobId, { quiet, cam });
       }
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -532,11 +571,12 @@ async function loadJobVideo(jobId, { quiet = false } = {}) {
       }
       const blob = await res.blob();
       if (!blob.size) throw new Error("El video está vacío o no se pudo convertir");
-      if (videoLoadingJobId !== jobId) return;
+      if (videoLoadingJobId !== loadKey) return;
       releaseVideoBlob();
       videoBlobUrl = URL.createObjectURL(blob);
       video.src = videoBlobUrl;
-      videoLoadedJobId = jobId;
+      videoLoadedJobId = loadKey;
+      currentVideoCam = cam;
       await video.play().catch(() => {});
       video.pause();
       video.currentTime = 0;
@@ -545,7 +585,7 @@ async function loadJobVideo(jobId, { quiet = false } = {}) {
       video.removeAttribute("data-src");
       videoLoadRetryAfter = Date.now() + 5000;
     } finally {
-      if (videoLoadingJobId === jobId) {
+      if (videoLoadingJobId === loadKey) {
         videoLoadingJobId = null;
         videoLoadPromise = null;
       }
@@ -553,6 +593,45 @@ async function loadJobVideo(jobId, { quiet = false } = {}) {
   })();
 
   return videoLoadPromise;
+}
+
+async function switchVideoCamera(jobId, cam, { quiet = false } = {}) {
+  if (cam === currentVideoCam && videoLoadedJobId === `${jobId}:${cam}`) return;
+  currentVideoCam = cam;
+  videoLoadedJobId = null;
+  await loadJobVideo(jobId, { quiet, cam });
+}
+
+function renderVideoCameraSelector(job, jobId) {
+  const row = $("#videoCamRow");
+  const sel = $("#videoCamSelect");
+  if (!row || !sel) return;
+  const cams = job.video_cameras || [];
+  if (cams.length <= 1) {
+    row.classList.add("hidden");
+    currentVideoCam = 0;
+    return;
+  }
+  row.classList.remove("hidden");
+  sel.innerHTML = "";
+  for (const c of cams) {
+    const opt = document.createElement("option");
+    opt.value = String(c.index);
+    opt.textContent = c.label || `Cám. ${c.index + 1}`;
+    sel.appendChild(opt);
+  }
+  if (!sel.dataset.bound) {
+    sel.dataset.bound = "1";
+    sel.addEventListener("change", () => {
+      if (!currentJobId) return;
+      void switchVideoCamera(currentJobId, parseInt(sel.value, 10) || 0);
+    });
+  }
+  sel.value = String(currentVideoCam);
+  if (!cams.some((c) => c.index === currentVideoCam)) {
+    currentVideoCam = cams[0]?.index ?? 0;
+    sel.value = String(currentVideoCam);
+  }
 }
 
 function setupVideoViewer(job, jobId, { isPoll = false } = {}) {
@@ -567,9 +646,11 @@ function setupVideoViewer(job, jobId, { isPoll = false } = {}) {
     return;
   }
   section.classList.remove("hidden");
+  renderVideoCameraSelector(job, jobId);
   const sameJob = video.getAttribute("data-job-id") === jobId;
   if (!sameJob) {
     resetVideoViewerState();
+    currentVideoCam = 0;
     frameCache = [];
     lastFrameFetchSec = -1;
     video.setAttribute("data-job-id", jobId);
@@ -577,11 +658,12 @@ function setupVideoViewer(job, jobId, { isPoll = false } = {}) {
   bindVideoSync();
 
   const processing = job.status === "processing" || job.status === "queued";
+  const loadKey = `${jobId}:${currentVideoCam}`;
   const shouldLoad =
     !isPoll ||
-    (!processing && videoLoadedJobId !== jobId && videoLoadingJobId !== jobId);
-  if (shouldLoad && (!video.src || videoLoadedJobId !== jobId)) {
-    void loadJobVideo(jobId, { quiet: processing || isPoll });
+    (!processing && videoLoadedJobId !== loadKey && videoLoadingJobId !== loadKey);
+  if (shouldLoad && (!video.src || videoLoadedJobId !== loadKey)) {
+    void loadJobVideo(jobId, { quiet: processing || isPoll, cam: currentVideoCam });
   }
   if (!isPoll || !sameJob) fetchIncrementalFrames(jobId);
 }
@@ -954,6 +1036,7 @@ async function checkSession() {
       await loadTemplates();
       await loadTeachStatus();
       await loadKnowledge();
+      await loadSuppressionRules();
       await loadSourcesCatalog();
       await refreshJobs();
       return;
@@ -1245,19 +1328,160 @@ async function selectJob(id) {
 }
 
 async function reviewTimelineEvent(jobId, eventId, verdict) {
+  let note = "";
+  if (verdict === "dismissed") {
+    if (
+      !confirm(
+        "¿Marcar como falso positivo? No contará en el informe y el sistema aprenderá para futuros casos.",
+      )
+    ) {
+      return;
+    }
+    note = prompt("Nota opcional (motivo del descarte):", "") || "";
+  } else if (verdict === "confirmed") {
+    note = prompt("Nota opcional (confirmación):", "") || "";
+  }
   try {
     await api(`/api/forense/jobs/${jobId}/events/${eventId}/review`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ verdict }),
+      body: JSON.stringify({ verdict, note }),
     });
-    showToast(
-      verdict === "dismissed" ? "Evento descartado como falso positivo" : "Evento confirmado",
-      "ok",
-    );
+    const msg =
+      verdict === "dismissed"
+        ? "Evento descartado como falso positivo"
+        : verdict === "restored"
+          ? "Evento restaurado"
+          : "Evento confirmado";
+    showToast(msg, "ok");
     await loadJob(jobId, true);
+    await loadSuppressionRules();
   } catch (err) {
     showToast(err.message || "Error al revisar evento", "error");
+  }
+}
+
+async function loadSuppressionRules() {
+  const stats = $("#suppressionStats");
+  const list = $("#suppressionList");
+  if (!stats || !list) return;
+  try {
+    const data = await api("/api/forense/suppression-rules");
+    const rules = data.rules || [];
+    stats.textContent = `${data.count || rules.length} regla(s) activa(s) en esta faena`;
+    list.innerHTML = "";
+    if (!rules.length) {
+      list.innerHTML = "<li class='muted small'>Sin reglas — descartá un falso positivo para que el sistema aprenda.</li>";
+      return;
+    }
+    for (const r of rules) {
+      const li = document.createElement("li");
+      const type = r.type || "—";
+      const rid = r.rule_id || "";
+      const msg = (r.last_message || "").slice(0, 80);
+      li.innerHTML = `<div><strong>${type}</strong>${rid ? ` · ${rid}` : ""}<div class="supp-meta">×${r.dismissed_count || 1}${msg ? ` — ${msg}` : ""}</div></div>`;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "btn ghost small";
+      btn.textContent = "Quitar";
+      btn.onclick = async () => {
+        if (!confirm("¿Eliminar esta regla de supresión? Volverán a detectarse eventos de este tipo.")) return;
+        const q = new URLSearchParams({ type, rule_id: rid });
+        await api(`/api/forense/suppression-rules?${q}`, { method: "DELETE" });
+        showToast("Regla eliminada", "ok");
+        await loadSuppressionRules();
+      };
+      li.appendChild(btn);
+      list.appendChild(li);
+    }
+  } catch {
+    stats.textContent = "No se pudieron cargar las reglas";
+  }
+}
+
+function renderTimeline(job, id) {
+  const tl = $("#timeline");
+  const badge = $("#reviewPendingBadge");
+  if (!tl) return;
+  tl.innerHTML = "";
+  const summary = job.review_summary || {};
+  if (badge) {
+    const pending = summary.pending || 0;
+    badge.textContent = `${pending} sin revisar`;
+    badge.classList.toggle("hidden", !pending);
+  }
+  const f0 = job.focus_from_sec;
+  const f1 = job.focus_until_sec;
+  const hasFocusWindow = f0 != null && f1 != null && Number(f1) > Number(f0);
+  const events = (job.analysis?.timeline || []).filter(
+    (ev) => showDismissedEvents || ev.review_status !== "dismissed",
+  );
+  for (const ev of events) {
+    const li = document.createElement("li");
+    const status = ev.review_status || "";
+    if (status === "confirmed") li.classList.add("ev-confirmed");
+    if (status === "dismissed") li.classList.add("ev-dismissed");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    const t = Number(ev.time_sec ?? 0);
+    const inFocus = hasFocusWindow && t >= Number(f0) && t <= Number(f1);
+    btn.className = `timeline-ev-btn sev-${ev.severity || "medium"}${ev.type === "knowledge_match" ? " knowledge-ev" : ""}${ev.type === "knowledge_conjecture" ? " knowledge-conj" : ""}${inFocus ? " focus-ev" : ""}`;
+    const cam = ev.camera ? ` [${ev.camera}]` : "";
+    const evImg = ev.evidence_image ? `<span class="ev-evidence">📷 evidencia: ${ev.evidence_image}</span>` : "";
+    const reviewTag =
+      status === "confirmed"
+        ? '<span class="ev-review-tag ok">✓ confirmado</span>'
+        : status === "dismissed"
+          ? '<span class="ev-review-tag muted">✗ descartado</span>'
+          : "";
+    const noteTag = ev.review_note ? `<span class="ev-review-note">Nota: ${ev.review_note}</span>` : "";
+    btn.innerHTML = `${ev.time_label}${cam} · ${eventTypeLabel(ev.type)}: ${ev.message}${reviewTag}${noteTag}${evImg}`;
+    btn.onclick = () => {
+      seekVideoTo(t, ev.camera);
+      if (ev.evidence_image) highlightKeyframe(id, ev.evidence_image);
+    };
+    li.appendChild(btn);
+    const eventId = ev.event_id;
+    if (eventId) {
+      const actions = document.createElement("div");
+      actions.className = "timeline-ev-actions";
+      if (status === "dismissed") {
+        const restoreBtn = document.createElement("button");
+        restoreBtn.type = "button";
+        restoreBtn.className = "ev-act-restore";
+        restoreBtn.textContent = "↩ Restaurar";
+        restoreBtn.onclick = (e) => {
+          e.stopPropagation();
+          void reviewTimelineEvent(id, eventId, "restored");
+        };
+        actions.appendChild(restoreBtn);
+      } else {
+        const confirmBtn = document.createElement("button");
+        confirmBtn.type = "button";
+        confirmBtn.className = "ev-act-confirm";
+        confirmBtn.textContent = status === "confirmed" ? "✓ Confirmado" : "✓ Confirmar";
+        confirmBtn.disabled = status === "confirmed";
+        confirmBtn.onclick = (e) => {
+          e.stopPropagation();
+          void reviewTimelineEvent(id, eventId, "confirmed");
+        };
+        const dismissBtn = document.createElement("button");
+        dismissBtn.type = "button";
+        dismissBtn.className = "ev-act-dismiss";
+        dismissBtn.textContent = "✗ Falso positivo";
+        dismissBtn.onclick = (e) => {
+          e.stopPropagation();
+          void reviewTimelineEvent(id, eventId, "dismissed");
+        };
+        actions.appendChild(confirmBtn);
+        actions.appendChild(dismissBtn);
+      }
+      li.appendChild(actions);
+    }
+    tl.appendChild(li);
+  }
+  if (!tl.children.length) {
+    tl.innerHTML = "<li class='muted'>Sin eventos detectados en el muestreo.</li>";
   }
 }
 
@@ -1464,73 +1688,7 @@ async function loadJob(id, quiet = false) {
     revokeImageBlobs(`hm:${id}`);
   }
 
-  const tl = $("#timeline");
-  tl.innerHTML = "";
-  const f0 = j.focus_from_sec;
-  const f1 = j.focus_until_sec;
-  const hasFocusWindow = f0 != null && f1 != null && Number(f1) > Number(f0);
-  for (const ev of j.analysis?.timeline || []) {
-    const li = document.createElement("li");
-    const status = ev.review_status || "";
-    if (status === "confirmed") li.classList.add("ev-confirmed");
-    if (status === "dismissed") li.classList.add("ev-dismissed");
-    const btn = document.createElement("button");
-    btn.type = "button";
-    const t = Number(ev.time_sec ?? 0);
-    const inFocus = hasFocusWindow && t >= Number(f0) && t <= Number(f1);
-    btn.className = `timeline-ev-btn sev-${ev.severity || "medium"}${ev.type === "knowledge_match" ? " knowledge-ev" : ""}${ev.type === "knowledge_conjecture" ? " knowledge-conj" : ""}${inFocus ? " focus-ev" : ""}`;
-    const cam = ev.camera ? ` [${ev.camera}]` : "";
-    const evImg = ev.evidence_image ? `<span class="ev-evidence">📷 evidencia: ${ev.evidence_image}</span>` : "";
-    const reviewTag =
-      status === "confirmed"
-        ? '<span class="ev-review-tag ok">✓ confirmado</span>'
-        : status === "dismissed"
-          ? '<span class="ev-review-tag muted">✗ descartado</span>'
-          : "";
-    btn.innerHTML = `${ev.time_label}${cam} · ${eventTypeLabel(ev.type)}: ${ev.message}${reviewTag}${evImg}`;
-    btn.onclick = () => {
-      seekVideoTo(t);
-      if (ev.evidence_image) highlightKeyframe(id, ev.evidence_image);
-    };
-    li.appendChild(btn);
-    const eventId = ev.event_id;
-    if (eventId) {
-      const actions = document.createElement("div");
-      actions.className = "timeline-ev-actions";
-      const confirmBtn = document.createElement("button");
-      confirmBtn.type = "button";
-      confirmBtn.className = "ev-act-confirm";
-      confirmBtn.textContent = status === "confirmed" ? "✓ Confirmado" : "✓ Confirmar";
-      confirmBtn.disabled = status === "confirmed";
-      confirmBtn.onclick = (e) => {
-        e.stopPropagation();
-        void reviewTimelineEvent(id, eventId, "confirmed");
-      };
-      const dismissBtn = document.createElement("button");
-      dismissBtn.type = "button";
-      dismissBtn.className = "ev-act-dismiss";
-      dismissBtn.textContent = status === "dismissed" ? "✗ Descartado" : "✗ Falso positivo";
-      dismissBtn.disabled = status === "dismissed";
-      dismissBtn.onclick = (e) => {
-        e.stopPropagation();
-        if (
-          !confirm(
-            "¿Marcar como falso positivo? No contará en el informe y el sistema aprenderá para futuros casos.",
-          )
-        ) {
-          return;
-        }
-        void reviewTimelineEvent(id, eventId, "dismissed");
-      };
-      actions.appendChild(confirmBtn);
-      actions.appendChild(dismissBtn);
-      li.appendChild(actions);
-    }
-    tl.appendChild(li);
-  }
-  if (!tl.children.length) {
-    tl.innerHTML = "<li class='muted'>Sin eventos detectados en el muestreo.</li>";
-  }
+  renderTimeline(j, id);
 
   const kf = $("#keyframes");
   revokeImageBlobs(`kf:${id}:`);
@@ -1684,6 +1842,16 @@ $("#incidentPresets")?.addEventListener("click", (e) => {
   if (!btn) return;
   applyIncidentPreset(btn.dataset.preset);
 });
+
+const toggleDismissed = $("#toggleDismissedEvents");
+if (toggleDismissed) {
+  toggleDismissed.checked = showDismissedEvents;
+  toggleDismissed.addEventListener("change", () => {
+    showDismissedEvents = toggleDismissed.checked;
+    localStorage.setItem("forenseShowDismissed", showDismissedEvents ? "1" : "0");
+    if (currentJobId) void loadJob(currentJobId, true);
+  });
+}
 
 $("#exportEhs")?.addEventListener("click", async () => {
   if (!currentJobId) return;

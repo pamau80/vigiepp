@@ -77,9 +77,11 @@ def _section_dismissed_events(timeline: list[dict[str, Any]], feedback: dict[str
         return ""
     lines = ["\n### Eventos descartados por el operador (no cuentan en el análisis)\n"]
     for ev in dismissed[:30]:
+        note = (ev.get("review_note") or "").strip()
+        note_txt = f" — _{note}_" if note else ""
         lines.append(
             f"- {ev.get('time_label', '—')} · {label_event_type(ev.get('type', ''))}: "
-            f"{(ev.get('message') or '').replace('|', '/')}"
+            f"{(ev.get('message') or '').replace('|', '/')}{note_txt}"
         )
     return "\n".join(lines) + "\n"
 

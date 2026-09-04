@@ -94,6 +94,15 @@ textarea { resize: vertical; min-height: 4rem; font-family: inherit; }
 .timeline li.ev-dismissed > .timeline-ev-btn { opacity: 0.55; text-decoration: line-through; border-left-color: var(--muted); background: rgba(128,128,128,0.06); }
 .timeline-ev-actions button:disabled { opacity: 0.65; cursor: default; }
 .timeline-ev-actions button.ev-act-confirm:hover:not(:disabled) { border-color: rgba(62, 207, 142, 0.6); }
+.timeline-ev-actions button.ev-act-restore:hover:not(:disabled) { border-color: var(--accent); }
+.timeline-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.timeline-head h3 { margin: 0; }
+.review-pending-badge { font-size: 0.72rem; font-weight: 600; color: #f0b429; background: rgba(240,180,41,0.12); border: 1px solid rgba(240,180,41,0.35); padding: 0.15rem 0.45rem; border-radius: 999px; }
+.ev-review-note { display: block; font-size: 0.75rem; color: var(--muted); margin-top: 0.15rem; font-style: italic; }
+.suppression-list { list-style: none; padding: 0; margin: 0.35rem 0 0; display: grid; gap: 0.35rem; max-height: 160px; overflow: auto; }
+.suppression-list li { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; font-size: 0.8rem; padding: 0.35rem 0.45rem; border: 1px solid var(--border); border-radius: 6px; background: rgba(61,139,253,0.05); }
+.suppression-list .supp-meta { color: var(--muted); font-size: 0.72rem; }
+.cam-select { background: var(--card); color: inherit; border: 1px solid var(--border); border-radius: 6px; padding: 0.25rem 0.45rem; }
 .ev-review-tag { display: inline-block; margin-left: 0.35rem; font-size: 0.72rem; font-weight: 600; }
 .ev-review-tag.ok { color: var(--ok); }
 .timeline-ev-actions { display: flex; gap: 0.35rem; padding: 0.2rem 0.5rem 0.45rem 0.6rem; }

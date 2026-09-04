@@ -10,11 +10,14 @@ from fastapi.testclient import TestClient
 from forense.app.event_feedback import (
     active_timeline,
     apply_review_state,
+    delete_suppression_rule,
     ensure_event_ids,
     filter_suppressed_events,
     fingerprint_event,
     is_suppressed,
     record_dismissal,
+    remove_suppression_for_event,
+    review_summary,
 )
 from forense.app.jobs import review_event
 from forense.app.main import app
@@ -156,3 +159,78 @@ def test_review_event_api(client, tmp_path, monkeypatch):
     assert payload["ok"] is True
     assert payload["job"]["event_feedback"][event_id]["verdict"] == "confirmed"
     assert payload["job"]["analysis"]["timeline"][0]["review_status"] == "confirmed"
+
+
+def test_remove_suppression_for_event(tmp_path, monkeypatch):
+    supp_file = tmp_path / "suppression_rules.json"
+    monkeypatch.setattr("forense.app.event_feedback._SUPPRESSION_FILE", supp_file)
+    ev = {"type": "proximity", "rule_id": "prox1", "message": "cerca"}
+    record_dismissal(ev, job_id="a")
+    record_dismissal(ev, job_id="b")
+    assert is_suppressed(ev)
+    remove_suppression_for_event(ev)
+    assert is_suppressed(ev)
+    remove_suppression_for_event(ev)
+    assert not is_suppressed(ev)
+
+
+def test_delete_suppression_rule(tmp_path, monkeypatch):
+    supp_file = tmp_path / "suppression_rules.json"
+    monkeypatch.setattr("forense.app.event_feedback._SUPPRESSION_FILE", supp_file)
+    ev = {"type": "epp", "rule_id": "no_helmet", "message": "sin casco"}
+    record_dismissal(ev, job_id="x")
+    assert delete_suppression_rule("epp", "no_helmet")
+    assert not is_suppressed(ev)
+
+
+def test_review_restore_event(tmp_path, monkeypatch):
+    job_id = "ccddeeffaabb"
+    timeline = ensure_event_ids(
+        [{"type": "fall", "time_sec": 1.0, "rule_id": "kin", "message": "caída"}]
+    )
+    job = {
+        "id": job_id,
+        "title": "restore",
+        "site": "Faena",
+        "status": "done",
+        "analysis": {"timeline": timeline, "keyframes": []},
+        "template_name": "General",
+    }
+    monkeypatch.setattr("forense.app.jobs.JOBS_DIR", tmp_path)
+    monkeypatch.setattr("forense.app.jobs._jobs", {job_id: job})
+    monkeypatch.setattr("forense.app.jobs._regenerate_job_outputs", lambda _jid: None)
+    supp_file = tmp_path / "suppression_rules.json"
+    monkeypatch.setattr("forense.app.event_feedback._SUPPRESSION_FILE", supp_file)
+
+    eid = timeline[0]["event_id"]
+    review_event(job_id, eid, verdict="dismissed")
+    assert is_suppressed(timeline[0])
+    restored = review_event(job_id, eid, verdict="restored")
+    assert eid not in restored.get("event_feedback", {})
+    assert len(active_timeline(restored["analysis"]["timeline"], restored.get("event_feedback"))) == 1
+
+
+def test_review_summary_counts():
+    timeline = ensure_event_ids(
+        [
+            {"type": "epp", "time_sec": 1.0, "message": "a"},
+            {"type": "fall", "time_sec": 2.0, "message": "b"},
+        ]
+    )
+    fb = {timeline[1]["event_id"]: {"verdict": "dismissed"}}
+    s = review_summary(timeline, fb)
+    assert s["pending"] == 1
+    assert s["dismissed"] == 1
+
+
+def test_suppression_rules_api(client, tmp_path, monkeypatch):
+    supp_file = tmp_path / "suppression_rules.json"
+    monkeypatch.setattr("forense.app.event_feedback._SUPPRESSION_FILE", supp_file)
+    record_dismissal({"type": "zone", "rule_id": "z1", "message": "zona"}, job_id="j")
+    _login(client)
+    listed = client.get("/api/forense/suppression-rules")
+    assert listed.status_code == 200
+    assert listed.json()["count"] >= 1
+    deleted = client.delete("/api/forense/suppression-rules?type=zone&rule_id=z1")
+    assert deleted.status_code == 200
+    assert deleted.json()["count"] == 0

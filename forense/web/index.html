@@ -148,6 +148,13 @@
       </section>
       <button type="button" class="btn ghost danger" id="btnResetKnowledge">Resetear biblioteca</button>
 
+      <section class="card suppression-panel" id="suppressionPanel">
+        <h3 class="import-title">Falsos positivos aprendidos</h3>
+        <p class="muted small" id="suppressionStats">0 reglas activas en esta faena</p>
+        <ul id="suppressionList" class="suppression-list"></ul>
+        <p class="hint muted small">Al descartar un evento, el motor deja de reportarlo en futuros análisis del mismo tipo.</p>
+      </section>
+
       <h2>Trabajos</h2>
       <ul id="jobList" class="job-list"></ul>
     </aside>
@@ -201,6 +208,10 @@
         <section class="card hidden" id="videoSection">
           <h3>Reproductor forense — análisis en vivo</h3>
           <p class="muted small">Personas, vehículos, velocidades y distancias persona–maquinaria mientras avanza el video.</p>
+          <div class="btn-row compact hidden" id="videoCamRow">
+            <span class="muted small">Cámara:</span>
+            <select id="videoCamSelect" class="cam-select"></select>
+          </div>
           <div class="video-stage">
             <video id="forenseVideo" controls playsinline preload="metadata"></video>
             <canvas id="forenseOverlay" aria-hidden="true"></canvas>
@@ -234,8 +245,12 @@
           <img id="heatmapImg" alt="Mapa de calor" class="heatmap-img" />
         </section>
         <section class="card">
-          <h3>Línea de tiempo</h3>
+          <div class="timeline-head">
+            <h3>Línea de tiempo</h3>
+            <span class="review-pending-badge hidden" id="reviewPendingBadge">0 sin revisar</span>
+          </div>
           <p class="muted small">Clic en evento → video. Confirmá hallazgos reales o descartá falsos positivos (el sistema aprende para futuros casos).</p>
+          <label class="checkbox-row small"><input type="checkbox" id="toggleDismissedEvents" checked /> Mostrar eventos descartados</label>
           <ul id="timeline" class="timeline"></ul>
         </section>
         <section class="card">

@@ -41,7 +41,7 @@ from .jobs import (
     reanalyze_job,
     review_event,
 )
-from .event_feedback import apply_review_state, ensure_event_ids
+from .event_feedback import apply_review_state, delete_suppression_rule, ensure_event_ids, review_summary, suppression_summary
 from .timeline_evidence import critical_alerts_summary, enrich_timeline_evidence
 from .knowledge import (
     SITUATION_TYPES,
@@ -246,6 +246,7 @@ def _job_payload(job: dict) -> dict:
     timeline = apply_review_state(timeline, feedback)
     if timeline:
         analysis = {**analysis, "timeline": timeline, "event_count": len([e for e in timeline if e.get("review_status") != "dismissed"])}
+    sources = job.get("sources") or []
     return {
         "id": job["id"],
         "title": job.get("title"),
@@ -266,7 +267,12 @@ def _job_payload(job: dict) -> dict:
         "template_id": job.get("template_id"),
         "template_name": job.get("template_name"),
         "reference_job_id": job.get("reference_job_id"),
-        "sources": job.get("sources"),
+        "sources": sources,
+        "video_cameras": [
+            {"index": i, "label": (s.get("label") or f"Cám. {i + 1}")}
+            for i, s in enumerate(sources)
+            if has_job_video(job["id"], i)
+        ] or ([{"index": 0, "label": "Cám. 1"}] if has_job_video(job["id"], 0) else []),
         "meters_per_pixel": job.get("meters_per_pixel"),
         "max_machinery_kmh": job.get("max_machinery_kmh"),
         "max_person_kmh": job.get("max_person_kmh"),
@@ -280,6 +286,7 @@ def _job_payload(job: dict) -> dict:
         "ehs_push": job.get("ehs_push"),
         "knowledge": job.get("knowledge"),
         "event_feedback": feedback,
+        "review_summary": review_summary(timeline, feedback),
         "critical_alerts": critical_alerts_summary(
             [e for e in timeline if e.get("review_status") != "dismissed"],
             job,
@@ -298,12 +305,12 @@ def jobs_get(job_id: str, request: Request) -> dict:
 
 
 @app.get("/api/forense/jobs/{job_id}/video")
-def jobs_video(job_id: str, request: Request) -> FileResponse:
+def jobs_video(job_id: str, request: Request, cam: int = Query(0, ge=0, le=2)) -> FileResponse:
     _require_license()
     require_forense_admin(request)
     if not get_job(job_id):
         raise HTTPException(404, "Trabajo no encontrado")
-    path = job_video_path(job_id)
+    path = job_video_path(job_id, cam)
     if not path:
         raise HTTPException(404, "Video no disponible")
     return FileResponse(path, media_type="video/mp4", filename=path.name)
@@ -401,8 +408,29 @@ def jobs_reanalyze(job_id: str, request: Request) -> dict:
 
 
 class EventReviewBody(BaseModel):
-    verdict: Literal["confirmed", "dismissed"]
+    verdict: Literal["confirmed", "dismissed", "restored"]
     note: str = Field("", max_length=500)
+
+
+@app.get("/api/forense/suppression-rules")
+def suppression_rules_list(request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    return {"ok": True, **suppression_summary()}
+
+
+@app.delete("/api/forense/suppression-rules")
+def suppression_rules_delete(
+    request: Request,
+    event_type: str = Query(..., alias="type"),
+    rule_id: str = Query(""),
+) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    rid = rule_id.strip() or None
+    if not delete_suppression_rule(event_type, rid):
+        raise HTTPException(404, "Regla no encontrada")
+    return {"ok": True, **suppression_summary()}
 
 
 @app.post("/api/forense/jobs/{job_id}/events/{event_id}/review")

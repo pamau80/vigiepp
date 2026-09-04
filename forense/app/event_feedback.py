@@ -6,7 +6,6 @@ import hashlib
 import json
 import logging
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 from .config import FORENSE_DATA, ensure_dirs
@@ -49,6 +48,9 @@ def apply_review_state(
         if entry:
             item["review_status"] = entry.get("verdict")
             item["review_note"] = entry.get("note")
+        else:
+            item.pop("review_status", None)
+            item.pop("review_note", None)
         out.append(item)
     return out
 
@@ -57,6 +59,14 @@ def active_timeline(timeline: list[dict[str, Any]], feedback: dict[str, Any] | N
     """Eventos que cuentan para informe y alertas (excluye descartados)."""
     reviewed = apply_review_state(timeline, feedback)
     return [e for e in reviewed if e.get("review_status") != _VERDICT_DISMISSED]
+
+
+def review_summary(timeline: list[dict[str, Any]], feedback: dict[str, Any] | None) -> dict[str, int]:
+    reviewed = apply_review_state(timeline, feedback)
+    pending = sum(1 for e in reviewed if not e.get("review_status"))
+    confirmed = sum(1 for e in reviewed if e.get("review_status") == _VERDICT_CONFIRMED)
+    dismissed = sum(1 for e in reviewed if e.get("review_status") == _VERDICT_DISMISSED)
+    return {"pending": pending, "confirmed": confirmed, "dismissed": dismissed}
 
 
 def _load_suppression_rules() -> list[dict[str, Any]]:
@@ -80,6 +90,10 @@ def _save_suppression_rules(rules: list[dict[str, Any]]) -> None:
 
 def _rule_key(ev: dict[str, Any]) -> tuple[str, str]:
     return (str(ev.get("type") or ""), str(ev.get("rule_id") or ""))
+
+
+def _rule_key_from_parts(event_type: str, rule_id: str | None) -> tuple[str, str]:
+    return (str(event_type or ""), str(rule_id or ""))
 
 
 def record_dismissal(ev: dict[str, Any], *, job_id: str) -> None:
@@ -109,8 +123,34 @@ def record_dismissal(ev: dict[str, Any], *, job_id: str) -> None:
 
 
 def remove_suppression_for_event(ev: dict[str, Any]) -> None:
-    """Si el operador restaura un evento, no borramos la regla global (conservador)."""
-    _ = ev
+    """Reduce o elimina la regla global cuando el operador restaura un evento."""
+    rules = _load_suppression_rules()
+    key = _rule_key(ev)
+    out: list[dict[str, Any]] = []
+    changed = False
+    for r in rules:
+        if (r.get("type"), r.get("rule_id") or "") != key:
+            out.append(r)
+            continue
+        changed = True
+        cnt = int(r.get("dismissed_count") or 0) - 1
+        if cnt > 0:
+            item = dict(r)
+            item["dismissed_count"] = cnt
+            out.append(item)
+    if changed:
+        _save_suppression_rules(out)
+
+
+def delete_suppression_rule(event_type: str, rule_id: str | None = None) -> bool:
+    """Elimina una regla de supresión (gobernanza del operador)."""
+    key = _rule_key_from_parts(event_type, rule_id)
+    rules = _load_suppression_rules()
+    kept = [r for r in rules if (r.get("type"), r.get("rule_id") or "") != key]
+    if len(kept) == len(rules):
+        return False
+    _save_suppression_rules(kept)
+    return True
 
 
 def is_suppressed(ev: dict[str, Any], rules: list[dict[str, Any]] | None = None) -> bool:
@@ -136,4 +176,4 @@ def filter_suppressed_events(events: list[dict[str, Any]]) -> list[dict[str, Any
 
 def suppression_summary() -> dict[str, Any]:
     rules = _load_suppression_rules()
-    return {"count": len(rules), "rules": rules[:50]}
+    return {"count": len(rules), "rules": rules[:100]}
