@@ -9,6 +9,34 @@ from pathlib import Path
 from forense.app.export import build_ehs_incident, committee_section, export_case_bundle
 
 
+def test_build_ehs_incident_includes_review_audit():
+    from forense.app.event_feedback import ensure_event_ids
+
+    timeline = ensure_event_ids([{"type": "epp", "time_sec": 1.0, "message": "Sin casco"}])
+    eid = timeline[0]["event_id"]
+    job = {
+        "id": "abc123",
+        "title": "Near miss",
+        "site": "Bodega",
+        "profile": "epp_completo",
+        "build": "forense-p26",
+        "analysis": {"event_count": 1, "timeline": timeline, "kinematics": {"speed_violations": [], "proximity_events": []}},
+        "event_feedback": {
+            eid: {
+                "verdict": "dismissed",
+                "note": "falso",
+                "at": "2026-09-04T12:00:00+00:00",
+                "reviewed_by": "admin",
+                "type": "epp",
+                "message": "Sin casco",
+            }
+        },
+    }
+    payload = build_ehs_incident(job)
+    assert payload["forense"]["events_dismissed"] == 1
+    assert payload["forense"]["review_audit"]
+
+
 def test_build_ehs_incident():
     job = {
         "id": "abc123",

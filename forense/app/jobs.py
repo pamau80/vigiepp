@@ -397,6 +397,7 @@ def refocus_job(
     focus_until_sec: float,
     strict_detection: bool | None = None,
     camera_index: int = 0,
+    all_cameras: bool = False,
 ) -> dict[str, Any]:
     """Re-analiza la ventana temporal indicada y regenera informe + IA visual."""
     job = get_job(job_id)
@@ -407,21 +408,26 @@ def refocus_job(
     sources = job.get("sources") or []
     if not sources:
         raise ValueError("Sin fuentes de video")
-    if camera_index < 0 or camera_index >= len(sources):
-        raise ValueError("Índice de cámara inválido")
+    if all_cameras:
+        camera_indices = list(range(len(sources)))
+    else:
+        if camera_index < 0 or camera_index >= len(sources):
+            raise ValueError("Índice de cámara inválido")
+        camera_indices = [camera_index]
     if focus_until_sec <= focus_from_sec:
         raise ValueError("La ventana de enfoque es inválida")
 
-    src = sources[camera_index]
-    video_path = src.get("path") or ""
-    if not video_path or not Path(video_path).is_file():
-        raise FileNotFoundError("Video no encontrado")
-    camera_label = src.get("label") or f"Cám. {camera_index + 1}"
+    for idx in camera_indices:
+        src = sources[idx]
+        video_path = src.get("path") or ""
+        if not video_path or not Path(video_path).is_file():
+            raise FileNotFoundError(f"Video no encontrado (cámara {idx + 1})")
 
     job["focus_description"] = focus_description.strip()
     job["focus_from_sec"] = float(focus_from_sec)
     job["focus_until_sec"] = float(focus_until_sec)
-    job["focus_camera_index"] = int(camera_index)
+    job["focus_camera_index"] = int(camera_indices[0])
+    job["focus_all_cameras"] = bool(all_cameras)
     if strict_detection is not None:
         job["strict_detection"] = bool(strict_detection)
     job["status"] = "processing"
@@ -433,37 +439,57 @@ def refocus_job(
 
     def in_thread() -> None:
         try:
-            partial = analyze_focus_window(
-                job,
-                video_path,
-                from_sec=float(focus_from_sec),
-                until_sec=float(focus_until_sec),
-                job_dir=_job_dir(job_id),
-                progress_cb=lambda p, m: _set_progress(job_id, p, m),
-                camera_label=camera_label,
-                source_suffix=str(camera_index) if camera_index else "",
-            )
             analysis = job.get("analysis") or {}
-            timeline = merge_focus_timeline_window(
-                analysis.get("timeline") or [],
-                partial.get("timeline") or [],
-                from_sec=float(focus_from_sec),
-                until_sec=float(focus_until_sec),
-            )
-            new_kf = _persist_keyframes(job_id, partial.get("keyframes") or [])
-            keyframes = merge_focus_keyframes(
-                analysis.get("keyframes") or [],
-                new_kf,
-                from_sec=float(focus_from_sec),
-                until_sec=float(focus_until_sec),
-            )
+            timeline = list(analysis.get("timeline") or [])
+            keyframes = list(analysis.get("keyframes") or [])
+            extra_frames = 0
+            extra_events = 0
+            cam_labels: list[str] = []
+
+            for step, idx in enumerate(camera_indices):
+                src = sources[idx]
+                video_path = src.get("path") or ""
+                camera_label = src.get("label") or f"Cám. {idx + 1}"
+                cam_labels.append(camera_label)
+                base_pct = 10 + int(70 * step / max(len(camera_indices), 1))
+                partial = analyze_focus_window(
+                    job,
+                    video_path,
+                    from_sec=float(focus_from_sec),
+                    until_sec=float(focus_until_sec),
+                    job_dir=_job_dir(job_id),
+                    progress_cb=lambda p, m, bp=base_pct: _set_progress(
+                        job_id, min(90, bp + int(p * 0.7 / max(len(camera_indices), 1))), m
+                    ),
+                    camera_label=camera_label,
+                    source_suffix=str(idx) if idx else "",
+                )
+                timeline = merge_focus_timeline_window(
+                    timeline,
+                    partial.get("timeline") or [],
+                    from_sec=float(focus_from_sec),
+                    until_sec=float(focus_until_sec),
+                    camera_label=camera_label if len(camera_indices) > 1 else None,
+                )
+                new_kf = _persist_keyframes(job_id, partial.get("keyframes") or [])
+                for kf in new_kf:
+                    kf["camera"] = camera_label
+                keyframes = merge_focus_keyframes(
+                    keyframes,
+                    new_kf,
+                    from_sec=float(focus_from_sec),
+                    until_sec=float(focus_until_sec),
+                    camera_label=camera_label if len(camera_indices) > 1 else None,
+                )
+                extra_frames += int(partial.get("frames_analyzed") or 0)
+                extra_events += len(partial.get("timeline") or [])
+
             job["analysis"] = {
                 **analysis,
                 "timeline": timeline,
                 "keyframes": keyframes,
                 "event_count": len(timeline),
-                "frames_analyzed": int(analysis.get("frames_analyzed") or 0)
-                + int(partial.get("frames_analyzed") or 0),
+                "frames_analyzed": int(analysis.get("frames_analyzed") or 0) + extra_frames,
             }
             job["analysis"]["timeline"] = ensure_event_ids(job["analysis"]["timeline"])
             job["analysis"]["timeline"] = enrich_timeline_evidence(
@@ -476,10 +502,11 @@ def refocus_job(
             meta["focus_refocus"] = {
                 "from_sec": float(focus_from_sec),
                 "until_sec": float(focus_until_sec),
-                "camera_index": int(camera_index),
-                "camera_label": camera_label,
-                "extra_frames": int(partial.get("frames_analyzed") or 0),
-                "extra_events": len(partial.get("timeline") or []),
+                "camera_index": int(camera_indices[0]),
+                "all_cameras": bool(all_cameras),
+                "camera_labels": cam_labels,
+                "extra_frames": extra_frames,
+                "extra_events": extra_events,
             }
             job["meta"] = meta
             _regenerate_job_outputs(job_id)

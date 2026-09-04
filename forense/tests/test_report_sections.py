@@ -175,3 +175,40 @@ def test_refocus_accepts_multi_camera(tmp_path, monkeypatch):
     )
     assert started["focus_camera_index"] == 1
     assert started["status"] == "processing"
+
+
+def test_refocus_all_cameras(tmp_path, monkeypatch):
+    job_id = "556677889900"
+    src0 = tmp_path / job_id / "sources" / "cam0.mp4"
+    src1 = tmp_path / job_id / "sources" / "cam1.mp4"
+    src0.parent.mkdir(parents=True)
+    src0.write_bytes(b"x")
+    src1.write_bytes(b"x")
+    job = {
+        "id": job_id,
+        "title": "multi-all",
+        "site": "Faena",
+        "status": "done",
+        "profile": "epp_completo",
+        "template_id": "general",
+        "meters_per_pixel": 0.045,
+        "max_machinery_kmh": 15,
+        "max_person_kmh": 8,
+        "min_distance_m": 2,
+        "sources": [
+            {"label": "Cám. 1", "path": str(src0)},
+            {"label": "Cám. 2", "path": str(src1)},
+        ],
+        "analysis": {"timeline": [], "keyframes": []},
+    }
+    monkeypatch.setattr("forense.app.jobs.JOBS_DIR", tmp_path)
+    monkeypatch.setattr("forense.app.jobs._jobs", {job_id: job})
+    started = refocus_job(
+        job_id,
+        focus_description="zona",
+        focus_from_sec=1.0,
+        focus_until_sec=3.0,
+        all_cameras=True,
+    )
+    assert started["focus_all_cameras"] is True
+    assert started["status"] == "processing"

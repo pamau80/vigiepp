@@ -9,6 +9,19 @@ from forense.app.focus_analysis import merge_focus_keyframes, merge_focus_timeli
 from forense.app.sampler import sample_window_frames
 
 
+def test_merge_focus_timeline_replaces_window_per_camera():
+    existing = [
+        {"time_sec": 5.0, "message": "cam1 old", "camera": "Cám. 1"},
+        {"time_sec": 5.0, "message": "cam2 keep", "camera": "Cám. 2"},
+    ]
+    new_events = [{"time_sec": 5.5, "message": "cam1 new", "camera": "Cám. 1"}]
+    merged = merge_focus_timeline(
+        existing, new_events, from_sec=4.0, until_sec=6.0, camera_label="Cám. 1"
+    )
+    msgs = [e["message"] for e in merged]
+    assert msgs == ["cam2 keep", "cam1 new"]
+
+
 def test_merge_focus_timeline_replaces_window():
     existing = [
         {"time_sec": 1.0, "message": "a"},

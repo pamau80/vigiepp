@@ -10,8 +10,13 @@ from typing import Any
 
 
 def build_ehs_incident(job: dict[str, Any]) -> dict[str, Any]:
+    from .event_feedback import build_review_audit
+
     analysis = job.get("analysis") or {}
     kin = analysis.get("kinematics") or {}
+    audit = build_review_audit(job)
+    dismissed = sum(1 for e in audit if e.get("verdict") == "dismissed")
+    confirmed = sum(1 for e in audit if e.get("verdict") == "confirmed")
     return {
         "ts": datetime.now(UTC).isoformat(),
         "site": job.get("site") or "",
@@ -28,6 +33,10 @@ def build_ehs_incident(job: dict[str, Any]) -> dict[str, Any]:
             "build": job.get("build"),
             "violations": len(kin.get("speed_violations") or []) + len(kin.get("proximity_events") or []),
             "comparison": job.get("comparison"),
+            "events_reviewed": len(audit),
+            "events_confirmed": confirmed,
+            "events_dismissed": dismissed,
+            "review_audit": audit[:30],
         },
     }
 
@@ -68,6 +77,23 @@ def committee_section(job: dict[str, Any]) -> str:
                 "",
             ]
         )
+    audit = []
+    try:
+        from .event_feedback import build_review_audit
+
+        audit = build_review_audit(job)
+    except Exception:
+        audit = []
+    if audit:
+        lines.extend(["### Revisiones del operador (auditoría)", ""])
+        for entry in audit[:15]:
+            verdict = entry.get("verdict") or ""
+            when = (entry.get("reviewed_at") or "")[:10]
+            lines.append(
+                f"- {verdict}: {entry.get('time_label', '—')} — {(entry.get('message') or '')[:80]} "
+                f"({entry.get('reviewed_by', 'admin')}, {when})"
+            )
+        lines.append("")
     lines.extend(
         [
             "### Medidas sugeridas (preventivas)",

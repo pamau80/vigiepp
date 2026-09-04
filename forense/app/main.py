@@ -373,6 +373,7 @@ class RefocusBody(BaseModel):
     focus_until_sec: float = Field(..., gt=0)
     strict_detection: bool | None = None
     camera_index: int = Field(0, ge=0, le=2)
+    all_cameras: bool = False
 
 
 class DismissMatchBody(BaseModel):
@@ -394,6 +395,7 @@ def jobs_refocus(job_id: str, body: RefocusBody, request: Request) -> dict:
             focus_until_sec=body.focus_until_sec,
             strict_detection=body.strict_detection,
             camera_index=body.camera_index,
+            all_cameras=body.all_cameras,
         )
     except FileNotFoundError as exc:
         raise HTTPException(404, str(exc)) from exc

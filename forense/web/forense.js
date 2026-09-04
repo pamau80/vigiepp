@@ -1702,9 +1702,11 @@ async function loadJob(id, quiet = false) {
   if (refSec) {
     const canRefocus = Boolean(j.has_video) && (j.sources?.length || 0) >= 1;
     refSec.classList.toggle("hidden", !canRefocus);
-    const camWrap = $("#refocusCamWrap");
-    const camSel = $("#refocusCam");
-    if (canRefocus) {
+      const camWrap = $("#refocusCamWrap");
+      const camSel = $("#refocusCam");
+      const allCamWrap = $("#refocusAllCamWrap");
+      const allCam = $("#refocusAllCam");
+      if (canRefocus) {
       const desc = $("#refocusDescription");
       const rf = $("#refocusFrom");
       const ru = $("#refocusUntil");
@@ -1718,6 +1720,7 @@ async function loadJob(id, quiet = false) {
       const sources = j.sources || [];
       if (camWrap && camSel && sources.length > 1) {
         camWrap.classList.remove("hidden");
+        allCamWrap?.classList.remove("hidden");
         camSel.innerHTML = "";
         for (let i = 0; i < sources.length; i++) {
           const opt = document.createElement("option");
@@ -1727,8 +1730,13 @@ async function loadJob(id, quiet = false) {
         }
         const idx = j.focus_camera_index ?? 0;
         camSel.value = String(idx);
-      } else if (camWrap) {
-        camWrap.classList.add("hidden");
+        if (allCam) {
+          allCam.checked = Boolean(j.focus_all_cameras);
+          camSel.disabled = allCam.checked;
+        }
+      } else {
+        if (camWrap) camWrap.classList.add("hidden");
+        allCamWrap?.classList.add("hidden");
       }
     }
   }
@@ -1968,6 +1976,11 @@ for (const id of ["refocusDescription", "refocusFrom", "refocusUntil"]) {
   });
 }
 
+$("#refocusAllCam")?.addEventListener("change", (e) => {
+  const sel = $("#refocusCam");
+  if (sel) sel.disabled = e.target.checked;
+});
+
 $("#btnRefocus")?.addEventListener("click", async () => {
   if (!currentJobId) return;
   const fromSec = parseFloat($("#refocusFrom")?.value || "");
@@ -1988,6 +2001,7 @@ $("#btnRefocus")?.addEventListener("click", async () => {
         focus_until_sec: untilSec,
         strict_detection: Boolean($("#refocusStrict")?.checked),
         camera_index: parseInt($("#refocusCam")?.value || "0", 10) || 0,
+        all_cameras: Boolean($("#refocusAllCam")?.checked),
       }),
     });
     if (pollTimer) clearInterval(pollTimer);

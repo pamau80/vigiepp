@@ -22,8 +22,16 @@ def merge_focus_timeline(
     *,
     from_sec: float,
     until_sec: float,
+    camera_label: str | None = None,
 ) -> list[dict[str, Any]]:
-    kept = [e for e in existing if not _in_window(float(e.get("time_sec") or 0), from_sec, until_sec)]
+    kept: list[dict[str, Any]] = []
+    for e in existing:
+        t = float(e.get("time_sec") or 0)
+        if _in_window(t, from_sec, until_sec):
+            if camera_label and e.get("camera") != camera_label:
+                kept.append(e)
+            continue
+        kept.append(e)
     merged = kept + list(new_events)
     merged.sort(key=lambda e: float(e.get("time_sec") or 0))
     return merged
@@ -35,8 +43,16 @@ def merge_focus_keyframes(
     *,
     from_sec: float,
     until_sec: float,
+    camera_label: str | None = None,
 ) -> list[dict[str, Any]]:
-    kept = [k for k in existing if not _in_window(float(k.get("time_sec") or 0), from_sec, until_sec)]
+    kept: list[dict[str, Any]] = []
+    for k in existing:
+        t = float(k.get("time_sec") or 0)
+        if _in_window(t, from_sec, until_sec):
+            if camera_label and k.get("camera") != camera_label:
+                kept.append(k)
+            continue
+        kept.append(k)
     merged = kept + [{k: v for k, v in item.items() if k != "jpeg"} for item in new_items]
     merged.sort(key=lambda k: float(k.get("time_sec") or 0))
     return merged
