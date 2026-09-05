@@ -14,9 +14,6 @@ from pydantic import BaseModel, Field
 from .auth_bridge import auth_status_payload, login_pin, logout_session, require_forense_admin
 from .config import (
     BUILD,
-    DEFAULT_MAX_MACHINERY_KMH,
-    DEFAULT_MAX_PERSON_KMH,
-    DEFAULT_MIN_DISTANCE_M,
     DOL_API_KEY,
     MAX_UPLOAD_MB,
     ROOT,
@@ -50,7 +47,6 @@ from .knowledge import (
     SITUATION_TYPES,
     create_knowledge,
     delete_knowledge,
-    get_knowledge,
     knowledge_stats,
     list_knowledge,
     promote_job_keyframe,

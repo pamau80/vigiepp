@@ -8,6 +8,30 @@ from .i18n_es_cl import label_event_type, label_severity
 
 _FACT_SOURCES = frozenset({"detector", "scene_cv", "vision_ai", None})
 
+INCIDENT_RELATED_EVENTS: dict[str, set[str]] = {
+    "caida": {"fall_risk", "epp_non_compliant", "epp_reflective", "unsafe_act", "action"},
+    "atropello": {"proximity", "speed_violation", "collision", "zone", "epp_reflective"},
+    "golpe": {"proximity", "collision", "zone", "unsafe_act", "action"},
+    "fuego": {"fire", "smoke", "emergency_response", "zone"},
+    "incendio": {"fire", "smoke", "emergency_response", "zone"},
+    "electrico": {"zone", "unsafe_act", "action", "epp_non_compliant"},
+    "atrapamiento": {"proximity", "zone", "unsafe_act", "action"},
+    "derrame": {"zone", "action", "emergency_response"},
+    "general": set(),
+}
+
+def _relevant_event_types(job: dict[str, Any]) -> set[str]:
+    """Retorna tipos de eventos relevantes para el tipo de incidente."""
+    template = (job.get("template_id") or job.get("template_name") or "").lower()
+    title = (job.get("title") or "").lower()
+    focus = (job.get("focus_description") or "").lower()
+    combined = f"{template} {title} {focus}"
+
+    for incident_type, related in INCIDENT_RELATED_EVENTS.items():
+        if incident_type in combined:
+            return related
+    return set()
+
 _BARRIERS: dict[str, str] = {
     "fire": "**Energía / ignición:** control de materiales inflamables, detección temprana y respuesta ante fuego.",
     "smoke": "**Energía / ignición:** posible ignición o reacción en curso — verificar origen y contención.",
@@ -51,10 +75,23 @@ def _is_fact(ev: dict[str, Any]) -> bool:
     return src in _FACT_SOURCES or src is None
 
 
-def section_observed_facts(timeline: list[dict[str, Any]]) -> str:
+def section_observed_facts(timeline: list[dict[str, Any]], job: dict[str, Any] | None = None) -> str:
     facts = [e for e in timeline if _is_fact(e)]
     if not facts:
         return "_No se registraron hechos automáticos con evidencia en el muestreo._\n"
+
+    relevant_types = _relevant_event_types(job) if job else set()
+    critical_types = {"fire", "smoke", "proximity", "collision", "fall_risk"}
+
+    if relevant_types:
+        primary = [e for e in facts if e.get("type") in relevant_types]
+        secondary = [e for e in facts if e.get("type") not in relevant_types and e.get("type") in critical_types]
+        other = [e for e in facts if e.get("type") not in relevant_types and e.get("type") not in critical_types]
+    else:
+        primary = facts
+        secondary = []
+        other = []
+
     lines = [
         "Hechos **directamente observables** en video (detector, reglas, visión de escena o IA visual). "
         "No implican culpa ni conclusión legal.",
@@ -62,7 +99,9 @@ def section_observed_facts(timeline: list[dict[str, Any]]) -> str:
         "| Hora | Tipo | Severidad | Hecho | Evidencia |",
         "|------|------|-----------|-------|-----------|",
     ]
-    for ev in facts[:80]:
+
+    shown = 0
+    for ev in primary[:60]:
         ev_img = ev.get("evidence_image")
         ev_txt = f"Captura `{ev_img}`" if ev_img else "—"
         src = ev.get("source") or "automático"
@@ -71,18 +110,53 @@ def section_observed_facts(timeline: list[dict[str, Any]]) -> str:
             f"| {ev.get('time_label', '—')} | {label_event_type(ev.get('type', ''))} | "
             f"{label_severity(ev.get('severity', ''))} | {msg} | {ev_txt} ({src}) |"
         )
-    if len(facts) > 80:
-        lines.append(f"\n_… y {len(facts) - 80} hechos adicionales en la secuencia cronológica._")
+        shown += 1
+
+    if secondary and shown < 70:
+        for ev in secondary[:min(10, 70 - shown)]:
+            ev_img = ev.get("evidence_image")
+            ev_txt = f"Captura `{ev_img}`" if ev_img else "—"
+            src = ev.get("source") or "automático"
+            msg = (ev.get("message") or "").replace("|", "/")
+            lines.append(
+                f"| {ev.get('time_label', '—')} | {label_event_type(ev.get('type', ''))} | "
+                f"{label_severity(ev.get('severity', ''))} | {msg} _(secundario)_ | {ev_txt} ({src}) |"
+            )
+            shown += 1
+
+    total = len(primary) + len(secondary) + len(other)
+    if total > shown:
+        lines.append(f"\n_… y {total - shown} hechos adicionales (algunos pueden no estar directamente relacionados con el incidente)._")
     return "\n".join(lines) + "\n"
 
 
 def section_barrier_analysis(timeline: list[dict[str, Any]], job: dict[str, Any]) -> str:
-    types = {e.get("type") for e in timeline}
+    relevant_types = _relevant_event_types(job)
+    all_types = {e.get("type") for e in timeline}
+
+    if relevant_types:
+        types = all_types & (relevant_types | {"proximity", "collision"})
+        secondary_types = all_types - types
+    else:
+        types = all_types
+        secondary_types = set()
+
     barriers: list[str] = []
     for etype in sorted(types):
         text = _BARRIERS.get(str(etype))
         if text:
             barriers.append(f"- {text}")
+
+    if secondary_types and len(barriers) < 6:
+        for etype in sorted(secondary_types):
+            if etype in {"fire", "smoke"} and "fuego" not in (job.get("title") or "").lower():
+                continue
+            text = _BARRIERS.get(str(etype))
+            if text:
+                barriers.append(f"- _(Contexto)_ {text}")
+                if len(barriers) >= 8:
+                    break
+
     knowledge = job.get("knowledge") or {}
     for m in (knowledge.get("matches") or [])[:2]:
         if not m.get("conjecture"):
@@ -98,14 +172,36 @@ def section_barrier_analysis(timeline: list[dict[str, Any]], job: dict[str, Any]
 
 
 def section_expert_recommendations(timeline: list[dict[str, Any]], job: dict[str, Any]) -> str:
-    types = {e.get("type") for e in timeline}
+    relevant_types = _relevant_event_types(job)
+    all_types = {e.get("type") for e in timeline}
+
+    if relevant_types:
+        primary_types = all_types & relevant_types
+        secondary_types = all_types - primary_types
+    else:
+        primary_types = all_types
+        secondary_types = set()
+
     recs: list[str] = []
     va = (job.get("video_ai") or {}).get("parsed") or {}
     for r in va.get("recomendaciones") or []:
         recs.append(f"- {r}")
-    for etype in sorted(types):
+
+    for etype in sorted(primary_types):
         for item in _RECOMMENDATIONS.get(str(etype), []):
             recs.append(f"- {item}")
+
+    if len(recs) < 6 and secondary_types:
+        for etype in sorted(secondary_types):
+            if etype in {"fire", "smoke"} and "fuego" not in (job.get("title") or "").lower():
+                continue
+            for item in _RECOMMENDATIONS.get(str(etype), []):
+                recs.append(f"- _(Preventivo general)_ {item}")
+                if len(recs) >= 10:
+                    break
+            if len(recs) >= 10:
+                break
+
     if not recs:
         recs = [
             "- Revisar señalética y delimitación de zonas en el sector del incidente.",
@@ -120,4 +216,4 @@ def section_expert_recommendations(timeline: list[dict[str, Any]], job: dict[str
             continue
         seen.add(key)
         unique.append(r)
-    return "\n".join(unique[:14]) + "\n"
+    return "\n".join(unique[:12]) + "\n"

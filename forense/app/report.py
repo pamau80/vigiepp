@@ -157,7 +157,7 @@ Se detectaron **{len(report_timeline)} eventos** relevantes (excluye falsos posi
 
 ## 2. Hechos observados (evidencia en video)
 
-{section_observed_facts(report_timeline)}
+{section_observed_facts(report_timeline, job)}
 
 ## 3. Hipótesis contribuyentes (requieren validación)
 
@@ -210,31 +210,56 @@ _VigiEPP Forense · Informe IA de accidentes e incidentes_
 
 
 def _narrative_block(job: dict[str, Any]) -> str:
+    from .expert_report import _relevant_event_types
+
     llm = (job.get("llm_narrative") or "").strip()
     if llm:
         return llm
     timeline = (job.get("analysis") or {}).get("timeline") or []
     if not timeline:
         return "_Sin eventos suficientes para inferir factores contribuyentes._"
-    types = {e.get("type") for e in timeline}
+
+    all_types = {e.get("type") for e in timeline}
+    relevant_types = _relevant_event_types(job)
+
+    if relevant_types:
+        primary_types = all_types & relevant_types
+        secondary_types = all_types - primary_types
+    else:
+        primary_types = all_types
+        secondary_types = set()
+
     comp = job.get("comparison") or {}
     parts = []
-    if "epp_non_compliant" in types or "epp_reflective" in types:
+    title_lower = (job.get("title") or "").lower()
+
+    if "epp_non_compliant" in primary_types or "epp_reflective" in primary_types:
         parts.append("- Posible factor: incumplimiento de EPP detectado antes o durante el evento.")
-    if "proximity" in types or "speed_violation" in types:
+    if "proximity" in primary_types or "speed_violation" in primary_types:
         parts.append("- Posible factor: proximidad crítica o exceso de velocidad persona–maquinaria.")
-    if "action" in types or "unsafe_act" in types:
+    if "action" in primary_types or "unsafe_act" in primary_types:
         parts.append("- Posible factor: conducta o acto inseguro según reglas de faena.")
-    if "fall_risk" in types:
+    if "fall_risk" in primary_types:
         parts.append("- Posible factor: riesgo de caída o postura insegura en el tramo analizado.")
-    if "zone" in types:
+    if "zone" in primary_types:
         parts.append("- Posible factor: tránsito por zona restringida o exposición a línea de fuego/carga.")
-    if "fire" in types or "smoke" in types:
+    if ("fire" in primary_types or "smoke" in primary_types) or (
+        ("fire" in all_types or "smoke" in all_types) and ("fuego" in title_lower or "incendio" in title_lower)
+    ):
         parts.append("- Posible factor: fuego o humo visible — evaluar controles de ignición y respuesta.")
-    if "emergency_response" in types:
+    if "emergency_response" in primary_types:
         parts.append("- Posible factor: respuesta de emergencia en curso — documentar tiempos y coordinación.")
-    if "collision" in types:
+    if "collision" in primary_types:
         parts.append("- Posible factor: colisión o cruce de trayectorias en el sector.")
+
+    if secondary_types and len(parts) < 4:
+        context_added = False
+        if ("epp_non_compliant" in secondary_types or "epp_reflective" in secondary_types) and not any("EPP" in p for p in parts):
+            parts.append("- _(Contexto)_ Incumplimiento de EPP observado, puede no estar directamente relacionado.")
+            context_added = True
+        if ("proximity" in secondary_types or "speed_violation" in secondary_types) and not any("proximidad" in p for p in parts) and not context_added:
+            parts.append("- _(Contexto)_ Proximidad persona-maquinaria observada en el video.")
+
     if comp.get("available"):
         parts.append("- Posible factor: desviación respecto al escenario de referencia analizado.")
     knowledge = job.get("knowledge") or {}
@@ -262,7 +287,6 @@ def _section_knowledge(knowledge: dict[str, Any]) -> str:
             lines.append(f"  - _{m.get('description')}_")
         if reasons:
             lines.append(f"  - Motivos: {reasons}")
-    boosted = knowledge.get("boosted_events") or 0
     conjectures = knowledge.get("conjectures") or 0
     if conjectures:
         lines.append(f"\n_{conjectures} conjetura(s) de aprendizaje (similitud parcial)._")

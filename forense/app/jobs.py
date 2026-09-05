@@ -29,7 +29,6 @@ from .event_feedback import (
     match_events_for_query,
     record_dismissal,
     remove_suppression_for_event,
-    review_summary,
 )
 from .timeline_evidence import enrich_timeline_evidence
 from .templates import inference_settings, resolve_template

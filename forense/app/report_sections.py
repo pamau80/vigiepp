@@ -78,7 +78,7 @@ def build_report_sections(job: dict[str, Any]) -> dict[str, Any]:
         {
             "id": "facts",
             "title": "Hechos observados",
-            "content_md": section_observed_facts(report_timeline).strip(),
+            "content_md": section_observed_facts(report_timeline, job).strip(),
         },
         {
             "id": "hypotheses",

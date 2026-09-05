@@ -16,7 +16,7 @@ def test_format_video_ai_markdown_parsed():
         }
     )
     assert "retroceso" in md
-    assert "falsos positivos" in md.lower()
+    assert "alertas automáticas" in md.lower() or "no corresponden" in md.lower()
 
 
 def test_format_video_ai_missing():

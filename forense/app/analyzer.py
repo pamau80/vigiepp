@@ -23,6 +23,16 @@ from .tracker import IoUTracker, _classify
 
 logger = logging.getLogger("vigiepp.forense.analyzer")
 
+EVENT_COOLDOWN_SEC: dict[str, float] = {
+    "fire": 8.0,
+    "smoke": 10.0,
+    "epp_non_compliant": 5.0,
+    "epp_reflective": 6.0,
+    "zone": 4.0,
+    "action": 3.0,
+}
+MAX_KEYFRAMES_PER_TYPE = 4
+
 
 def _format_ts(sec: float) -> str:
     s = int(sec)
@@ -223,6 +233,9 @@ def run_analysis(
     frame_w, frame_h = 0, 0
     total = len(samples)
 
+    last_event_time: dict[str, float] = {}
+    keyframe_counts: dict[str, int] = {}
+
     try:
         from .teach_bridge import ensure_custom_model_if_available
 
@@ -263,18 +276,31 @@ def run_analysis(
                     min_distance_m=min_distance_m,
                 )
                 append_frame(job_id, frame_rec)
+
+            accepted_events: list[dict[str, Any]] = []
             for ev in result.get("events") or []:
-                ev["camera"] = camera_label
-                timeline.append(ev)
-            if result.get("keyframe_jpeg"):
-                keyframes.append(
-                    {
-                        "time_sec": sample.time_sec,
-                        "time_label": result["time_label"],
-                        "jpeg": result["keyframe_jpeg"],
-                        "events": [e.get("message") for e in result.get("events") or []],
-                    }
-                )
+                ev_type = ev.get("type", "")
+                cooldown = EVENT_COOLDOWN_SEC.get(ev_type, 2.0)
+                last_t = last_event_time.get(ev_type, -999)
+                if sample.time_sec - last_t >= cooldown:
+                    ev["camera"] = camera_label
+                    accepted_events.append(ev)
+                    last_event_time[ev_type] = sample.time_sec
+                    timeline.append(ev)
+
+            if result.get("keyframe_jpeg") and accepted_events:
+                primary_type = accepted_events[0].get("type", "other")
+                count = keyframe_counts.get(primary_type, 0)
+                if count < MAX_KEYFRAMES_PER_TYPE:
+                    keyframes.append(
+                        {
+                            "time_sec": sample.time_sec,
+                            "time_label": result["time_label"],
+                            "jpeg": result["keyframe_jpeg"],
+                            "events": [e.get("message") for e in accepted_events],
+                        }
+                    )
+                    keyframe_counts[primary_type] = count + 1
         except Exception:
             logger.exception("Frame %s falló en job %s", sample.index, job_id)
 

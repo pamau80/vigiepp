@@ -23,14 +23,13 @@ EVENT_TYPE_LABELS: dict[str, str] = {
     "proximity": "proximidad crítica",
     "knowledge_match": "coincidencia biblioteca",
     "knowledge_conjecture": "conjetura biblioteca",
-    "collision": "colisión",
+    "collision": "colisión / golpe",
     "fall_risk": "riesgo de caída",
     "unsafe_act": "acto inseguro",
     "fire": "incendio / llamas",
     "smoke": "humo",
     "epp_reflective": "sin ropa reflectante",
     "emergency_response": "respuesta de emergencia",
-    "collision": "colisión / golpe",
 }
 
 SEVERITY_LABELS: dict[str, str] = {

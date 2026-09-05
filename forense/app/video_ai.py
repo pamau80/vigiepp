@@ -154,8 +154,10 @@ def analyze_job_with_vision(job: dict[str, Any]) -> dict[str, Any] | None:
         "Analizá el incidente de forma integral (cualquier industria): "
         "EPP (casco, chaleco reflectante, lentes, guantes), proximidad persona–maquinaria, "
         "velocidad y maniobras, zonas restringidas, carga suspendida o línea de fuego, "
-        "caídas o atrapamientos, actos inseguros, y solo si es visible: fuego, humo o respuesta de emergencia. "
-        "Si algo no se ve, indicá «no observable»."
+        "caídas o atrapamientos, actos inseguros. "
+        "IMPORTANTE: Solo reportá fuego/humo si REALMENTE se ve llamas o humo denso en las imágenes. "
+        "No confundas sombras, paredes grises, cemento o maquinaria con humo. "
+        "Si algo no se ve claramente, indicá «no observable»."
     )
 
     content: list[dict[str, Any]] = [
@@ -169,17 +171,19 @@ def analyze_job_with_vision(job: dict[str, Any]) -> dict[str, Any] | None:
                 f"{expert_checklist} "
                 f"Enfoque del operador: {focus_desc or 'no especificado'}. "
                 "Respondé en JSON con claves: "
-                "resumen (2-4 oraciones), "
+                "resumen (2-4 oraciones sobre lo que REALMENTE se observa), "
                 "epp_y_ropa (cumplimiento EPP visible), "
                 "maquinaria_proximidad (equipos, distancias, maniobras), "
                 "conducta_y_caidas (posturas, caídas, actos inseguros), "
                 "zonas_y_carga (zonas, carga suspendida, línea de fuego), "
-                "energia_fuego_humo (solo si visible; si no, «no observable»), "
+                "energia_fuego_humo (solo si CLARAMENTE visible llamas o humo denso real; si no, «no observable»), "
                 "respuesta_emergencia (solo si visible; si no, «no observable»), "
-                "secuencia (lista de {hora, observacion}), "
-                "riesgos (lista), posibles_falsos_positivos (alertas del detector que NO ves), "
-                "recomendaciones (lista). "
-                "Solo describe lo visible; usa condicional; no afirmes culpa legal."
+                "secuencia (lista de {hora, observacion} solo de hechos VISIBLES), "
+                "riesgos (lista de riesgos OBSERVADOS, no supuestos), "
+                "posibles_falsos_positivos (alertas del detector automático que NO corresponden a la realidad visible), "
+                "no_observado (lista de elementos que el detector pudo haber marcado pero NO se ven en las imágenes), "
+                "recomendaciones (lista basada solo en lo observado). "
+                "Sé conservador: solo describe lo que REALMENTE ves; usa condicional; no afirmes culpa legal."
             ),
         }
     ]
@@ -239,46 +243,76 @@ def format_video_ai_markdown(video_ai: dict[str, Any] | None) -> str:
     if parsed:
         lines = []
         if parsed.get("resumen"):
-            lines.append(str(parsed["resumen"]))
+            lines.append(f"**Resumen de lo observado:** {parsed['resumen']}")
+
+        observed_sections = []
         for label, key in (
             ("EPP y ropa", "epp_y_ropa"),
             ("Maquinaria y proximidad", "maquinaria_proximidad"),
             ("Conducta y caídas", "conducta_y_caidas"),
             ("Zonas y carga", "zonas_y_carga"),
-            ("Fuego o humo", "energia_fuego_humo"),
-            ("Respuesta emergencia", "respuesta_emergencia"),
-            # compatibilidad esquema anterior
+        ):
+            val = parsed.get(key)
+            if val and str(val).strip().lower() not in {"no observable", "no visible", "ninguno", "n/a", "no aplica"}:
+                observed_sections.append(f"\n**{label}:** {val}")
+
+        fire_smoke = parsed.get("energia_fuego_humo")
+        if fire_smoke and str(fire_smoke).strip().lower() not in {"no observable", "no visible", "ninguno", "n/a", "no aplica"}:
+            observed_sections.append(f"\n**⚠️ Fuego/humo observado:** {fire_smoke}")
+
+        emergency = parsed.get("respuesta_emergencia")
+        if emergency and str(emergency).strip().lower() not in {"no observable", "no visible", "ninguno", "n/a", "no aplica"}:
+            observed_sections.append(f"\n**Respuesta emergencia:** {emergency}")
+
+        for label, key in (
             ("Fuego (legacy)", "fuego_contenedor"),
             ("Humo (legacy)", "humo"),
             ("EPP reflectante (legacy)", "epp_chaleco_reflectante"),
             ("Emergencia (legacy)", "brigada_incendios"),
         ):
             val = parsed.get(key)
-            if not val or str(val).strip().lower() in {"no observable", "no visible", "ninguno", "n/a"}:
-                continue
-            lines.append(f"\n**{label}:** {val}")
+            if val and str(val).strip().lower() not in {"no observable", "no visible", "ninguno", "n/a", "no aplica"}:
+                observed_sections.append(f"\n**{label}:** {val}")
+
+        lines.extend(observed_sections)
+
         seq = parsed.get("secuencia") or []
         if seq:
-            lines.append("\n**Secuencia observada:**\n")
-            for item in seq[:12]:
+            lines.append("\n**Secuencia de hechos observados:**\n")
+            for item in seq[:10]:
                 if isinstance(item, dict):
                     lines.append(f"- **{item.get('hora', '—')}:** {item.get('observacion', '')}")
                 else:
                     lines.append(f"- {item}")
+
         risks = parsed.get("riesgos") or []
         if risks:
-            lines.append("\n**Riesgos visibles:**\n")
-            for r in risks[:8]:
+            lines.append("\n**Riesgos observados:**\n")
+            for r in risks[:6]:
                 lines.append(f"- {r}")
+
+        not_observed = parsed.get("no_observado") or []
+        if not_observed:
+            lines.append("\n**❌ NO observado en las imágenes (posibles falsos del detector):**\n")
+            for item in not_observed[:6]:
+                lines.append(f"- {item}")
+
         fp = parsed.get("posibles_falsos_positivos") or []
         if fp:
-            lines.append("\n**Posibles falsos positivos del detector automático:**\n")
-            for f in fp[:8]:
+            lines.append("\n**⚠️ Alertas automáticas que NO corresponden a la realidad:**\n")
+            for f in fp[:6]:
                 lines.append(f"- {f}")
+
         rec = parsed.get("recomendaciones") or []
         if rec:
-            lines.append("\n**Recomendaciones:**\n")
-            for r in rec[:6]:
+            lines.append("\n**Recomendaciones (basadas en lo observado):**\n")
+            for r in rec[:5]:
                 lines.append(f"- {r}")
+
+        frames_meta = video_ai.get("frames_meta") or []
+        if frames_meta:
+            times = [f.get("time_label") or f"{f.get('time_sec', 0):.1f}s" for f in frames_meta[:6]]
+            lines.append(f"\n_Análisis basado en {len(frames_meta)} capturas: {', '.join(times)}_")
+
         return "\n".join(lines) + "\n"
     return (video_ai.get("raw") or "").strip() + "\n"
