@@ -16,9 +16,22 @@ from .kinematics import (
     snapshot_proximity,
     snapshot_track_speeds,
 )
+from .detection_filter import filter_detections
+from .event_feedback import filter_suppressed_events
+from .scene_signals import detect_fire_smoke, fire_smoke_events
 from .tracker import IoUTracker, _classify
 
 logger = logging.getLogger("vigiepp.forense.analyzer")
+
+EVENT_COOLDOWN_SEC: dict[str, float] = {
+    "fire": 8.0,
+    "smoke": 10.0,
+    "epp_non_compliant": 5.0,
+    "epp_reflective": 6.0,
+    "zone": 4.0,
+    "action": 3.0,
+}
+MAX_KEYFRAMES_PER_TYPE = 4
 
 
 def _format_ts(sec: float) -> str:
@@ -36,6 +49,8 @@ def analyze_frame(
     profile: str = DEFAULT_PROFILE,
     meters_per_pixel: float = 0.045,
     imgsz: int = 320,
+    min_detection_confidence: float = 0.42,
+    min_box_area_ratio: float = 0.0008,
 ) -> dict[str, Any]:
     """Ejecuta detección + compliance + zonas + acciones sobre un frame."""
     from app import actions as actions_mod
@@ -45,6 +60,13 @@ def analyze_frame(
     h, w = frame_bgr.shape[:2]
     det = PPEDetector.get()
     detections, _ = det.predict(frame_bgr, annotate=False, imgsz=imgsz)
+    detections = filter_detections(
+        detections,
+        w,
+        h,
+        min_confidence=min_detection_confidence,
+        min_area_ratio=min_box_area_ratio,
+    )
 
     settings = actions_mod.get_settings()
     settings["meters_per_pixel"] = meters_per_pixel
@@ -81,6 +103,23 @@ def analyze_frame(
                 "message": comp.get("summary") or "Incumplimiento EPP",
             }
         )
+        for person in comp.get("persons") or []:
+            missing = [str(m).lower() for m in (person.get("missing") or [])]
+            if any("chaleco" in m or "vest" in m or "reflect" in m for m in missing):
+                events.append(
+                    {
+                        "time_sec": time_sec,
+                        "time_label": _format_ts(time_sec),
+                        "type": "epp_reflective",
+                        "severity": "high",
+                        "message": "Persona sin chaleco/ropa reflectante de alta visibilidad",
+                        "source": "detector",
+                    }
+                )
+                break
+
+    scene = detect_fire_smoke(frame_bgr)
+    events.extend(fire_smoke_events(time_sec, _format_ts(time_sec), scene))
 
     for zalert in (resp.get("zones") or {}).get("alerts") or []:
         events.append(
@@ -93,8 +132,12 @@ def analyze_frame(
             }
         )
 
+    events = filter_suppressed_events(events)
+
     keyframe_jpeg = None
     if events:
+        keyframe_jpeg = encode_jpeg(frame_bgr, quality=78)
+    elif scene.get("fire") or scene.get("smoke"):
         keyframe_jpeg = encode_jpeg(frame_bgr, quality=78)
 
     return {
@@ -179,6 +222,8 @@ def run_analysis(
     progress_span: int = 75,
     imgsz: int = 320,
     record_frames: bool = True,
+    min_detection_confidence: float = 0.42,
+    min_box_area_ratio: float = 0.0008,
 ) -> dict[str, Any]:
     suffix = f":{source_suffix}" if source_suffix else ""
     source_id = f"forense:{job_id}{suffix}"
@@ -187,6 +232,9 @@ def run_analysis(
     tracker = IoUTracker()
     frame_w, frame_h = 0, 0
     total = len(samples)
+
+    last_event_time: dict[str, float] = {}
+    keyframe_counts: dict[str, int] = {}
 
     try:
         from .teach_bridge import ensure_custom_model_if_available
@@ -210,6 +258,8 @@ def run_analysis(
                 profile=profile,
                 meters_per_pixel=meters_per_pixel,
                 imgsz=imgsz,
+                min_detection_confidence=min_detection_confidence,
+                min_box_area_ratio=min_box_area_ratio,
             )
             frame_w = max(frame_w, int(result.get("frame_w") or 0))
             frame_h = max(frame_h, int(result.get("frame_h") or 0))
@@ -226,18 +276,31 @@ def run_analysis(
                     min_distance_m=min_distance_m,
                 )
                 append_frame(job_id, frame_rec)
+
+            accepted_events: list[dict[str, Any]] = []
             for ev in result.get("events") or []:
-                ev["camera"] = camera_label
-                timeline.append(ev)
-            if result.get("keyframe_jpeg"):
-                keyframes.append(
-                    {
-                        "time_sec": sample.time_sec,
-                        "time_label": result["time_label"],
-                        "jpeg": result["keyframe_jpeg"],
-                        "events": [e.get("message") for e in result.get("events") or []],
-                    }
-                )
+                ev_type = ev.get("type", "")
+                cooldown = EVENT_COOLDOWN_SEC.get(ev_type, 2.0)
+                last_t = last_event_time.get(ev_type, -999)
+                if sample.time_sec - last_t >= cooldown:
+                    ev["camera"] = camera_label
+                    accepted_events.append(ev)
+                    last_event_time[ev_type] = sample.time_sec
+                    timeline.append(ev)
+
+            if result.get("keyframe_jpeg") and accepted_events:
+                primary_type = accepted_events[0].get("type", "other")
+                count = keyframe_counts.get(primary_type, 0)
+                if count < MAX_KEYFRAMES_PER_TYPE:
+                    keyframes.append(
+                        {
+                            "time_sec": sample.time_sec,
+                            "time_label": result["time_label"],
+                            "jpeg": result["keyframe_jpeg"],
+                            "events": [e.get("message") for e in accepted_events],
+                        }
+                    )
+                    keyframe_counts[primary_type] = count + 1
         except Exception:
             logger.exception("Frame %s falló en job %s", sample.index, job_id)
 

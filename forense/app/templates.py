@@ -11,6 +11,9 @@ _DEFAULT_INFERENCE: dict[str, Any] = {
     "burst_interval_sec": 0.1,
     "burst_duration_sec": 4.5,
     "max_frames": 5000,
+    "min_detection_confidence": 0.42,
+    "min_box_area_ratio": 0.0008,
+    "focus_burst_interval_sec": 0.12,
 }
 
 TEMPLATES: dict[str, dict[str, Any]] = {
@@ -169,6 +172,25 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         "intro": "Terminales de buses/camiones, maniobras y peatones en patio.",
         "inference": {**_DEFAULT_INFERENCE, "imgsz": 384, "base_interval_sec": 0.38},
         "situation_focus": ["speed_violation", "proximity", "zone"],
+    },
+    "incendio_emergencia": {
+        "id": "incendio_emergencia",
+        "name": "Incendio / emergencia en faena",
+        "profile": "epp_completo",
+        "max_machinery_kmh": 10.0,
+        "max_person_kmh": 5.0,
+        "min_distance_m": 4.0,
+        "meters_per_pixel": 0.045,
+        "intro": "Emergencia con fuego/humo: contenedores, baterías, cargas y respuesta de brigada.",
+        "inference": {
+            **_DEFAULT_INFERENCE,
+            "imgsz": 384,
+            "base_interval_sec": 0.28,
+            "motion_threshold": 8.0,
+            "burst_duration_sec": 6.0,
+            "focus_burst_interval_sec": 0.1,
+        },
+        "situation_focus": ["fire", "smoke", "epp_reflective", "emergency_response", "epp_non_compliant"],
     },
     "general": {
         "id": "general",

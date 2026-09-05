@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
+from typing import Literal
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,9 +14,6 @@ from pydantic import BaseModel, Field
 from .auth_bridge import auth_status_payload, login_pin, logout_session, require_forense_admin
 from .config import (
     BUILD,
-    DEFAULT_MAX_MACHINERY_KMH,
-    DEFAULT_MAX_PERSON_KMH,
-    DEFAULT_MIN_DISTANCE_M,
     DOL_API_KEY,
     MAX_UPLOAD_MB,
     ROOT,
@@ -27,20 +26,27 @@ from .jobs import (
     committee_md_path,
     create_job,
     delete_job,
+    dismiss_matching_events,
     export_job_ehs,
     get_job,
     heatmap_path,
+    has_job_video,
     job_video_path,
     keyframe_path,
     learn_event_at_timestamp,
     list_jobs,
     report_pdf_path,
+    refocus_job,
+    reanalyze_job,
+    review_event,
 )
+from .event_feedback import apply_review_state, build_review_audit, delete_suppression_rule, ensure_event_ids, review_summary, suppression_summary
+from .report_sections import build_report_sections
+from .timeline_evidence import critical_alerts_summary, enrich_timeline_evidence
 from .knowledge import (
     SITUATION_TYPES,
     create_knowledge,
     delete_knowledge,
-    get_knowledge,
     knowledge_stats,
     list_knowledge,
     promote_job_keyframe,
@@ -57,6 +63,7 @@ from .teach_bridge import (
     teach_status,
 )
 from .templates import list_templates
+from .video_formats import SUPPORTED_FORMATS_HINT, is_supported_video_filename
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("vigiepp.forense")
@@ -89,6 +96,8 @@ class LoginBody(BaseModel):
 async def _read_upload(video: UploadFile | None, label: str) -> dict | None:
     if video is None or not video.filename:
         return None
+    if not is_supported_video_filename(video.filename):
+        raise HTTPException(400, f"{label}: formato no soportado. Admitidos: {SUPPORTED_FORMATS_HINT}")
     data = await video.read()
     max_b = MAX_UPLOAD_MB * 1024 * 1024
     if len(data) > max_b:
@@ -183,6 +192,10 @@ async def jobs_create(
     reference_job_id: str = Form(""),
     offset2: float = Form(0.0),
     offset3: float = Form(0.0),
+    focus_description: str = Form(""),
+    focus_from_sec: float | None = Form(None),
+    focus_until_sec: float | None = Form(None),
+    strict_detection: str = Form(""),
 ) -> dict:
     _require_license()
     require_forense_admin(request)
@@ -214,17 +227,35 @@ async def jobs_create(
         min_distance_m=max(0.5, min(20.0, min_distance_m)) if min_distance_m is not None else None,
         reference_job_id=ref_id,
         extra_sources=extra_sources or None,
+        focus_description=focus_description,
+        focus_from_sec=focus_from_sec if focus_from_sec is not None and focus_from_sec >= 0 else None,
+        focus_until_sec=focus_until_sec if focus_until_sec is not None and focus_until_sec > 0 else None,
+        strict_detection=strict_detection.strip().lower() in {"1", "true", "on", "yes", "si", "sí"},
     )
     return {"ok": True, "job": {"id": job["id"], "status": job["status"]}}
 
 
 def _job_payload(job: dict) -> dict:
-    analysis = job.get("analysis") or {}
+    analysis = dict(job.get("analysis") or {})
+    feedback = job.get("event_feedback") or {}
+    timeline = enrich_timeline_evidence(
+        ensure_event_ids(analysis.get("timeline") or []),
+        analysis.get("keyframes") or [],
+    )
+    timeline = apply_review_state(timeline, feedback)
+    if timeline:
+        analysis = {**analysis, "timeline": timeline, "event_count": len([e for e in timeline if e.get("review_status") != "dismissed"])}
+    sources = job.get("sources") or []
     return {
         "id": job["id"],
         "title": job.get("title"),
         "site": job.get("site"),
         "case_notes": job.get("case_notes"),
+        "focus_description": job.get("focus_description"),
+        "focus_from_sec": job.get("focus_from_sec"),
+        "focus_until_sec": job.get("focus_until_sec"),
+        "strict_detection": job.get("strict_detection"),
+        "video_ai": job.get("video_ai"),
         "status": job.get("status"),
         "progress": job.get("progress"),
         "progress_message": job.get("progress_message"),
@@ -235,7 +266,12 @@ def _job_payload(job: dict) -> dict:
         "template_id": job.get("template_id"),
         "template_name": job.get("template_name"),
         "reference_job_id": job.get("reference_job_id"),
-        "sources": job.get("sources"),
+        "sources": sources,
+        "video_cameras": [
+            {"index": i, "label": (s.get("label") or f"Cám. {i + 1}")}
+            for i, s in enumerate(sources)
+            if has_job_video(job["id"], i)
+        ] or ([{"index": 0, "label": "Cám. 1"}] if has_job_video(job["id"], 0) else []),
         "meters_per_pixel": job.get("meters_per_pixel"),
         "max_machinery_kmh": job.get("max_machinery_kmh"),
         "max_person_kmh": job.get("max_person_kmh"),
@@ -244,10 +280,16 @@ def _job_payload(job: dict) -> dict:
         "has_pdf": report_pdf_path(job["id"]) is not None,
         "has_bundle": case_bundle_path(job["id"]) is not None,
         "has_committee": committee_md_path(job["id"]) is not None,
-        "has_video": job_video_path(job["id"]) is not None,
+        "has_video": has_job_video(job["id"]),
         "frames_analyzed": count_frames(job["id"]),
         "ehs_push": job.get("ehs_push"),
         "knowledge": job.get("knowledge"),
+        "event_feedback": feedback,
+        "review_summary": review_summary(timeline, feedback),
+        "critical_alerts": critical_alerts_summary(
+            [e for e in timeline if e.get("review_status") != "dismissed"],
+            job,
+        ),
     }
 
 
@@ -262,12 +304,12 @@ def jobs_get(job_id: str, request: Request) -> dict:
 
 
 @app.get("/api/forense/jobs/{job_id}/video")
-def jobs_video(job_id: str, request: Request) -> FileResponse:
+def jobs_video(job_id: str, request: Request, cam: int = Query(0, ge=0, le=2)) -> FileResponse:
     _require_license()
     require_forense_admin(request)
     if not get_job(job_id):
         raise HTTPException(404, "Trabajo no encontrado")
-    path = job_video_path(job_id)
+    path = job_video_path(job_id, cam)
     if not path:
         raise HTTPException(404, "Video no disponible")
     return FileResponse(path, media_type="video/mp4", filename=path.name)
@@ -319,6 +361,140 @@ class LearnEventBody(BaseModel):
     description: str = Field("", max_length=4000)
     situation_type: str = Field("other", max_length=64)
     industry: str = Field("general", max_length=64)
+
+
+class RefocusBody(BaseModel):
+    focus_description: str = Field("", max_length=4000)
+    focus_from_sec: float = Field(..., ge=0)
+    focus_until_sec: float = Field(..., gt=0)
+    strict_detection: bool | None = None
+    camera_index: int = Field(0, ge=0, le=2)
+    all_cameras: bool = False
+
+
+class DismissMatchBody(BaseModel):
+    query: str = Field(..., min_length=3, max_length=500)
+    note: str = Field("", max_length=500)
+
+
+@app.post("/api/forense/jobs/{job_id}/refocus")
+def jobs_refocus(job_id: str, body: RefocusBody, request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    if body.focus_until_sec <= body.focus_from_sec:
+        raise HTTPException(400, "focus_until_sec debe ser mayor que focus_from_sec")
+    try:
+        job = refocus_job(
+            job_id,
+            focus_description=body.focus_description,
+            focus_from_sec=body.focus_from_sec,
+            focus_until_sec=body.focus_until_sec,
+            strict_detection=body.strict_detection,
+            camera_index=body.camera_index,
+            all_cameras=body.all_cameras,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"ok": True, "job": {"id": job["id"], "status": job["status"]}}
+
+
+@app.post("/api/forense/jobs/{job_id}/reanalyze")
+def jobs_reanalyze(job_id: str, request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    try:
+        job = reanalyze_job(job_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"ok": True, "job": {"id": job["id"], "status": job["status"]}}
+
+
+class EventReviewBody(BaseModel):
+    verdict: Literal["confirmed", "dismissed", "restored"]
+    note: str = Field("", max_length=500)
+
+
+@app.get("/api/forense/suppression-rules")
+def suppression_rules_list(request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    return {"ok": True, **suppression_summary()}
+
+
+@app.delete("/api/forense/suppression-rules")
+def suppression_rules_delete(
+    request: Request,
+    event_type: str = Query(..., alias="type"),
+    rule_id: str = Query(""),
+) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    rid = rule_id.strip() or None
+    if not delete_suppression_rule(event_type, rid):
+        raise HTTPException(404, "Regla no encontrada")
+    return {"ok": True, **suppression_summary()}
+
+
+@app.post("/api/forense/jobs/{job_id}/events/{event_id}/review")
+def jobs_review_event(job_id: str, event_id: str, body: EventReviewBody, request: Request) -> dict:
+    _require_license()
+    role = require_forense_admin(request)
+    try:
+        job = review_event(job_id, event_id, verdict=body.verdict, note=body.note, reviewed_by=role)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "job": _job_payload(job)}
+
+
+@app.post("/api/forense/jobs/{job_id}/events/dismiss-matching")
+def jobs_dismiss_matching(job_id: str, body: DismissMatchBody, request: Request) -> dict:
+    _require_license()
+    role = require_forense_admin(request)
+    try:
+        job, dismissed = dismiss_matching_events(
+            job_id,
+            body.query,
+            note=body.note,
+            reviewed_by=role,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {"ok": True, "dismissed_count": len(dismissed), "dismissed_ids": dismissed, "job": _job_payload(job)}
+
+
+@app.get("/api/forense/jobs/{job_id}/report-sections")
+def jobs_report_sections(job_id: str, request: Request) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(404, "Trabajo no encontrado")
+    return {"ok": True, "report": build_report_sections(job)}
+
+
+@app.get("/api/forense/jobs/{job_id}/review-audit.json")
+def jobs_review_audit(job_id: str, request: Request) -> JSONResponse:
+    _require_license()
+    require_forense_admin(request)
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(404, "Trabajo no encontrado")
+    payload = {
+        "job_id": job_id,
+        "title": job.get("title"),
+        "site": job.get("site"),
+        "exported_at": datetime.now(UTC).isoformat(),
+        "entries": build_review_audit(job),
+    }
+    return JSONResponse(payload)
 
 
 @app.post("/api/forense/jobs/{job_id}/events/learn")
@@ -673,9 +849,13 @@ def knowledge_thumb(entry_id: str, request: Request) -> FileResponse:
     _require_license()
     require_forense_admin(request)
     from .config import KNOWLEDGE_DIR
+    from .path_safety import resolve_under, safe_entry_id
 
-    path = KNOWLEDGE_DIR / entry_id / "thumb.jpg"
-    if not path.is_file():
+    safe = safe_entry_id(entry_id)
+    if not safe:
+        raise HTTPException(404, "Miniatura no disponible")
+    path = resolve_under(KNOWLEDGE_DIR, safe, "thumb.jpg")
+    if not path or not path.is_file():
         raise HTTPException(404, "Miniatura no disponible")
     return FileResponse(path, media_type="image/jpeg")
 

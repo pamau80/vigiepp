@@ -14,12 +14,25 @@ from typing import Any
 from .comparison import compare_jobs
 from .config import BUILD, JOBS_DIR, ensure_dirs
 from .export import committee_section, export_case_bundle, push_to_ehs
+from .focus_analysis import analyze_focus_window, merge_focus_keyframes, merge_focus_timeline as merge_focus_timeline_window
+from .vision_timeline import events_from_vision_parsed, merge_vision_timeline
 from .knowledge import apply_knowledge_insights, match_knowledge_for_job, reinforce_knowledge_from_job
 from .multi_source import run_multi_source_analysis
+from .path_safety import resolve_under, safe_job_id, safe_keyframe_name
 from .pdf_export import export_report_pdf
 from .report import build_report_markdown, maybe_enrich_with_llm
-from .sampler import adaptive_sample_video
+from .sampler import adaptive_sample_video, enrich_focus_window
+from .event_feedback import (
+    active_timeline,
+    apply_review_state,
+    ensure_event_ids,
+    match_events_for_query,
+    record_dismissal,
+    remove_suppression_for_event,
+)
+from .timeline_evidence import enrich_timeline_evidence
 from .templates import inference_settings, resolve_template
+from .video_formats import resolve_source_path, video_extension
 
 logger = logging.getLogger("vigiepp.forense.jobs")
 _lock = threading.Lock()
@@ -27,7 +40,10 @@ _jobs: dict[str, dict[str, Any]] = {}
 
 
 def _job_dir(job_id: str) -> Path:
-    return JOBS_DIR / job_id
+    safe = safe_job_id(job_id)
+    if not safe:
+        raise ValueError("job_id inválido")
+    return JOBS_DIR / safe
 
 
 def _save_job(job: dict[str, Any]) -> None:
@@ -60,6 +76,8 @@ def list_jobs() -> list[dict[str, Any]]:
 
 
 def get_job(job_id: str) -> dict[str, Any] | None:
+    if not safe_job_id(job_id):
+        return None
     with _lock:
         if job_id not in _jobs:
             _load_jobs_from_disk()
@@ -73,6 +91,80 @@ def _set_progress(job_id: str, pct: int, message: str) -> None:
     job["progress"] = max(0, min(100, pct))
     job["progress_message"] = message
     _save_job(job)
+
+
+def _persist_keyframes(job_id: str, keyframes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Guarda JPEG en disco y deja solo referencias `image` en cada keyframe."""
+    kf_dir = _job_dir(job_id) / "keyframes"
+    kf_dir.mkdir(exist_ok=True)
+    next_idx = len(list(kf_dir.glob("kf_*.jpg")))
+    out: list[dict[str, Any]] = []
+    for kf in keyframes:
+        item = dict(kf)
+        jpeg = item.pop("jpeg", None)
+        if jpeg and not item.get("image"):
+            name = f"kf_{next_idx:03d}.jpg"
+            (kf_dir / name).write_bytes(jpeg)
+            item["image"] = name
+            next_idx += 1
+        out.append(item)
+    return out
+
+
+def _regenerate_job_outputs(job_id: str) -> None:
+    """Biblioteca, visión IA, informes y exportaciones tras actualizar análisis."""
+    job = _jobs.get(job_id)
+    if not job:
+        return
+
+    _set_progress(job_id, 90, "Consultando biblioteca de situaciones")
+    knowledge_matches = match_knowledge_for_job(job)
+    job["knowledge"] = apply_knowledge_insights(job, knowledge_matches)
+    reinforced = reinforce_knowledge_from_job(job, knowledge_matches)
+    if reinforced:
+        job["knowledge"]["reinforced_entries"] = reinforced
+
+    _set_progress(job_id, 91, "Interpretación visual IA (ventana de enfoque)")
+    from .video_ai import analyze_job_with_vision
+
+    vision = analyze_job_with_vision(job)
+    if vision:
+        job["video_ai"] = vision
+        analysis = job.get("analysis") or {}
+        v_events = events_from_vision_parsed(
+            vision.get("parsed"),
+            frames_used=vision.get("frames_meta"),
+        )
+        if v_events:
+            timeline = merge_vision_timeline(analysis.get("timeline") or [], v_events)
+            analysis["timeline"] = timeline
+            analysis["event_count"] = len(timeline)
+            job["analysis"] = analysis
+    else:
+        job.pop("video_ai", None)
+
+    _set_progress(job_id, 92, "Generando informes")
+    narrative = maybe_enrich_with_llm(job)
+    if narrative:
+        job["llm_narrative"] = narrative
+    else:
+        job.pop("llm_narrative", None)
+    job["report_md"] = build_report_markdown(job)
+    job["committee_md"] = committee_section(job)
+    full_md = job["report_md"] + "\n\n" + job["committee_md"]
+    job_dir = _job_dir(job_id)
+    (job_dir / "report.md").write_text(full_md, encoding="utf-8")
+    (job_dir / "committee.md").write_text(job["committee_md"], encoding="utf-8")
+    try:
+        export_report_pdf({**job, "report_md": full_md}, job_dir / "report.pdf")
+    except Exception as pdf_exc:
+        logger.warning("PDF forense omitido para %s: %s", job_id, pdf_exc)
+        job["pdf_error"] = str(pdf_exc)
+    try:
+        export_case_bundle(job, job_dir / "case_bundle.zip")
+    except Exception as bundle_exc:
+        logger.warning("Bundle forense omitido para %s: %s", job_id, bundle_exc)
+        job["bundle_error"] = str(bundle_exc)
 
 
 def create_job(
@@ -90,6 +182,10 @@ def create_job(
     min_distance_m: float | None = None,
     reference_job_id: str | None = None,
     extra_sources: list[dict[str, Any]] | None = None,
+    focus_description: str = "",
+    focus_from_sec: float | None = None,
+    focus_until_sec: float | None = None,
+    strict_detection: bool = False,
 ) -> dict[str, Any]:
     tpl = resolve_template(template_id)
     ensure_dirs()
@@ -99,13 +195,14 @@ def create_job(
 
     sources_dir = job_dir / "sources"
     sources_dir.mkdir(exist_ok=True)
-    ext = Path(filename).suffix.lower() or ".mp4"
+    ext = video_extension(filename) or ".mp4"
     primary_path = sources_dir / f"cam0{ext}"
     primary_path.write_bytes(video_bytes)
 
     source_meta = [{"label": "Cám. 1", "offset_sec": 0.0, "path": str(primary_path), "filename": filename}]
     for i, extra in enumerate(extra_sources or [], start=1):
-        ex_ext = Path(extra.get("filename") or "video.mp4").suffix.lower() or ".mp4"
+        ex_name = extra.get("filename") or "video.mp4"
+        ex_ext = video_extension(ex_name) or ".mp4"
         p = sources_dir / f"cam{i}{ex_ext}"
         p.write_bytes(extra["bytes"])
         source_meta.append(
@@ -123,6 +220,10 @@ def create_job(
         "title": title.strip() or "Análisis forense",
         "site": site.strip() or "Faena",
         "case_notes": case_notes.strip(),
+        "focus_description": focus_description.strip(),
+        "focus_from_sec": focus_from_sec,
+        "focus_until_sec": focus_until_sec,
+        "strict_detection": bool(strict_detection),
         "template_id": tpl["id"],
         "template_name": tpl["name"],
         "profile": profile or tpl["profile"],
@@ -159,8 +260,12 @@ def _process_job(job_id: str) -> None:
     try:
         job["status"] = "processing"
         _set_progress(job_id, 5, "Preparando fuentes de video")
+        ensure_web_playback(job_id)
 
         inf = inference_settings(job.get("template_id"))
+        from .detection_filter import strict_inference_overrides
+
+        inf = {**inf, **strict_inference_overrides(bool(job.get("strict_detection")))}
         sample_kw = {
             "base_interval_sec": inf.get("base_interval_sec", 0.45),
             "motion_threshold": inf.get("motion_threshold", 11.0),
@@ -169,11 +274,34 @@ def _process_job(job_id: str) -> None:
             "max_frames": int(inf.get("max_frames", 5000)),
         }
         imgsz = int(inf.get("imgsz", 320))
+        det_conf = float(inf.get("min_detection_confidence", 0.42))
+        det_area = float(inf.get("min_box_area_ratio", 0.0008))
+        focus_from = job.get("focus_from_sec")
+        focus_until = job.get("focus_until_sec")
+        has_focus = (
+            focus_from is not None
+            and focus_until is not None
+            and float(focus_until) > float(focus_from)
+        )
 
         sources = job.get("sources") or []
         if len(sources) <= 1:
             path = sources[0]["path"] if sources else ""
             samples, meta = adaptive_sample_video(path, **sample_kw)
+            if has_focus:
+                samples = enrich_focus_window(
+                    samples,
+                    path,
+                    focus_from_sec=float(focus_from),
+                    focus_until_sec=float(focus_until),
+                    interval_sec=float(inf.get("focus_burst_interval_sec", 0.12)),
+                )
+                meta["focus_window"] = {
+                    "from_sec": float(focus_from),
+                    "until_sec": float(focus_until),
+                    "extra_frames": meta.get("sampled_frames"),
+                }
+                meta["sampled_frames"] = len(samples)
             job["meta"] = meta
             from .analyzer import run_analysis
 
@@ -188,6 +316,8 @@ def _process_job(job_id: str) -> None:
                 heatmap_path=_job_dir(job_id) / "heatmap.jpg",
                 progress_cb=lambda p, m: _set_progress(job_id, p, m),
                 imgsz=imgsz,
+                min_detection_confidence=det_conf,
+                min_box_area_ratio=det_area,
             )
         else:
             job["meta"] = {"sources": len(sources), "multi_camera": True}
@@ -226,6 +356,14 @@ def _process_job(job_id: str) -> None:
             "frame_size": analysis.get("frame_size") or {},
             "sources_count": analysis.get("sources_count", len(sources)),
         }
+        analysis_block = job["analysis"]
+        analysis_block["timeline"] = ensure_event_ids(analysis_block.get("timeline") or [])
+        analysis_block["timeline"] = enrich_timeline_evidence(
+            analysis_block["timeline"],
+            analysis_block.get("keyframes") or [],
+        )
+        active = active_timeline(analysis_block["timeline"], job.get("event_feedback"))
+        analysis_block["event_count"] = len(active)
 
         ref_id = job.get("reference_job_id")
         if ref_id:
@@ -234,33 +372,7 @@ def _process_job(job_id: str) -> None:
         else:
             job["comparison"] = {"available": False}
 
-        _set_progress(job_id, 90, "Consultando biblioteca de situaciones")
-        knowledge_matches = match_knowledge_for_job(job)
-        job["knowledge"] = apply_knowledge_insights(job, knowledge_matches)
-        reinforced = reinforce_knowledge_from_job(job, knowledge_matches)
-        if reinforced:
-            job["knowledge"]["reinforced_entries"] = reinforced
-
-        _set_progress(job_id, 92, "Generando informes")
-
-        narrative = maybe_enrich_with_llm(job)
-        if narrative:
-            job["llm_narrative"] = narrative
-        job["report_md"] = build_report_markdown(job)
-        job["committee_md"] = committee_section(job)
-        full_md = job["report_md"] + "\n\n" + job["committee_md"]
-        (_job_dir(job_id) / "report.md").write_text(full_md, encoding="utf-8")
-        (_job_dir(job_id) / "committee.md").write_text(job["committee_md"], encoding="utf-8")
-        try:
-            export_report_pdf({**job, "report_md": full_md}, _job_dir(job_id) / "report.pdf")
-        except Exception as pdf_exc:
-            logger.warning("PDF forense omitido para %s: %s", job_id, pdf_exc)
-            job["pdf_error"] = str(pdf_exc)
-        try:
-            export_case_bundle(job, _job_dir(job_id) / "case_bundle.zip")
-        except Exception as bundle_exc:
-            logger.warning("Bundle forense omitido para %s: %s", job_id, bundle_exc)
-            job["bundle_error"] = str(bundle_exc)
+        _regenerate_job_outputs(job_id)
 
         job["status"] = "done"
         job["progress"] = 100
@@ -274,6 +386,261 @@ def _process_job(job_id: str) -> None:
         job["progress_message"] = "Error"
         job["updated_at"] = datetime.now(UTC).isoformat()
         _save_job(job)
+
+
+def refocus_job(
+    job_id: str,
+    *,
+    focus_description: str,
+    focus_from_sec: float,
+    focus_until_sec: float,
+    strict_detection: bool | None = None,
+    camera_index: int = 0,
+    all_cameras: bool = False,
+) -> dict[str, Any]:
+    """Re-analiza la ventana temporal indicada y regenera informe + IA visual."""
+    job = get_job(job_id)
+    if not job:
+        raise FileNotFoundError("Trabajo no encontrado")
+    if job.get("status") == "processing":
+        raise RuntimeError("El trabajo ya está en proceso")
+    sources = job.get("sources") or []
+    if not sources:
+        raise ValueError("Sin fuentes de video")
+    if all_cameras:
+        camera_indices = list(range(len(sources)))
+    else:
+        if camera_index < 0 or camera_index >= len(sources):
+            raise ValueError("Índice de cámara inválido")
+        camera_indices = [camera_index]
+    if focus_until_sec <= focus_from_sec:
+        raise ValueError("La ventana de enfoque es inválida")
+
+    for idx in camera_indices:
+        src = sources[idx]
+        video_path = src.get("path") or ""
+        if not video_path or not Path(video_path).is_file():
+            raise FileNotFoundError(f"Video no encontrado (cámara {idx + 1})")
+
+    job["focus_description"] = focus_description.strip()
+    job["focus_from_sec"] = float(focus_from_sec)
+    job["focus_until_sec"] = float(focus_until_sec)
+    job["focus_camera_index"] = int(camera_indices[0])
+    job["focus_all_cameras"] = bool(all_cameras)
+    if strict_detection is not None:
+        job["strict_detection"] = bool(strict_detection)
+    job["status"] = "processing"
+    job["progress"] = 5
+    job["progress_message"] = "Re-analizando ventana de enfoque"
+    job.pop("error", None)
+    job["updated_at"] = datetime.now(UTC).isoformat()
+    _save_job(job)
+
+    def in_thread() -> None:
+        try:
+            analysis = job.get("analysis") or {}
+            timeline = list(analysis.get("timeline") or [])
+            keyframes = list(analysis.get("keyframes") or [])
+            extra_frames = 0
+            extra_events = 0
+            cam_labels: list[str] = []
+
+            for step, idx in enumerate(camera_indices):
+                src = sources[idx]
+                video_path = src.get("path") or ""
+                camera_label = src.get("label") or f"Cám. {idx + 1}"
+                cam_labels.append(camera_label)
+                base_pct = 10 + int(70 * step / max(len(camera_indices), 1))
+                partial = analyze_focus_window(
+                    job,
+                    video_path,
+                    from_sec=float(focus_from_sec),
+                    until_sec=float(focus_until_sec),
+                    job_dir=_job_dir(job_id),
+                    progress_cb=lambda p, m, bp=base_pct: _set_progress(
+                        job_id, min(90, bp + int(p * 0.7 / max(len(camera_indices), 1))), m
+                    ),
+                    camera_label=camera_label,
+                    source_suffix=str(idx) if idx else "",
+                )
+                timeline = merge_focus_timeline_window(
+                    timeline,
+                    partial.get("timeline") or [],
+                    from_sec=float(focus_from_sec),
+                    until_sec=float(focus_until_sec),
+                    camera_label=camera_label if len(camera_indices) > 1 else None,
+                )
+                new_kf = _persist_keyframes(job_id, partial.get("keyframes") or [])
+                for kf in new_kf:
+                    kf["camera"] = camera_label
+                keyframes = merge_focus_keyframes(
+                    keyframes,
+                    new_kf,
+                    from_sec=float(focus_from_sec),
+                    until_sec=float(focus_until_sec),
+                    camera_label=camera_label if len(camera_indices) > 1 else None,
+                )
+                extra_frames += int(partial.get("frames_analyzed") or 0)
+                extra_events += len(partial.get("timeline") or [])
+
+            job["analysis"] = {
+                **analysis,
+                "timeline": timeline,
+                "keyframes": keyframes,
+                "event_count": len(timeline),
+                "frames_analyzed": int(analysis.get("frames_analyzed") or 0) + extra_frames,
+            }
+            job["analysis"]["timeline"] = ensure_event_ids(job["analysis"]["timeline"])
+            job["analysis"]["timeline"] = enrich_timeline_evidence(
+                job["analysis"]["timeline"],
+                job["analysis"]["keyframes"],
+            )
+            active = active_timeline(job["analysis"]["timeline"], job.get("event_feedback"))
+            job["analysis"]["event_count"] = len(active)
+            meta = job.get("meta") or {}
+            meta["focus_refocus"] = {
+                "from_sec": float(focus_from_sec),
+                "until_sec": float(focus_until_sec),
+                "camera_index": int(camera_indices[0]),
+                "all_cameras": bool(all_cameras),
+                "camera_labels": cam_labels,
+                "extra_frames": extra_frames,
+                "extra_events": extra_events,
+            }
+            job["meta"] = meta
+            _regenerate_job_outputs(job_id)
+            job["status"] = "done"
+            job["progress"] = 100
+            job["progress_message"] = "Re-enfoque completado"
+            job["updated_at"] = datetime.now(UTC).isoformat()
+            _save_job(job)
+        except Exception as exc:
+            logger.exception("Refocus %s falló", job_id)
+            job["status"] = "error"
+            job["error"] = str(exc)
+            job["progress_message"] = "Error en re-enfoque"
+            job["updated_at"] = datetime.now(UTC).isoformat()
+            _save_job(job)
+
+    threading.Thread(target=in_thread, daemon=True).start()
+    return job
+
+
+def reanalyze_job(job_id: str) -> dict[str, Any]:
+    """Re-procesa el video completo con el pipeline actual (sin re-subir archivo)."""
+    job = get_job(job_id)
+    if not job:
+        raise FileNotFoundError("Trabajo no encontrado")
+    if job.get("status") == "processing":
+        raise RuntimeError("El trabajo ya está en proceso")
+    sources = job.get("sources") or []
+    if not sources:
+        raise FileNotFoundError("Sin fuentes de video")
+    for src in sources:
+        p = src.get("path") or ""
+        if not p or not Path(p).is_file():
+            raise FileNotFoundError("Video no encontrado")
+
+    kf_dir = _job_dir(job_id) / "keyframes"
+    if kf_dir.is_dir():
+        shutil.rmtree(kf_dir, ignore_errors=True)
+    heatmap = _job_dir(job_id) / "heatmap.jpg"
+    if heatmap.is_file():
+        heatmap.unlink(missing_ok=True)
+
+    job["analysis"] = {}
+    job.pop("video_ai", None)
+    job.pop("llm_narrative", None)
+    job["report_md"] = ""
+    job["committee_md"] = ""
+    job["status"] = "processing"
+    job["progress"] = 2
+    job["progress_message"] = "Re-analizando caso completo"
+    job.pop("error", None)
+    job["updated_at"] = datetime.now(UTC).isoformat()
+    with _lock:
+        _jobs[job_id] = job
+    _save_job(job)
+    threading.Thread(target=_process_job, args=(job_id,), daemon=True).start()
+    return job
+
+
+def review_event(
+    job_id: str,
+    event_id: str,
+    *,
+    verdict: str,
+    note: str = "",
+    reviewed_by: str = "admin",
+) -> dict[str, Any]:
+    """Operador confirma, descarta o restaura un evento de la línea de tiempo."""
+    if verdict not in {"confirmed", "dismissed", "restored"}:
+        raise ValueError("verdict debe ser confirmed, dismissed o restored")
+    job = get_job(job_id)
+    if not job:
+        raise FileNotFoundError("Trabajo no encontrado")
+    analysis = job.get("analysis") or {}
+    timeline = ensure_event_ids(analysis.get("timeline") or [])
+    ev = next((e for e in timeline if e.get("event_id") == event_id), None)
+    if not ev:
+        raise FileNotFoundError("Evento no encontrado")
+
+    feedback = dict(job.get("event_feedback") or {})
+    if verdict == "restored":
+        prior = feedback.pop(event_id, None)
+        if prior and prior.get("verdict") == "dismissed":
+            remove_suppression_for_event(ev)
+    else:
+        feedback[event_id] = {
+            "verdict": verdict,
+            "note": (note or "").strip(),
+            "at": datetime.now(UTC).isoformat(),
+            "reviewed_by": (reviewed_by or "admin").strip() or "admin",
+            "type": ev.get("type"),
+            "rule_id": ev.get("rule_id"),
+            "message": ev.get("message"),
+        }
+        if verdict == "dismissed":
+            record_dismissal(ev, job_id=job_id)
+
+    job["event_feedback"] = feedback
+    analysis["timeline"] = apply_review_state(timeline, feedback)
+    analysis["event_count"] = len(active_timeline(timeline, feedback))
+    job["analysis"] = analysis
+    _regenerate_job_outputs(job_id)
+    job["updated_at"] = datetime.now(UTC).isoformat()
+    _save_job(job)
+    return job
+
+
+def dismiss_matching_events(
+    job_id: str,
+    query: str,
+    *,
+    note: str = "",
+    reviewed_by: str = "admin",
+) -> tuple[dict[str, Any], list[str]]:
+    """Descarta eventos de timeline que coinciden con texto de falso positivo IA."""
+    job = get_job(job_id)
+    if not job:
+        raise FileNotFoundError("Trabajo no encontrado")
+    analysis = job.get("analysis") or {}
+    timeline = ensure_event_ids(analysis.get("timeline") or [])
+    matches = match_events_for_query(query, timeline)
+    dismissed_ids: list[str] = []
+    for ev in matches:
+        eid = ev.get("event_id")
+        if not eid:
+            continue
+        job = review_event(
+            job_id,
+            eid,
+            verdict="dismissed",
+            note=note or f"Coincide con alerta IA: {(query or '')[:200]}",
+            reviewed_by=reviewed_by,
+        )
+        dismissed_ids.append(eid)
+    return job, dismissed_ids
 
 
 def export_job_ehs(job_id: str) -> list[dict[str, Any]]:
@@ -299,8 +666,13 @@ def delete_job(job_id: str) -> bool:
 
 
 def keyframe_path(job_id: str, name: str) -> Path | None:
-    p = _job_dir(job_id) / "keyframes" / name
-    return p if p.is_file() else None
+    safe_id = safe_job_id(job_id)
+    safe_name = safe_keyframe_name(name)
+    if not safe_id or not safe_name:
+        return None
+    base = JOBS_DIR / safe_id
+    p = resolve_under(base, "keyframes", safe_name)
+    return p if p and p.is_file() else None
 
 
 def heatmap_path(job_id: str) -> Path | None:
@@ -323,15 +695,28 @@ def committee_md_path(job_id: str) -> Path | None:
     return p if p.is_file() else None
 
 
+def job_source_video_path(job_id: str, cam: int = 0) -> Path | None:
+    """Archivo original subido (p. ej. AVI HEVC) — usado por OpenCV y análisis."""
+    return resolve_source_path(_job_dir(job_id) / "sources", cam)
+
+
 def job_video_path(job_id: str, cam: int = 0) -> Path | None:
+    """MP4 H.264 listo para <video> en navegador; transcodifica bajo demanda."""
     d = _job_dir(job_id) / "sources"
     if not d.is_dir():
         return None
-    for ext in (".mp4", ".avi", ".mov", ".webm", ".mkv"):
-        p = d / f"cam{cam}{ext}"
-        if p.is_file():
-            return p
-    return None
+    from .video_transcode import web_playback_path
+
+    return web_playback_path(d, cam)
+
+
+def has_job_video(job_id: str, cam: int = 0) -> bool:
+    return job_source_video_path(job_id, cam) is not None
+
+
+def ensure_web_playback(job_id: str, cam: int = 0) -> Path | None:
+    """Genera cam{N}_web.mp4 si el original no es reproducible en Chrome."""
+    return job_video_path(job_id, cam)
 
 
 def learn_event_at_timestamp(
@@ -367,7 +752,7 @@ def learn_event_at_timestamp(
 def extract_frame_jpeg(job_id: str, time_sec: float, *, cam: int = 0) -> bytes | None:
     import cv2
 
-    path = job_video_path(job_id, cam)
+    path = job_source_video_path(job_id, cam)
     if not path:
         return None
     cap = cv2.VideoCapture(str(path))
