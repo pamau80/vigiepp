@@ -4,6 +4,12 @@ export function createAudioAlertsController({ settings }) {
   let speakKey = "";
   let speakCount = 0;
   const SPEAK_GAP_MS = 5500;
+  const SEV_PREFIX = {
+    critical: "Alerta crítica.",
+    high: "Atención.",
+    medium: "Aviso.",
+    low: "Aviso.",
+  };
 
   function resetSpeakIncident() {
     speakKey = "";
@@ -34,5 +40,15 @@ export function createAudioAlertsController({ settings }) {
     } catch (_) {}
   }
 
-  return { speakAlert, resetSpeakIncident };
+  function speakActionAlert(triggered, actionSettings = {}) {
+    if (actionSettings.action_audio_enabled === false) return;
+    const allowed = actionSettings.action_audio_severities || ["critical", "high"];
+    const sev = triggered?.severity || "medium";
+    if (!allowed.includes(sev)) return;
+    const msg = triggered?.message || triggered?.name || "Acción insegura detectada";
+    const prefix = SEV_PREFIX[sev] || "";
+    speakAlert(`${prefix} ${msg}`.trim());
+  }
+
+  return { speakAlert, speakActionAlert, resetSpeakIncident };
 }

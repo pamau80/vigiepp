@@ -292,6 +292,7 @@ livePanel = createLivePanelController({
   kiosk,
   getEnroll: () => enroll,
   audio,
+  getActionSettings: () => actions.getSettings?.() || {},
   displayPersonName,
   setIdentityCard,
   getLastIdentity: state.getLastIdentity,
