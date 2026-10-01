@@ -100,9 +100,11 @@ Licencia edge producción: `docs/FORENSE_LICENSE_EDGE.md` + `forense/scripts/iss
 
 ## Cursor Cloud
 
-Puerto dev: 8000 (`.cursor/environment.json`). Instalar deps vía `.cursor/install.sh`.
+`.cursor/environment.json` levanta dos terminales: **VigiEPP :8000** y **Forense :8001**. Dependencias (venv, Forense, pytest/ruff/bandit, npm, modelos YOLO/YuNet/SFace) vía `.cursor/install.sh`.
 
-Arranque para probar:
+PIN de desarrollo: admin `vigiepp`, portería `porteria`. Inferencia combinada apagada (`VIGIEPP_COMBINED_INFERENCE=0`), igual que CI.
+
+Si las terminales no están arriba:
 
 ```bash
 bash scripts/probar.sh   # :8000 VigiEPP + :8001 Forense — ver docs/PROBAR.md

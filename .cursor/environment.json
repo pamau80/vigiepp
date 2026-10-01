@@ -3,11 +3,16 @@
   "install": "bash .cursor/install.sh",
   "terminals": [
     {
-      "name": "backend",
-      "command": "cd backend && VIGIEPP_DOCS=1 ULTRALYTICS_OFFLINE=false ../.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+      "name": "vigiepp",
+      "command": "VIGIEPP_DATA_DIR=\"$PWD/backend/data\" VIGIEPP_AUTH=1 VIGIEPP_ADMIN_PIN=vigiepp VIGIEPP_OPERATOR_PIN=porteria VIGIEPP_COMBINED_INFERENCE=0 VIGIEPP_DOCS=1 ULTRALYTICS_OFFLINE=false PYTHONPATH=\"$PWD/backend\" .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --app-dir backend"
+    },
+    {
+      "name": "forense",
+      "command": "mkdir -p forense/data && VIGIEPP_DATA_DIR=\"$PWD/backend/data\" VIGIEPP_FORENSE_DATA_DIR=\"$PWD/forense/data\" VIGIEPP_FORENSE=1 VIGIEPP_FORENSE_LICENSE=dev VIGIEPP_AUTH=1 VIGIEPP_ADMIN_PIN=vigiepp VIGIEPP_COMBINED_INFERENCE=0 PYTHONPATH=\"$PWD/backend:$PWD\" .venv/bin/python -m uvicorn forense.app.main:app --host 0.0.0.0 --port 8001"
     }
   ],
   "ports": [
-    { "name": "VigiEPP", "port": 8000 }
+    { "name": "VigiEPP", "port": 8000 },
+    { "name": "Forense", "port": 8001 }
   ]
 }
