@@ -67,12 +67,13 @@ def get_job(job_id: str) -> dict[str, Any] | None:
 
 
 def _set_progress(job_id: str, pct: int, message: str) -> None:
-    job = _jobs.get(job_id)
-    if not job:
-        return
-    job["progress"] = max(0, min(100, pct))
-    job["progress_message"] = message
-    _save_job(job)
+    with _lock:
+        job = _jobs.get(job_id)
+        if not job:
+            return
+        job["progress"] = max(0, min(100, pct))
+        job["progress_message"] = message
+        _save_job(job)
 
 
 def create_job(
@@ -289,8 +290,7 @@ def export_job_ehs(job_id: str) -> list[dict[str, Any]]:
 
 def delete_job(job_id: str) -> bool:
     with _lock:
-        if job_id in _jobs:
-            del _jobs[job_id]
+        _jobs.pop(job_id, None)
         d = _job_dir(job_id)
         if d.exists():
             shutil.rmtree(d, ignore_errors=True)
