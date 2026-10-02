@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from forense.app.vision_embed import cosine_similarity, embed_image_bgr, histogram_signature
 

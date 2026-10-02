@@ -1,4 +1,4 @@
-import { $ } from "./dom.js";
+import { $, escapeHtml } from "./dom.js";
 
 /** Sitios multi-faena y conectores EHS (config enterprise). */
 export function createEnterpriseController(api) {
@@ -10,7 +10,7 @@ export function createEnterpriseController(api) {
       sel.innerHTML = (data.sites || [])
         .map(
           (s) =>
-            `<option value="${s.id}" ${s.id === data.active_site_id ? "selected" : ""}>${s.name}</option>`
+            `<option value="${escapeHtml(s.id)}" ${s.id === data.active_site_id ? "selected" : ""}>${escapeHtml(s.name)}</option>`
         )
         .join("");
     } catch (_) {
@@ -39,16 +39,16 @@ export function createEnterpriseController(api) {
               : st === "closed"
                 ? `<button type="button" class="btn ghost btn-sm" data-ehs-verify="${inc.id}">Verificar</button>`
                 : "";
-          return `<li class="ehs-incident ehs-st-${st}">
-            <span class="ehs-incident-meta">${ts} · <b>${statusLabel[st] || st}</b></span>
-            <span class="ehs-incident-summary">${inc.summary || "—"}</span>
-            <span class="muted">${inc.worker_name || ""} ${inc.site ? "· " + inc.site : ""}</span>
+          return `<li class="ehs-incident ehs-st-${escapeHtml(st)}">
+            <span class="ehs-incident-meta">${escapeHtml(ts)} · <b>${escapeHtml(statusLabel[st] || st)}</b></span>
+            <span class="ehs-incident-summary">${escapeHtml(inc.summary || "—")}</span>
+            <span class="muted">${escapeHtml(inc.worker_name || "")} ${inc.site ? "· " + escapeHtml(inc.site) : ""}</span>
             <span class="ehs-incident-actions">${actions}</span>
           </li>`;
         })
         .join("");
     } catch (e) {
-      list.innerHTML = `<li class="muted">${String(e.message || e)}</li>`;
+      list.innerHTML = `<li class="muted">${escapeHtml(e.message || e)}</li>`;
     }
   }
 
