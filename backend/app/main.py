@@ -22,7 +22,7 @@ from .request_limits import MaxBodySizeMiddleware
 from .request_metrics import RequestMetricsMiddleware
 from .routers import register_routers
 from .security_headers import SecurityHeadersMiddleware, ensure_csp_nonce
-from .startup_checks import run_startup_security_checks
+from .startup_checks import run_startup_security_checks, strict_startup_required
 from .stream_rtsp import stop_all
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
@@ -66,7 +66,10 @@ async def lifespan(_: FastAPI):
             logger.exception("Retención inicial falló")
 
     threading.Thread(target=_warm, name="vigiepp-warm", daemon=True).start()
-    run_startup_security_checks()
+    checks = run_startup_security_checks()
+    if not checks.get("ok") and strict_startup_required():
+        detail = "; ".join(checks.get("warnings") or [])
+        raise RuntimeError(f"Checks de seguridad fallaron: {detail}")
     yield
     stop_all()
 

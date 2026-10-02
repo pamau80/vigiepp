@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-
 from forense.app.license import license_enabled, verify_license
 
 

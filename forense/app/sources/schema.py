@@ -55,7 +55,7 @@ def validate_record(rec: dict[str, Any]) -> list[str]:
     issues: list[str] = []
     if not (rec.get("title") or "").strip():
         issues.append("falta título")
-    if len((rec.get("description") or "")) < 20:
+    if len(rec.get("description") or "") < 20:
         issues.append("descripción muy corta (< 20 caracteres)")
     ind = (rec.get("industry") or "").lower()
     if ind and ind not in VALID_INDUSTRIES:

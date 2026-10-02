@@ -94,9 +94,9 @@ def ingest_url(
 
     if is_pdf:
         try:
-            import pypdf
-
             from io import BytesIO
+
+            import pypdf
 
             reader = pypdf.PdfReader(BytesIO(data))
             pages = []

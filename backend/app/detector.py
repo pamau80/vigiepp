@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 from pathlib import Path
 from typing import Any
@@ -120,26 +121,29 @@ class PPEDetector:
             if path.exists() and path.stat().st_size > 1_000_000:
                 return path
 
-        # 1) Hugging Face hub
+        # 1) Hugging Face hub (revisión fijada vía env para supply-chain)
+        hf_repo = "ayushgupta7777/safetyvision-yolov8"
+        hf_revision = os.getenv("VIGIEPP_HF_EPP_REVISION", "main").strip() or "main"
         try:
             from huggingface_hub import hf_hub_download
 
             weights = hf_hub_download(
-                repo_id="ayushgupta7777/safetyvision-yolov8",
+                repo_id=hf_repo,
                 filename="v2/best.pt",
+                revision=hf_revision,
                 local_dir=str(cache),
             )
             return Path(weights)
         except Exception as exc:  # noqa: BLE001
             logger.warning("hf_hub_download falló (%s). Intentando curl...", exc)
 
-        # 2) curl -k (útil con proxies/antivirus que rompen SSL)
+        # 2) curl con verificación SSL (fallback si HF hub no está disponible)
         import subprocess
 
         target = cache / "best_ppe.pt"
-        url = "https://huggingface.co/ayushgupta7777/safetyvision-yolov8/resolve/main/v2/best.pt"
+        url = f"https://huggingface.co/{hf_repo}/resolve/{hf_revision}/v2/best.pt"
         subprocess.run(
-            ["curl", "-k", "-L", url, "-o", str(target)],
+            ["curl", "-L", url, "-o", str(target)],
             check=True,
             capture_output=True,
             text=True,

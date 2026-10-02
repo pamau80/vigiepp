@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from fastapi import HTTPException, Request, Response
-
 from app import auth as auth_mod
+from fastapi import HTTPException, Request, Response
 
 
 def require_forense_admin(request: Request) -> str:
@@ -21,8 +20,8 @@ def require_forense_admin(request: Request) -> str:
 
 
 def login_pin(request: Request, response: Response, pin: str) -> dict:
-    if auth_mod.default_pins_blocked_on_cloud():
-        raise HTTPException(503, "PIN por defecto bloqueado en cloud")
+    if auth_mod.default_pins_blocked():
+        raise HTTPException(503, "PIN por defecto bloqueado — configura PINs personalizados")
     if not auth_mod.auth_enabled():
         return {"ok": True, "role": "admin", "auth_enabled": False, "token": ""}
     ip = auth_mod.client_ip(request)

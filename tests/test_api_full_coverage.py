@@ -18,11 +18,11 @@ def client(tmp_path, monkeypatch):
     return TestClient(app)
 
 
-def test_build_v67(client):
+def test_build_v68(client):
     r = client.get("/api/health")
     assert r.status_code == 200
     body = r.json()
-    assert body["build"] == "v67"
+    assert body["build"] == "v68"
     assert body["excellence"]["capabilities"]["prometheus_readiness"] is True
     assert "epp_custom" in body
     assert body["epp_custom"] is False
@@ -73,6 +73,7 @@ def test_all_get_endpoints(client):
 def test_auth_flow(client, monkeypatch):
     monkeypatch.setenv("VIGIEPP_AUTH", "1")
     monkeypatch.setenv("VIGIEPP_ADMIN_PIN", "testadmin")
+    monkeypatch.setenv("VIGIEPP_OPERATOR_PIN", "testoperator")
     from app.main import app
 
     c = TestClient(app)

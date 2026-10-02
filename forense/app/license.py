@@ -7,9 +7,21 @@ import hmac
 import os
 import time
 
+_DEV_SIGNING_KEY = "vigiepp-forense-dev-key-change-in-prod"
+
+
+def _dev_license_mode() -> bool:
+    raw = (os.getenv("VIGIEPP_FORENSE_LICENSE") or "").strip()
+    return raw == "dev" or not license_enabled()
+
 
 def _signing_secret() -> str:
-    return os.getenv("VIGIEPP_FORENSE_SIGNING_KEY", "vigiepp-forense-dev-key-change-in-prod")
+    key = os.getenv("VIGIEPP_FORENSE_SIGNING_KEY", "").strip()
+    if key:
+        return key
+    if _dev_license_mode():
+        return _DEV_SIGNING_KEY
+    raise ValueError("VIGIEPP_FORENSE_SIGNING_KEY requerida para licencias de producción")
 
 
 def sign_license(site_id: str, expires_unix: int, *, secret: str | None = None) -> str:
@@ -59,6 +71,10 @@ def verify_license(key: str | None = None) -> tuple[bool, str]:
         return False, "Falta VIGIEPP_FORENSE_LICENSE"
     if raw == "dev":
         return True, "licencia desarrollo"
+    try:
+        secret = _signing_secret()
+    except ValueError as exc:
+        return False, str(exc)
     # Formato producción: site_id.unix_exp.sig_hex
     parts = raw.split(".")
     if len(parts) != 3:
@@ -71,7 +87,7 @@ def verify_license(key: str | None = None) -> tuple[bool, str]:
     if exp < int(time.time()):
         return False, "Licencia expirada"
     payload = f"{site_id}.{exp}"
-    expected = hmac.new(_signing_secret().encode(), payload.encode(), hashlib.sha256).hexdigest()[:32]
+    expected = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()[:32]
     if not hmac.compare_digest(expected, sig):
         return False, "Firma de licencia inválida"
     return True, f"licencia {site_id}"

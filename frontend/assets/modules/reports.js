@@ -1,4 +1,4 @@
-import { $, $$ } from "./dom.js";
+import { $, $$, escapeHtml } from "./dom.js";
 
 /** Centro de informes y notificaciones. */
 export function createReportsController({ api, els, getProfiles }) {
@@ -202,7 +202,7 @@ async function openReport(key) {
       els.reportsContent.innerHTML = `<p class="muted">Opción no implementada</p>`;
     }
   } catch (err) {
-    els.reportsContent.innerHTML = `<p class="muted">${err.message}</p>`;
+    els.reportsContent.innerHTML = `<p class="muted">${escapeHtml(err.message)}</p>`;
   }
 }
 

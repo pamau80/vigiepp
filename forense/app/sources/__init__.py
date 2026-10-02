@@ -5,4 +5,4 @@ from .sync import sync_source
 from .url_ingest import ingest_url
 from .validate import validate_records
 
-__all__ = ["list_sources_catalog", "sync_source", "ingest_url", "validate_records"]
+__all__ = ["ingest_url", "list_sources_catalog", "sync_source", "validate_records"]

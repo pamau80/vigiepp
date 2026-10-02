@@ -29,6 +29,7 @@ def test_ws_detect_rejects_pin_bearer(tmp_path, monkeypatch):
     monkeypatch.setenv("VIGIEPP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("VIGIEPP_AUTH", "1")
     monkeypatch.setenv("VIGIEPP_ADMIN_PIN", "ws-audit-pin")
+    monkeypatch.setenv("VIGIEPP_OPERATOR_PIN", "ws-audit-op")
     from app.main import app
 
     client = TestClient(app)
@@ -43,6 +44,7 @@ def test_ws_detect_accepts_session_token(tmp_path, monkeypatch):
     monkeypatch.setenv("VIGIEPP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("VIGIEPP_AUTH", "1")
     monkeypatch.setenv("VIGIEPP_ADMIN_PIN", "ws-session-pin")
+    monkeypatch.setenv("VIGIEPP_OPERATOR_PIN", "ws-session-op")
     from app.main import app
 
     client = TestClient(app)

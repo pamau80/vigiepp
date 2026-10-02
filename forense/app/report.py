@@ -10,7 +10,6 @@ from typing import Any
 
 from .i18n_es_cl import label_event_type, label_kind, label_severity
 
-
 DISCLAIMER = (
     "Este documento fue generado por **VigiEPP Forense** (inteligencia artificial). "
     "Reconstruye hechos observables en el video analizado. "
@@ -238,6 +237,14 @@ def maybe_enrich_with_llm(job: dict[str, Any]) -> str | None:
     base = (os.getenv("VIGIEPP_FORENSE_OPENAI_BASE") or "https://api.openai.com/v1").rstrip("/")
     model = os.getenv("VIGIEPP_FORENSE_LLM_MODEL", "gpt-4o-mini")
     if not api_key:
+        return None
+    try:
+        from app.security_urls import validate_outbound_url
+
+        ok_url, why = validate_outbound_url(f"{base}/chat/completions", allow_public=True)
+        if not ok_url:
+            return None
+    except Exception:  # noqa: BLE001
         return None
     timeline = (job.get("analysis") or {}).get("timeline") or []
     knowledge_examples = [

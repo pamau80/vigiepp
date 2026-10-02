@@ -44,9 +44,7 @@ def edge_outbound_allowed() -> bool:
     if raw in ("1", "true", "yes", "on"):
         return True
     on_cloud = bool(os.getenv("RENDER") or os.getenv("RENDER_SERVICE_ID"))
-    if on_cloud:
-        return False
-    return is_persistent() or True
+    return not on_cloud
 
 
 def validate_outbound_url(url: str, *, allow_public: bool = True) -> tuple[bool, str]:

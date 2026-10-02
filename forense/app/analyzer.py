@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from .charts import build_speed_series, tracks_to_json
 from .config import DEFAULT_PROFILE
