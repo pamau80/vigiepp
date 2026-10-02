@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # VigiEPP — Cloud Agent install (idempotente).
-# Crea un venv, instala PyTorch CPU + dependencias del backend y precarga los
-# pesos de IA (YOLO EPP + YuNet/SFace) para que el arranque sea rápido y offline.
+# Crea un venv, instala PyTorch CPU, backend, Forense y herramientas de
+# desarrollo, y precarga los pesos de IA (YOLO EPP + YuNet/SFace).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -35,8 +35,10 @@ fi
 # 2) PyTorch CPU primero (más liviano que CUDA)
 "$PY" -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
-# 3) Dependencias del backend
+# 3) Dependencias del backend, Forense y herramientas de test
 "$PY" -m pip install -r "$REPO_ROOT/backend/requirements.txt"
+"$PY" -m pip install -r "$REPO_ROOT/forense/requirements.txt"
+"$PY" -m pip install pytest ruff bandit pytest-playwright
 
 # 4) Precargar pesos de IA (idempotente: solo baja lo que falta)
 MODELS_DIR="$REPO_ROOT/backend/models"
@@ -59,5 +61,19 @@ fetch "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet
       "$FACE_MODELS_DIR/face_detection_yunet_2023mar.onnx"
 fetch "https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx" \
       "$FACE_MODELS_DIR/face_recognition_sface_2021dec.onnx"
+
+# 5) Lint del frontend (lockfile). Idempotente.
+if [ -f "$REPO_ROOT/package-lock.json" ] && command -v npm >/dev/null 2>&1; then
+  echo "[install] npm ci"
+  npm ci
+fi
+
+# 6) Chromium de Playwright para e2e de navegador.
+if [ -x "$VENV_DIR/bin/playwright" ]; then
+  echo "[install] playwright chromium"
+  "$VENV_DIR/bin/playwright" install chromium
+fi
+
+mkdir -p "$REPO_ROOT/forense/data"
 
 echo "[install] OK"
