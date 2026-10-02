@@ -359,13 +359,24 @@ class AuthMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+def default_pins_blocked() -> bool:
+    """Bloquea PINs vigiepp/porteria en cloud y en edge con volumen persistente."""
+    if not auth_enabled() or not using_default_pins():
+        return False
+    if os.getenv("VIGIEPP_ALLOW_DEFAULT_PINS", "").strip().lower() in ("1", "true", "yes"):
+        return False
+    if on_cloud():
+        return True
+    try:
+        from .paths import is_persistent
+
+        return is_persistent()
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def default_pins_blocked_on_cloud() -> bool:
-    return (
-        auth_enabled()
-        and on_cloud()
-        and using_default_pins()
-        and os.getenv("VIGIEPP_ALLOW_DEFAULT_PINS", "").strip().lower() not in ("1", "true", "yes")
-    )
+    return default_pins_blocked() and on_cloud()
 
 
 def rbac_for_role(role: str) -> dict[str, object]:

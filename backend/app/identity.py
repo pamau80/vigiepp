@@ -248,7 +248,7 @@ def _download(url: str, target: Path) -> None:
     import subprocess
 
     target.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["curl", "-k", "-L", url, "-o", str(target)], check=True)
+    subprocess.run(["curl", "-L", url, "-o", str(target)], check=True, capture_output=True, text=True)
     if not target.exists() or target.stat().st_size < 1000:
         raise RuntimeError(f"No se pudo descargar {target.name}")
 
