@@ -313,39 +313,109 @@ async function fetchIncrementalFrames(jobId) {
   }
 }
 
+let currentVideoCam = 0;
+
 function setupVideoViewer(job, jobId) {
   const section = $("#videoSection");
   const video = $("#forenseVideo");
+  const camWrap = $("#camSelectWrap");
+  const camSel = $("#videoCamSelect");
   if (!section || !video) return;
   if (!job.has_video) {
     section.classList.add("hidden");
     video.removeAttribute("src");
     frameCache = [];
     lastFrameFetchSec = -1;
+    currentVideoCam = 0;
     return;
   }
   section.classList.remove("hidden");
-  const src = `/api/forense/jobs/${jobId}/video`;
-  if (video.getAttribute("data-src") !== src) {
-    video.setAttribute("data-src", src);
-    video.src = `${src}?t=${Date.now()}`;
-    frameCache = [];
-    lastFrameFetchSec = -1;
+  const cams = job.video_cameras?.length ? job.video_cameras : [0];
+  if (camWrap && camSel) {
+    if (cams.length > 1) {
+      camWrap.classList.remove("hidden");
+      camSel.innerHTML = "";
+      for (const cam of cams) {
+        const opt = document.createElement("option");
+        opt.value = String(cam);
+        opt.textContent = `Cámara ${cam + 1}`;
+        camSel.appendChild(opt);
+      }
+      if (!cams.includes(currentVideoCam)) currentVideoCam = cams[0];
+      camSel.value = String(currentVideoCam);
+      camSel.onchange = () => {
+        currentVideoCam = parseInt(camSel.value, 10) || 0;
+        loadVideoSource(jobId, currentVideoCam);
+      };
+    } else {
+      camWrap.classList.add("hidden");
+      currentVideoCam = cams[0];
+    }
   }
+  loadVideoSource(jobId, currentVideoCam);
   bindVideoSync();
   fetchIncrementalFrames(jobId);
 }
 
-$("#btnLearnMoment")?.addEventListener("click", async () => {
+function loadVideoSource(jobId, cam) {
+  const video = $("#forenseVideo");
+  if (!video) return;
+  const src = `/api/forense/jobs/${jobId}/video?cam=${cam}`;
+  if (video.getAttribute("data-src") !== src) {
+    video.setAttribute("data-src", src);
+    video.src = `${src}&t=${Date.now()}`;
+    frameCache = [];
+    lastFrameFetchSec = -1;
+  }
+}
+
+function populateLearnModalSelects() {
+  const typeSel = $("#learnModalType");
+  const indSel = $("#learnModalIndustry");
+  if (typeSel && situationTypesCache && !typeSel.options.length) {
+    for (const [id, label] of Object.entries(situationTypesCache)) {
+      const opt = document.createElement("option");
+      opt.value = id;
+      opt.textContent = label;
+      typeSel.appendChild(opt);
+    }
+  }
+  if (indSel && templatesCache.length && !indSel.options.length) {
+    for (const t of templatesCache) {
+      const opt = document.createElement("option");
+      opt.value = t.id;
+      opt.textContent = t.name;
+      indSel.appendChild(opt);
+    }
+  }
+}
+
+function openLearnModal() {
   if (!currentJobId) return;
   const video = $("#forenseVideo");
   const timeSec = video?.currentTime || 0;
   const timeLabel = formatTs(timeSec);
-  const title = prompt("Título de la situación:", `Evento en ${timeLabel}`);
+  populateLearnModalSelects();
+  $("#learnModalTime").textContent = `Instante: ${timeLabel}`;
+  $("#learnModalTitle").value = `Evento en ${timeLabel}`;
+  $("#learnModalDesc").value = "";
+  if ($("#learnModalType")?.options.length) {
+    $("#learnModalType").value = $("#knSituationType")?.value || "other";
+  }
+  if ($("#learnModalIndustry")?.options.length) {
+    $("#learnModalIndustry").value = $("#knIndustry")?.value || "general";
+  }
+  const dlg = $("#learnModal");
+  dlg?.showModal();
+}
+
+async function submitLearnMoment(e) {
+  e.preventDefault();
+  if (!currentJobId) return;
+  const video = $("#forenseVideo");
+  const timeSec = video?.currentTime || 0;
+  const title = $("#learnModalTitle")?.value?.trim();
   if (!title) return;
-  const description = prompt("¿Qué ocurrió en este instante?", "") || "";
-  const situationType = $("#knSituationType")?.value || "other";
-  const industry = $("#knIndustry")?.value || "general";
   try {
     await api(`/api/forense/jobs/${currentJobId}/events/learn`, {
       method: "POST",
@@ -353,17 +423,22 @@ $("#btnLearnMoment")?.addEventListener("click", async () => {
       body: JSON.stringify({
         time_sec: timeSec,
         title,
-        description,
-        situation_type: situationType,
-        industry,
+        description: $("#learnModalDesc")?.value?.trim() || "",
+        situation_type: $("#learnModalType")?.value || "other",
+        industry: $("#learnModalIndustry")?.value || "general",
       }),
     });
+    $("#learnModal")?.close();
     await loadKnowledge();
-    alert("Momento guardado en la biblioteca de aprendizaje.");
+    showToast("Momento guardado en la biblioteca de aprendizaje.", "ok");
   } catch (err) {
-    alert(err.message);
+    showToast(err.message, "error");
   }
-});
+}
+
+$("#btnLearnMoment")?.addEventListener("click", openLearnModal);
+$("#learnModalForm")?.addEventListener("submit", submitLearnMoment);
+$("#learnModalCancel")?.addEventListener("click", () => $("#learnModal")?.close());
 
 function applyTemplateDefaults(templateId) {
   const tpl = templatesCache.find((t) => t.id === templateId) || templatesCache.find((t) => t.id === "general");
@@ -513,15 +588,28 @@ function renderSourceButtons() {
 
 async function syncKnowledgeSource(sourceId, label, btn) {
   const hint = $("#sourcesHint");
-  hint.textContent = `Sincronizando ${label}…`;
+  hint.textContent = `Validando ${label}…`;
   if (btn) btn.disabled = true;
   try {
+    let previewMsg = "";
+    try {
+      const preview = await api(`/api/forense/knowledge/sources/${sourceId}/preview?limit=30`);
+      if (preview.valid_count != null) {
+        previewMsg = ` (${preview.valid_count} válidos`;
+        if (preview.invalid_count) previewMsg += `, ${preview.invalid_count} inválidos`;
+        if (preview.duplicate_count) previewMsg += `, ${preview.duplicate_count} duplicados`;
+        previewMsg += ")";
+      }
+    } catch {
+      /* preview opcional */
+    }
+    hint.textContent = `Sincronizando ${label}${previewMsg}…`;
     const res = await api("/api/forense/knowledge/sources/sync", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ source_id: sourceId, skip_existing: true }),
     });
-    const msg = `${label}: ${res.imported ?? 0} nuevas, ${res.skipped ?? 0} ya existían.`;
+    const msg = `${label}: ${res.imported ?? 0} nuevas, ${res.skipped ?? 0} ya existían${previewMsg}.`;
     hint.textContent = msg;
     showToast(msg, "ok");
     await loadKnowledge();
@@ -674,9 +762,23 @@ async function checkSession() {
   updateVigiEppLink();
   try {
     const h = await api("/api/forense/health");
-    $("#licenseLine").textContent = h.license?.valid
-      ? `Licencia activa · ${h.build} · IA + aprendizaje`
-      : `Sin licencia: ${h.license?.detail || "—"}`;
+    const lic = h.license || {};
+    const licLine = $("#licenseLine");
+    if (licLine) {
+      licLine.classList.remove("license-warn", "license-bad");
+      if (lic.valid) {
+        let txt = `Licencia activa · ${h.build}`;
+        if (lic.site_id && lic.site_id !== "dev") txt += ` · ${lic.site_id}`;
+        if (lic.expiring_soon && lic.days_remaining != null) {
+          txt += ` · expira en ${lic.days_remaining} días`;
+          licLine.classList.add("license-warn");
+        }
+        licLine.textContent = txt;
+      } else {
+        licLine.textContent = `Sin licencia: ${lic.detail || "—"}`;
+        licLine.classList.add("license-bad");
+      }
+    }
     const st = await fetchAuthStatus();
     hydrateTokenFromStatus(st);
     if (st.can_access) {
@@ -1003,10 +1105,20 @@ async function loadJob(id, quiet = false) {
   const data = await api(`/api/forense/jobs/${id}`);
   const j = data.job;
   $("#jobTitle").textContent = j.title || id;
-  const srcCount = j.sources?.length || j.analysis?.sources_count || 1;
-  $("#jobMeta").textContent =
+  const srcCount = j.video_cameras?.length || j.sources?.length || j.analysis?.sources_count || 1;
+  const llmLabels = {
+    enriched: "IA ampliada",
+    offline: "Edge sin LLM",
+    failed: "LLM no disponible",
+  };
+  const llmBadge =
+    j.llm_status && j.status === "done"
+      ? `<span class="llm-badge ${j.llm_status}">${llmLabels[j.llm_status] || j.llm_status}</span>`
+      : "";
+  $("#jobMeta").innerHTML =
     `${j.site || ""} · ${j.template_name || j.template_id || ""} · ${statusLabel(j.status)} · ` +
-    `${j.analysis?.event_count || 0} eventos · ${j.frames_analyzed || 0} fotogramas · ${srcCount} cámara(s)`;
+    `${j.analysis?.event_count || 0} eventos · ${j.frames_analyzed || 0} fotogramas · ${srcCount} cámara(s)` +
+    llmBadge;
 
   setupVideoViewer(j, id);
   if (j.status === "processing" || j.status === "queued") {
