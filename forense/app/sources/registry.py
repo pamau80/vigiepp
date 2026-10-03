@@ -58,6 +58,16 @@ SYNC_SOURCES: list[dict[str, Any]] = [
         "locale": "es-CL",
     },
     {
+        "id": "seeds_construccion",
+        "name": "Plantillas — construcción / obra civil",
+        "description": "Trabajo en altura, grúas móviles, andamios y excavaciones.",
+        "industry": "construccion",
+        "connector": "seeds",
+        "pack_id": "construccion",
+        "license": "curated_vigiepp",
+        "locale": "es-CL",
+    },
+    {
         "id": "osha_mining",
         "name": "OSHA — minería (EE.UU.)",
         "description": "Accidentes reales: equipos móviles, caída de roca, vías de acarreo.",

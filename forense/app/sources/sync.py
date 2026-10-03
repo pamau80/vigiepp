@@ -13,6 +13,7 @@ from ..knowledge_import import import_osha, import_seeds
 from .live_fetch import fetch_live_records
 from .registry import get_source
 from .schema import normalize_record
+from .validate import validate_records
 
 logger = logging.getLogger("vigiepp.forense.sources.sync")
 
@@ -43,6 +44,76 @@ def _import_curated_records(
     result["candidates"] = len(records)
     result["source"] = source
     return result
+
+
+def _collect_source_records(src: dict[str, Any], *, limit: int | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Carga registros candidatos de una fuente sin importar."""
+    connector = src.get("connector")
+    industry = src.get("industry") or "general"
+    meta: dict[str, Any] = {}
+    records: list[dict[str, Any]] = []
+
+    if connector == "seeds":
+        from ..knowledge_import import load_seed_packs
+
+        packs = load_seed_packs()
+        pack_id = src.get("pack_id")
+        industry_filter = industry if not pack_id else ""
+        for pack in packs:
+            if pack_id and pack.get("id") != pack_id:
+                continue
+            for item in pack.get("entries") or []:
+                if industry_filter and (item.get("industry") or "general").lower() != industry_filter:
+                    continue
+                rec = dict(item)
+                rec.setdefault("source", "seed")
+                if not rec.get("source_id"):
+                    rec["source_id"] = f"seed:{pack.get('id')}:{rec.get('title', '')[:40]}"
+                records.append(rec)
+        if limit and limit > 0:
+            records = records[:limit]
+        return records, meta
+
+    if connector == "curated_json":
+        source_id = src.get("id") or ""
+        if src.get("live_fetch"):
+            live = fetch_live_records(source_id, limit=limit)
+            meta = {k: v for k, v in live.items() if k not in ("records", "ok")}
+            records.extend(live.get("records") or [])
+        curated = _load_curated_json(src.get("json_file") or "")
+        if limit and limit > 0 and records:
+            remaining = max(0, limit - len(records))
+            curated = curated[:remaining] if remaining else []
+        elif limit and limit > 0 and not records:
+            curated = curated[:limit]
+        records.extend(curated)
+        return records, meta
+
+    return records, meta
+
+
+def preview_source(source_id: str, *, limit: int | None = 20) -> dict[str, Any]:
+    """Valida registros de una fuente sin importarlos (preview para UI)."""
+    src = get_source(source_id)
+    if not src:
+        return {"ok": False, "error": f"Fuente desconocida: {source_id}"}
+    industry = src.get("industry") or "general"
+    if src.get("connector") == "osha":
+        return {
+            "ok": True,
+            "source_id": source_id,
+            "preview": "limited",
+            "message": "OSHA se valida al sincronizar (fetch remoto).",
+        }
+    records, meta = _collect_source_records(src, limit=limit)
+    validation = validate_records(records, default_industry=industry, check_duplicates=True)
+    return {
+        "ok": True,
+        "source_id": source_id,
+        "candidates": len(records),
+        **validation,
+        **meta,
+    }
 
 
 def sync_source(

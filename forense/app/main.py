@@ -33,6 +33,7 @@ from .jobs import (
     job_video_path,
     keyframe_path,
     learn_event_at_timestamp,
+    list_video_cameras,
     list_jobs,
     report_pdf_path,
 )
@@ -245,9 +246,12 @@ def _job_payload(job: dict) -> dict:
         "has_bundle": case_bundle_path(job["id"]) is not None,
         "has_committee": committee_md_path(job["id"]) is not None,
         "has_video": job_video_path(job["id"]) is not None,
+        "video_cameras": list_video_cameras(job["id"]),
         "frames_analyzed": count_frames(job["id"]),
         "ehs_push": job.get("ehs_push"),
         "knowledge": job.get("knowledge"),
+        "llm_status": job.get("llm_status"),
+        "llm_enriched": bool(job.get("llm_narrative")),
     }
 
 
@@ -262,12 +266,16 @@ def jobs_get(job_id: str, request: Request) -> dict:
 
 
 @app.get("/api/forense/jobs/{job_id}/video")
-def jobs_video(job_id: str, request: Request) -> FileResponse:
+def jobs_video(
+    job_id: str,
+    request: Request,
+    cam: int = Query(0, ge=0, le=2),
+) -> FileResponse:
     _require_license()
     require_forense_admin(request)
     if not get_job(job_id):
         raise HTTPException(404, "Trabajo no encontrado")
-    path = job_video_path(job_id)
+    path = job_video_path(job_id, cam)
     if not path:
         raise HTTPException(404, "Video no disponible")
     return FileResponse(path, media_type="video/mp4", filename=path.name)
@@ -570,6 +578,15 @@ def knowledge_sources_catalog(request: Request) -> dict:
     _require_license()
     require_forense_admin(request)
     return {"ok": True, **list_sources_catalog(), "dol_api_configured": bool(DOL_API_KEY)}
+
+
+@app.get("/api/forense/knowledge/sources/{source_id}/preview")
+def knowledge_sources_preview(source_id: str, request: Request, limit: int = Query(20, ge=1, le=100)) -> dict:
+    _require_license()
+    require_forense_admin(request)
+    from .sources.sync import preview_source
+
+    return preview_source(source_id, limit=limit)
 
 
 @app.post("/api/forense/knowledge/sources/sync")

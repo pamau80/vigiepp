@@ -70,6 +70,7 @@ def build_report_markdown(job: dict[str, Any]) -> str:
     kin = analysis.get("kinematics") or {}
     comp = job.get("comparison") or {}
     knowledge = job.get("knowledge") or {}
+    llm_status = job.get("llm_status") or "unknown"
     tpl_name = job.get("template_name") or "General"
     title = job.get("title") or "Incidente sin título"
     site = job.get("site") or "Faena"
@@ -94,7 +95,8 @@ def build_report_markdown(job: dict[str, Any]) -> str:
 **Sitio:** {site}  
 **Generado:** {now}  
 **Producto:** VigiEPP Forense · {job.get('build', 'p4')}  
-**Plantilla:** {tpl_name}
+**Plantilla:** {tpl_name}  
+**Narrativa IA:** {_llm_status_label(llm_status)}
 
 ---
 
@@ -152,6 +154,15 @@ Los eventos provienen del motor VigiEPP (EPP, zonas, Acciones, tracking) con mue
 _VigiEPP Forense · Informe IA de accidentes e incidentes_
 """
     return body
+
+
+def _llm_status_label(status: str) -> str:
+    labels = {
+        "enriched": "Ampliada con LLM",
+        "offline": "Modo edge (sin API LLM — plantilla + biblioteca)",
+        "failed": "LLM no disponible — se usó plantilla local",
+    }
+    return labels.get(status, "—")
 
 
 def _narrative_block(job: dict[str, Any]) -> str:
