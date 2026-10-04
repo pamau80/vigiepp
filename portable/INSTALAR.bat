@@ -74,7 +74,7 @@ if not exist "backend\data\models\face_recognition_sface_2021dec.onnx" (
 )
 
 if not exist ".env" (
-  copy /Y ".env.portable" ".env" >nul
+  copy /Y "env.portable.example" ".env" >nul
   echo         Archivo .env creado (PIN prueba: vigiepp / porteria)
 )
 

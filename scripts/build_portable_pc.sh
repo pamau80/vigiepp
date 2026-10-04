@@ -88,7 +88,7 @@ cp portable/LEEME-PC-PRUEBA.txt "${STAGING}/"
 cp portable/INSTALAR.bat "${STAGING}/"
 cp portable/INICIAR.bat "${STAGING}/"
 cp portable/DETENER.bat "${STAGING}/"
-cp portable/.env.portable "${STAGING}/.env.portable"
+cp portable/env.portable.example "${STAGING}/env.portable.example"
 
 # Manifest
 cat > "${STAGING}/VERSION.txt" <<EOF
