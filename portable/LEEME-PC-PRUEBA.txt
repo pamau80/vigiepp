@@ -1,0 +1,83 @@
+================================================================================
+  VigiEPP — versión portable para PC de prueba (edge)
+  Build: VigiEPP v67 + Forense forense-p12
+================================================================================
+
+IMPORTANTE — NO USES ONEDRIVE
+-----------------------------
+  Extraé/descomprimí esta carpeta FUERA de OneDrive.
+
+  Rutas recomendadas:
+    C:\VigiEPP-prueba\
+    D:\VigiEPP-prueba\
+    C:\Temp\VigiEPP-prueba\
+
+  NO uses:
+    C:\Users\...\OneDrive\...
+    Documentos sincronizados con OneDrive
+
+  OneDrive bloquea o corrompe archivos en uso (.venv, modelos, bases de datos)
+  y puede impedir que uvicorn escuche en el puerto 8000.
+
+
+Requisitos
+----------
+  - Windows 10 o 11 (64 bits)
+  - Python 3.12 instalado (marcar "Add to PATH" en el instalador)
+  - 8 GB RAM recomendado · ~2 GB libres en disco
+  - Conexión a Internet solo la primera vez (INSTALAR.bat descarga dependencias)
+
+
+Instalación (una sola vez)
+--------------------------
+  1. Copiá el ZIP a C:\VigiEPP-prueba\ y descomprimí ahí.
+  2. Doble clic en INSTALAR.bat (tarda 5–15 min la primera vez).
+  3. Al terminar, verás "Instalación OK".
+
+
+Uso diario
+----------
+  1. Doble clic en INICIAR.bat
+  2. Se abren:
+       VigiEPP:  http://127.0.0.1:8000/
+       Forense:  http://127.0.0.1:8001/
+  3. PIN admin (prueba): vigiepp
+     PIN portería:        porteria
+  4. Para detener: DETENER.bat
+
+
+Datos locales
+-------------
+  Los datos quedan en:
+    backend\data\          (personas, zonas, NVR, etc.)
+    forense\data\          (trabajos forenses, biblioteca)
+
+  No se borran al cerrar. No suben a la nube.
+
+
+Firewall
+--------
+  Si querés probar desde otro PC en la misma red WiFi/LAN:
+    Permití Python en el firewall cuando Windows lo pregunte.
+    Abrí http://TU-IP-LAN:8000/ desde el otro equipo.
+
+
+Problemas frecuentes
+--------------------
+  - "python no se reconoce" → reinstalá Python 3.12 con Add to PATH.
+  - Puerto 8000 ocupado → ejecutá DETENER.bat y volvé a INICIAR.bat.
+  - Lentitud al arrancar → normal la primera vez (carga modelos IA).
+
+
+Licencia Forense
+----------------
+  Modo prueba: VIGIEPP_FORENSE_LICENSE=dev (incluido en .env)
+  Producción: ver docs\FORENSE_LICENSE_EDGE.md dentro del paquete.
+
+
+Soporte
+-------
+  Repo: https://github.com/pamau80/vigiepp
+  Guía: docs\PROBAR.md
+
+================================================================================
