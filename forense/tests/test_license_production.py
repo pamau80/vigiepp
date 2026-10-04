@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 
-from forense.app.license import parse_license_key, sign_license, verify_license
+from forense.app.license import license_status, parse_license_key, sign_license, verify_license
 
 
 def test_sign_and_verify_license(monkeypatch):
@@ -18,6 +18,19 @@ def test_sign_and_verify_license(monkeypatch):
     parsed = parse_license_key(key)
     assert parsed["site_id"] == "faena-demo"
     assert parsed["expires_unix"] == exp
+
+
+def test_license_status_expiring_soon(monkeypatch):
+    monkeypatch.setenv("VIGIEPP_FORENSE", "1")
+    monkeypatch.setenv("VIGIEPP_FORENSE_SIGNING_KEY", "test-signing-key")
+    exp = int(time.time()) + 86400 * 10
+    key = sign_license("faena-test", exp, secret="test-signing-key")
+    monkeypatch.setenv("VIGIEPP_FORENSE_LICENSE", key)
+    st = license_status()
+    assert st["valid"] is True
+    assert st["site_id"] == "faena-test"
+    assert st["days_remaining"] is not None
+    assert st["expiring_soon"] is True
 
 
 def test_expired_license_rejected(monkeypatch):

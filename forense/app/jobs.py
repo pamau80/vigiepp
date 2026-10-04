@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import threading
 import uuid
@@ -12,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .comparison import compare_jobs
-from .config import BUILD, JOBS_DIR, ensure_dirs
+from .config import BUILD, JOBS_DIR, MAX_JOBS, ensure_dirs
 from .export import committee_section, export_case_bundle, push_to_ehs
 from .knowledge import apply_knowledge_insights, match_knowledge_for_job, reinforce_knowledge_from_job
 from .multi_source import run_multi_source_analysis
@@ -57,6 +58,27 @@ def list_jobs() -> list[dict[str, Any]]:
         if not _jobs:
             _load_jobs_from_disk()
         return sorted(_jobs.values(), key=lambda j: j.get("created_at", ""), reverse=True)
+
+
+def _prune_old_jobs() -> int:
+    """Elimina trabajos más antiguos si se supera VIGIEPP_FORENSE_MAX_JOBS (>0)."""
+    if MAX_JOBS <= 0:
+        return 0
+    jobs = list_jobs()
+    if len(jobs) <= MAX_JOBS:
+        return 0
+    removed = 0
+    for job in jobs[MAX_JOBS:]:
+        job_id = job.get("id")
+        if not job_id:
+            continue
+        job_dir = _job_dir(job_id)
+        if job_dir.is_dir():
+            shutil.rmtree(job_dir, ignore_errors=True)
+        with _lock:
+            _jobs.pop(job_id, None)
+        removed += 1
+    return removed
 
 
 def get_job(job_id: str) -> dict[str, Any] | None:
@@ -148,6 +170,7 @@ def create_job(
         _jobs[job_id] = job
         _save_job(job)
 
+    _prune_old_jobs()
     threading.Thread(target=_process_job, args=(job_id,), daemon=True).start()
     return job
 
@@ -246,6 +269,11 @@ def _process_job(job_id: str) -> None:
         narrative = maybe_enrich_with_llm(job)
         if narrative:
             job["llm_narrative"] = narrative
+            job["llm_status"] = "enriched"
+        elif os.getenv("VIGIEPP_FORENSE_OPENAI_KEY") or os.getenv("OPENAI_API_KEY"):
+            job["llm_status"] = "failed"
+        else:
+            job["llm_status"] = "offline"
         job["report_md"] = build_report_markdown(job)
         job["committee_md"] = committee_section(job)
         full_md = job["report_md"] + "\n\n" + job["committee_md"]
@@ -332,6 +360,18 @@ def job_video_path(job_id: str, cam: int = 0) -> Path | None:
         if p.is_file():
             return p
     return None
+
+
+def list_video_cameras(job_id: str) -> list[int]:
+    """Índices de cámaras con video disponible (cam0, cam1, …)."""
+    d = _job_dir(job_id) / "sources"
+    if not d.is_dir():
+        return []
+    cams: list[int] = []
+    for cam in range(3):
+        if job_video_path(job_id, cam):
+            cams.append(cam)
+    return cams
 
 
 def learn_event_at_timestamp(

@@ -43,50 +43,16 @@ def push_to_ehs(job: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def committee_section(job: dict[str, Any]) -> str:
-    comp = job.get("comparison") or {}
-    kin = (job.get("analysis") or {}).get("kinematics") or {}
-    lines = [
-        "## Informe Comité Paritario (borrador IA)",
-        "",
-        f"**Caso:** {job.get('title')}",
-        f"**Faena:** {job.get('site')}",
-        f"**Fecha análisis:** {job.get('updated_at', '')[:10]}",
-        "",
-        "### Hechos observables",
-        f"- Eventos registrados en video: **{(job.get('analysis') or {}).get('event_count', 0)}**",
-        f"- Violaciones cinemáticas: **{len(kin.get('speed_violations') or [])}**",
-        f"- Eventos proximidad crítica: **{len(kin.get('proximity_events') or [])}**",
-        "",
-    ]
-    if comp.get("available"):
-        lines.extend(
-            [
-                "### Comparación vs escenario de referencia",
-                f"- Referencia: {comp.get('reference_title')} (`{comp.get('reference_job_id')}`)",
-                f"- {comp.get('summary')}",
-                f"- Interpretación: {comp.get('interpretation')}",
-                "",
-            ]
-        )
-    lines.extend(
-        [
-            "### Medidas sugeridas (preventivas)",
-            "- Revisar procedimiento de tránsito en sector del evento.",
-            "- Reforzar capacitación en distanciamiento persona–maquinaria.",
-            "- Verificar señalética y delimitación de zonas.",
-            "",
-            "> Borrador para comité paritario. Validar con prevencionista antes de presentar.",
-            "",
-        ]
-    )
-    return "\n".join(lines)
+    from .committee import committee_section as _committee_section
+
+    return _committee_section(job)
 
 
 def export_case_bundle(job: dict[str, Any], out_path: Path) -> bool:
     job_dir = out_path.parent
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for name in ("job.json", "report.md", "report.pdf"):
+        for name in ("job.json", "report.md", "report.pdf", "committee.md"):
             p = job_dir / name
             if p.is_file():
                 zf.write(p, arcname=name)

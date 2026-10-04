@@ -1,0 +1,19 @@
+VigiEPP PORTABLE - PC DE PRUEBA
+================================
+
+IMPORTANTE: use el ZIP completo (~400 MB). Si pesa ~55 MB, no trae Python.
+
+1. Extraer TODO el ZIP en C:\VigiEPP-prueba\
+   Debe quedar asi:
+     C:\VigiEPP-prueba\INICIAR.bat
+     C:\VigiEPP-prueba\python\python.exe
+     C:\VigiEPP-prueba\backend\
+     C:\VigiEPP-prueba\forense\
+
+2. Doble clic en INICIAR.bat (NO entre en subcarpetas)
+
+3. Abre http://127.0.0.1:8000/ y http://127.0.0.1:8001/
+
+Sin administrador. Sin instalar nada. Sin PIN.
+
+Cerrar: DETENER.bat

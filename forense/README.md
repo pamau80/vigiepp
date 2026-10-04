@@ -60,6 +60,15 @@ Almacenados en `forense/data/` (separado de `backend/data/`).
 - Plantillas por industria: minería, portuario, bodega, construcción, general
 - Bundle de caso (`case_bundle.zip`): job.json, informes, EHS JSON, series
 
+### P12 — CPHS en terreno y operabilidad edge
+- Informe **Comité Paritario enriquecido** (DS 54/69, plan 7/30/60/90 días, biblioteca)
+- Selector **multi-cámara** en reproductor (`?cam=N`)
+- Preview de validación antes de sincronizar fuentes
+- Banner de **licencia por expirar** (30 días)
+- Modal «Enseñar este momento» (sin alert/prompt)
+- Retención automática de trabajos (`VIGIEPP_FORENSE_MAX_JOBS`, default 50)
+- Fuente **construcción** en catálogo de semillas
+
 ### P11 — Licencia edge y conectores live
 - Emisión de licencias firmadas (`forense/scripts/issue_forense_license.py`) — ver `docs/FORENSE_LICENSE_EDGE.md`
 - SERNAGEOMIN y EMCIP: intento de fetch live + fallback a JSON curado (offline-safe)
@@ -92,6 +101,7 @@ VIGIEPP_FORENSE_DOL_API_KEY=   # OSHA vía API DOL (si no, fetch público limita
 | GET | `/api/forense/jobs/{id}/case_bundle.zip` | Bundle completo |
 | POST | `/api/forense/jobs/{id}/export-ehs` | Push a conectores EHS |
 | GET | `/api/forense/knowledge/sources/catalog` | Catálogo de fuentes por industria |
+| GET | `/api/forense/knowledge/sources/{id}/preview` | Validar fuente sin importar |
 | POST | `/api/forense/knowledge/sources/sync` | Sincronizar una fuente (`source_id`) |
 | POST | `/api/forense/knowledge/sources/sync-industry` | Sincronizar todas las fuentes de una industria |
 | POST | `/api/forense/knowledge/sources/ingest-url` | Importar informe desde URL oficial |
