@@ -14,7 +14,7 @@ PY_EMBED_VER="${VIGIEPP_PYTHON_EMBED:-3.12.7}"
 STAMP="$(date -u +%Y%m%d)"
 BUILD_V="$(grep -m1 'BUILD_VERSION' backend/app/routers/core.py | sed 's/.*"\(v[0-9]*\)".*/\1/')"
 FORENSE_B="$(grep -m1 '^BUILD' forense/app/config.py | sed 's/.*"\([^"]*\)".*/\1/')"
-PKG_NAME="VigiEPP-portable-zero-admin-${BUILD_V}-${FORENSE_B}-${STAMP}"
+PKG_NAME="VigiEPP-portable"
 STAGING="${WORK_BASE}/${PKG_NAME}"
 WHEELS="${WORK_BASE}/wheels-win-${STAMP}"
 ZIP_WORK="${WORK_BASE}/${PKG_NAME}.zip"
@@ -114,23 +114,18 @@ EOF
 echo "[build] [5/5] Comprimiendo (puede tardar)..."
 rm -f "${ZIP_WORK}"
 (cd "${WORK_BASE}" && zip -rq -9 "${PKG_NAME}.zip" "${PKG_NAME}")
-DIST_FALLBACK="${ROOT}/dist/${PKG_NAME}.zip"
 mkdir -p "${ROOT}/dist"
-if cp -f "${ZIP_WORK}" "${ZIP_PATH}" 2>/dev/null; then
-  FINAL="${ZIP_PATH}"
-else
-  cp -f "${ZIP_WORK}" "${DIST_FALLBACK}"
-  FINAL="${DIST_FALLBACK}"
-  echo "[build] AVISO: no se pudo escribir en artifacts; ZIP en ${DIST_FALLBACK}"
-fi
+FINAL="${ROOT}/dist/${PKG_NAME}.zip"
+cp -f "${ZIP_WORK}" "${FINAL}"
+cp -f "${FINAL}" "${ZIP_PATH}" 2>/dev/null || true
 
 BYTES="$(stat -c%s "${FINAL}" 2>/dev/null || stat -f%z "${FINAL}")"
 MB=$((BYTES / 1024 / 1024))
 sha256sum "${FINAL}" > "${FINAL}.sha256"
 
-echo "[build] OK: ${FINAL} (${MB} MB)"
+echo "[build] OK — UN SOLO ARCHIVO: ${FINAL} (${MB} MB)"
 echo "[build] SHA256:"
 cat "${FINAL}.sha256"
-echo "[build] Uso: extraer en C:\\VigiEPP-prueba\\ → INICIAR.bat (sin admin, sin instalar)"
+echo "[build] Windows: extraer → INICIAR.bat (sin admin)"
 
 rm -rf "${STAGING}" "${ZIP_WORK}" "${WHEELS}" "${EMBED_ZIP}"

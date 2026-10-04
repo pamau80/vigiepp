@@ -1,62 +1,10 @@
-================================================================================
-  VigiEPP — PORTABLE ZERO-ADMIN (PC de prueba)
-  VigiEPP v67 + Forense forense-p12
-================================================================================
+VigiEPP PORTABLE
+================
 
-SIN PERMISOS DE ADMINISTRADOR
------------------------------
-  - No instala Python en el sistema
-  - No pide UAC / "Ejecutar como administrador"
-  - No requiere INSTALAR.bat — solo extraer y doble clic en INICIAR.bat
-  - Python embebido incluido en la carpeta python\
-  - Modo prueba: acceso sin PIN (VIGIEPP_AUTH=0)
+1. Extraer el ZIP en C:\VigiEPP-prueba\  (no OneDrive)
+2. Doble clic INICIAR.bat
+3. Abre http://127.0.0.1:8000/ y http://127.0.0.1:8001/
 
-EVITAR ONEDRIVE (recomendado, no obligatorio)
----------------------------------------------
-  Mejor extraer en:
-    C:\VigiEPP-prueba\
-    D:\VigiEPP-prueba\
+Sin administrador. Sin instalar nada más. Sin PIN.
 
-  OneDrive puede bloquear archivos mientras la app corre.
-
-
-USO EN 2 PASOS
---------------
-  1. Descomprimir el ZIP en C:\VigiEPP-prueba\
-  2. Doble clic en INICIAR.bat
-
-  VigiEPP:  http://127.0.0.1:8000/
-  Forense:  http://127.0.0.1:8001/
-
-  Para cerrar: DETENER.bat
-
-
-REQUISITOS MÍNIMOS
-------------------
-  - Windows 10/11 64 bits
-  - ~2 GB espacio libre
-  - 8 GB RAM recomendado
-  - NO requiere Python instalado
-  - NO requiere Docker
-  - NO requiere Internet (después de descomprimir)
-
-
-DATOS LOCALES
--------------
-  backend\data\     personas, zonas, NVR
-  forense\data\     casos forenses, biblioteca
-
-
-ACTIVAR PIN (opcional)
-----------------------
-  Editar .env o env.portable.example:
-    VIGIEPP_AUTH=1
-    VIGIEPP_ADMIN_PIN=tu-pin
-    VIGIEPP_OPERATOR_PIN=otro-pin
-
-
-REGENERAR PAQUETE (desarrollador)
----------------------------------
-  bash scripts/build_portable_pc.sh
-
-================================================================================
+Cerrar: DETENER.bat
