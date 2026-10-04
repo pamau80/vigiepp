@@ -43,8 +43,11 @@ tar -cf - \
   --exclude='.cursor' --exclude='hardware' \
   backend frontend forense scripts \
   docs/PROBAR.md docs/FORENSE_LICENSE_EDGE.md docs/RUNBOOK_DEPLOY_EDGE.md \
-  portable README.md \
+  README.md \
   | tar -xf - -C "${STAGING}"
+
+# No incluir carpeta portable/ duplicada (confunde INICIAR.bat)
+rm -rf "${STAGING}/portable"
 
 mkdir -p "${STAGING}/backend/models" "${STAGING}/backend/data/models" \
   "${STAGING}/backend/data" "${STAGING}/forense/data"
@@ -99,6 +102,12 @@ cp portable/INICIAR.bat "${STAGING}/"
 cp portable/DETENER.bat "${STAGING}/"
 cp portable/INSTALAR.bat "${STAGING}/"
 cp portable/env.portable.example "${STAGING}/env.portable.example"
+
+# CRLF obligatorio para cmd.exe (LF rompe title/set -> errores "tle", "et")
+for _bat in INICIAR.bat DETENER.bat INSTALAR.bat; do
+  sed -i 's/\r$//' "${STAGING}/${_bat}"
+  sed -i 's/$/\r/' "${STAGING}/${_bat}"
+done
 
 cat > "${STAGING}/VERSION.txt" <<EOF
 VigiEPP=${BUILD_V}
