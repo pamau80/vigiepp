@@ -1,3 +1,7 @@
+# Portable builds (generados; no commitear)
+dist/*.zip
+dist/*.part-*
+
 # Python
 __pycache__/
 *.py[cod]

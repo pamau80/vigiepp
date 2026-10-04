@@ -1,117 +1,136 @@
 #!/usr/bin/env bash
-# Genera ZIP portable para PC de prueba Windows.
-# Salida SIEMPRE fuera de OneDrive: /opt/cursor/artifacts/ (Linux) o ruta explícita.
+# Portable Windows ZERO-ADMIN: Python embebido + deps preinstaladas.
+# No requiere Python del sistema, UAC ni INSTALAR.bat en el PC destino.
+# Salida fuera de OneDrive: /opt/cursor/artifacts/
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-# Destino fuera de OneDrive / carpetas sincronizadas.
-# Usar /tmp para staging+zip (evita cuota en cursor-agent-store) y copiar a artifacts.
 OUT_BASE="${VIGIEPP_PORTABLE_OUT:-/opt/cursor/artifacts}"
 WORK_BASE="${VIGIEPP_PORTABLE_WORK:-/tmp/vigiepp-portable-build}"
 export TMPDIR="${TMPDIR:-/tmp}"
+PY_EMBED_VER="${VIGIEPP_PYTHON_EMBED:-3.12.7}"
 STAMP="$(date -u +%Y%m%d)"
 BUILD_V="$(grep -m1 'BUILD_VERSION' backend/app/routers/core.py | sed 's/.*"\(v[0-9]*\)".*/\1/')"
 FORENSE_B="$(grep -m1 '^BUILD' forense/app/config.py | sed 's/.*"\([^"]*\)".*/\1/')"
-PKG_NAME="VigiEPP-portable-PC-prueba-${BUILD_V}-${FORENSE_B}-${STAMP}"
+PKG_NAME="VigiEPP-portable-zero-admin-${BUILD_V}-${FORENSE_B}-${STAMP}"
 STAGING="${WORK_BASE}/${PKG_NAME}"
+WHEELS="${WORK_BASE}/wheels-win-${STAMP}"
 ZIP_WORK="${WORK_BASE}/${PKG_NAME}.zip"
 ZIP_PATH="${OUT_BASE}/${PKG_NAME}.zip"
 
 if echo "${OUT_BASE}" | grep -qi 'onedrive'; then
   echo "[build] ERROR: destino parece OneDrive: ${OUT_BASE}"
-  echo "        Use: export VIGIEPP_PORTABLE_OUT=/opt/cursor/artifacts"
   exit 1
 fi
 
-echo "[build] VigiEPP portable → ${ZIP_PATH}"
-echo "[build] Destino confirmado FUERA de OneDrive"
+echo "[build] Portable ZERO-ADMIN → ${ZIP_PATH}"
+echo "[build] Python embed ${PY_EMBED_VER} + wheels win_amd64"
 
-rm -rf "${STAGING}" "${ZIP_WORK}"
-mkdir -p "${STAGING}" "${OUT_BASE}" "${WORK_BASE}"
+rm -rf "${STAGING}" "${ZIP_WORK}" "${WHEELS}"
+mkdir -p "${STAGING}" "${OUT_BASE}" "${WORK_BASE}" "${WHEELS}"
 
-RSYNC_EXCLUDES=(
-  --exclude '.git'
-  --exclude '.venv'
-  --exclude 'backend/.venv'
-  --exclude 'node_modules'
-  --exclude '__pycache__'
-  --exclude '*.pyc'
-  --exclude '.pytest_cache'
-  --exclude 'forense/data/jobs'
-  --exclude 'forense/data/knowledge'
-  --exclude 'backend/data/faces/*'
-  --exclude 'backend/data/evidence'
-  --exclude 'backend/runs'
-  --exclude 'backend/datasets'
-  --exclude 'agent-tools'
-  --exclude '.cursor'
-  --exclude 'hardware'
-)
-
-echo "[build] Copiando código..."
+# --- Código aplicación ---
+echo "[build] [1/5] Copiando aplicación..."
 tar -cf - \
-  --exclude='.git' \
-  --exclude='.venv' \
-  --exclude='backend/.venv' \
-  --exclude='node_modules' \
-  --exclude='__pycache__' \
-  --exclude='forense/data/jobs' \
-  --exclude='forense/data/knowledge' \
-  --exclude='forense/tests' \
-  --exclude='tests' \
-  --exclude='backend/data/faces' \
-  --exclude='backend/data/evidence' \
-  --exclude='backend/runs' \
-  --exclude='backend/datasets' \
-  --exclude='.cursor' \
-  --exclude='hardware' \
-  backend frontend forense scripts docs/PROBAR.md docs/FORENSE_LICENSE_EDGE.md docs/RUNBOOK_DEPLOY_EDGE.md portable \
-  docker-compose.yml Dockerfile .env.example README.md AGENTS.md start-edge.bat \
+  --exclude='.git' --exclude='.venv' --exclude='backend/.venv' \
+  --exclude='node_modules' --exclude='__pycache__' \
+  --exclude='forense/data/jobs' --exclude='forense/data/knowledge' \
+  --exclude='forense/tests' --exclude='tests' \
+  --exclude='backend/data/faces' --exclude='backend/data/evidence' \
+  --exclude='backend/runs' --exclude='backend/datasets' \
+  --exclude='.cursor' --exclude='hardware' \
+  backend frontend forense scripts \
+  docs/PROBAR.md docs/FORENSE_LICENSE_EDGE.md docs/RUNBOOK_DEPLOY_EDGE.md \
+  portable README.md \
   | tar -xf - -C "${STAGING}"
 
-# Modelos IA (offline en PC prueba)
-echo "[build] Incluyendo modelos IA..."
-mkdir -p "${STAGING}/backend/models" "${STAGING}/backend/data/models"
+mkdir -p "${STAGING}/backend/models" "${STAGING}/backend/data/models" \
+  "${STAGING}/backend/data" "${STAGING}/forense/data"
 if [ -f backend/models/best_ppe.pt ]; then
   cp backend/models/best_ppe.pt "${STAGING}/backend/models/"
 fi
 for f in face_detection_yunet_2023mar.onnx face_recognition_sface_2021dec.onnx; do
-  if [ -f "backend/data/models/${f}" ]; then
-    cp "backend/data/models/${f}" "${STAGING}/backend/data/models/"
-  fi
+  [ -f "backend/data/models/${f}" ] && cp "backend/data/models/${f}" "${STAGING}/backend/data/models/"
 done
 
-# Launchers en raíz del paquete
+# --- Python embebido Windows ---
+echo "[build] [2/5] Descargando Python embebido Windows..."
+EMBED_URL="https://www.python.org/ftp/python/${PY_EMBED_VER}/python-${PY_EMBED_VER}-embed-amd64.zip"
+EMBED_ZIP="${WORK_BASE}/python-embed.zip"
+curl -fsSL -o "${EMBED_ZIP}" "${EMBED_URL}"
+mkdir -p "${STAGING}/python/Lib/site-packages"
+unzip -q "${EMBED_ZIP}" -d "${STAGING}/python"
+cat > "${STAGING}/python/python312._pth" <<'PTH'
+python312.zip
+.
+Lib/site-packages
+import site
+PTH
+
+# --- Wheels Windows ---
+echo "[build] [3/5] Descargando dependencias Windows (~300 MB, varios minutos)..."
+pip install -q pip --upgrade
+pip download \
+  -r "${ROOT}/portable/requirements-portable.txt" \
+  torch torchvision \
+  --platform win_amd64 \
+  --python-version 312 \
+  --only-binary=:all: \
+  --extra-index-url https://download.pytorch.org/whl/cpu \
+  -d "${WHEELS}"
+
+echo "[build] [4/5] Instalando en python/Lib/site-packages..."
+pip install \
+  --target "${STAGING}/python/Lib/site-packages" \
+  --platform win_amd64 \
+  --python-version 312 \
+  --implementation cp \
+  --only-binary=:all: \
+  --no-index \
+  --find-links "${WHEELS}" \
+  -r "${ROOT}/portable/requirements-portable.txt" \
+  torch torchvision
+
+# Launchers raíz
 cp portable/LEEME-PC-PRUEBA.txt "${STAGING}/"
-cp portable/INSTALAR.bat "${STAGING}/"
 cp portable/INICIAR.bat "${STAGING}/"
 cp portable/DETENER.bat "${STAGING}/"
+cp portable/INSTALAR.bat "${STAGING}/"
 cp portable/env.portable.example "${STAGING}/env.portable.example"
 
-# Manifest
 cat > "${STAGING}/VERSION.txt" <<EOF
 VigiEPP=${BUILD_V}
 Forense=${FORENSE_B}
+python_embed=${PY_EMBED_VER}
+modo=zero-admin
+auth_default=0
 fecha_utc=${STAMP}
 destino_recomendado=C:\\VigiEPP-prueba\\
-NO_ONEDRIVE=1
+NO_ONEDRIVE=recomendado
 EOF
 
-mkdir -p "${STAGING}/backend/data" "${STAGING}/forense/data"
-touch "${STAGING}/backend/data/.gitkeep" "${STAGING}/forense/data/.gitkeep"
-
-echo "[build] Comprimiendo en ${WORK_BASE}..."
+echo "[build] [5/5] Comprimiendo (puede tardar)..."
 rm -f "${ZIP_WORK}"
-(cd "${WORK_BASE}" && zip -rq "${PKG_NAME}.zip" "${PKG_NAME}")
-cp -f "${ZIP_WORK}" "${ZIP_PATH}"
+(cd "${WORK_BASE}" && zip -rq -9 "${PKG_NAME}.zip" "${PKG_NAME}")
+DIST_FALLBACK="${ROOT}/dist/${PKG_NAME}.zip"
+mkdir -p "${ROOT}/dist"
+if cp -f "${ZIP_WORK}" "${ZIP_PATH}" 2>/dev/null; then
+  FINAL="${ZIP_PATH}"
+else
+  cp -f "${ZIP_WORK}" "${DIST_FALLBACK}"
+  FINAL="${DIST_FALLBACK}"
+  echo "[build] AVISO: no se pudo escribir en artifacts; ZIP en ${DIST_FALLBACK}"
+fi
 
-BYTES="$(stat -c%s "${ZIP_PATH}" 2>/dev/null || stat -f%z "${ZIP_PATH}")"
+BYTES="$(stat -c%s "${FINAL}" 2>/dev/null || stat -f%z "${FINAL}")"
 MB=$((BYTES / 1024 / 1024))
+sha256sum "${FINAL}" > "${FINAL}.sha256"
 
-echo "[build] OK: ${ZIP_PATH} (${MB} MB)"
-echo "[build] Extraer en PC prueba en: C:\\VigiEPP-prueba\\  (NO OneDrive)"
-sha256sum "${ZIP_PATH}" > "${ZIP_PATH}.sha256"
-cat "${ZIP_PATH}.sha256"
-rm -rf "${STAGING}" "${ZIP_WORK}"
+echo "[build] OK: ${FINAL} (${MB} MB)"
+echo "[build] SHA256:"
+cat "${FINAL}.sha256"
+echo "[build] Uso: extraer en C:\\VigiEPP-prueba\\ → INICIAR.bat (sin admin, sin instalar)"
+
+rm -rf "${STAGING}" "${ZIP_WORK}" "${WHEELS}" "${EMBED_ZIP}"
