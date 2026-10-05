@@ -1,0 +1,25 @@
+name: Build portable Windows (completo)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, "cursor/portable-launcher-2964"]
+
+jobs:
+  portable-full:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Armar ZIP portable completo
+        shell: pwsh
+        run: |
+          Set-ExecutionPolicy -Scope Process Bypass
+          & ./scripts/portable/build_full.ps1
+
+      - name: Subir artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: vigiepp-portable-full
+          path: dist/vigiepp-portable-full.zip
+          retention-days: 90

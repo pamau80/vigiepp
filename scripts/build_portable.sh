@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Genera vigiepp-portable.zip listo para Windows (doble clic en VigiEPP.bat)
+# Genera vigiepp-portable.zip (LIGERO — requiere armar el full en Windows)
+# Para PCs sin admin use vigiepp-portable-full.zip (scripts/portable/build_full.ps1)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
