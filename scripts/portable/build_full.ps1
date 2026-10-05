@@ -46,6 +46,13 @@ if ($sevenZ) {
     $sfx = Join-Path $Root "portable\sfx\config.txt"
     $sfxModule = Join-Path (Split-Path $sevenZ -Parent) "7zSD.sfx"
     if (-not (Test-Path $sfxModule)) { $sfxModule = Join-Path (Split-Path $sevenZ -Parent) "7zS2.sfx" }
+    if (-not (Test-Path $sfxModule)) {
+        $sfxModule = Join-Path $dist "7zSD.sfx"
+        if (-not (Test-Path $sfxModule)) {
+            Write-Host "Descargando modulo 7zSD.sfx ..."
+            curl.exe -fsSL -o $sfxModule "https://www.7-zip.org/a/7zSD.sfx"
+        }
+    }
 
     if (Test-Path $sfxModule) {
         if (Test-Path $outExe) { Remove-Item $outExe -Force }
