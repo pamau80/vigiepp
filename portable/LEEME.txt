@@ -1,0 +1,16 @@
+VigiEPP portable
+================
+
+1. Doble clic en VigiEPP.bat
+2. La primera vez instala todo solo (10-20 min, necesita internet)
+3. Se abre el navegador con VigiEPP
+4. Forense esta en http://127.0.0.1:8001/
+5. Para cerrar: doble clic en DETENER.bat
+
+Requisito: Python 3.12+ (https://www.python.org/downloads/)
+            Marcar "Add python.exe to PATH" al instalar.
+
+Modo prueba: sin PIN.
+Datos locales en backend\data\ y forense\data\
+
+Si algo falla, revisa portable\logs\8000.log y 8001.log
