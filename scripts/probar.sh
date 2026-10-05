@@ -25,8 +25,8 @@ mkdir -p "$VIGIEPP_DATA_DIR" "${ROOT}/forense/data"
 
 stop_port() {
   local port="$1"
-  local pid
-  pid="$(lsof -ti "tcp:${port}" -sTCP:LISTEN 2>/dev/null | head -1)"
+  local pid=""
+  pid="$(lsof -ti "tcp:${port}" -sTCP:LISTEN 2>/dev/null | head -1 || true)"
   if [ -n "${pid:-}" ]; then
     echo "[probar] deteniendo PID $pid en puerto $port"
     kill "$pid" 2>/dev/null || true
