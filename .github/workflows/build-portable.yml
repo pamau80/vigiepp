@@ -11,13 +11,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Armar ZIP portable completo
+      - name: Instalar 7-Zip (para VigiEPP.exe unico)
+        run: choco install 7zip -y
+
+      - name: Armar VigiEPP.exe + ZIP
         shell: pwsh
         run: |
           Set-ExecutionPolicy -Scope Process Bypass
           & ./scripts/portable/build_full.ps1
 
-      - name: Subir artefacto
+      - name: Subir VigiEPP.exe (doble clic)
+        uses: actions/upload-artifact@v4
+        with:
+          name: VigiEPP
+          path: dist/VigiEPP.exe
+          retention-days: 90
+          if-no-files-found: warn
+
+      - name: Subir ZIP de respaldo
         uses: actions/upload-artifact@v4
         with:
           name: vigiepp-portable-full

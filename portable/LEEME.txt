@@ -1,24 +1,9 @@
-VigiEPP — 100%% portable (sin admin, sin instalar nada)
-=========================================================
+DOBLE CLIC en VigiEPP.vbs  (dentro del ZIP)
+  o en VigiEPP.exe  (archivo unico)
 
-PARA PCs CON RESTRICCIONES DE SISTEMAS
---------------------------------------
-Use SOLO el archivo:  vigiepp-portable-full.zip
+Para cerrar: CERRAR VigiEPP.vbs
 
-1. Copie el ZIP a USB, Escritorio o Documentos (carpeta donde tenga permiso de escritura)
-2. Descomprima
-3. Doble clic en VigiEPP.bat
-4. Se abre el navegador solo
+Sin admin. Sin instalar nada.
 
-Para cerrar: DETENER.bat
-
-NO necesita:
-  - Permisos de administrador
-  - Instalar Python
-  - Instalar programas
-  - Conexion a internet (el ZIP ya trae todo)
-
-Todo queda dentro de esta carpeta (datos en backend\data y forense\data).
-
-Descargar vigiepp-portable-full.zip:
-  GitHub -^> pestaña Actions -^> "Build portable Windows" -^> Artifacts
+Descargar VigiEPP.exe:
+  GitHub -> Actions -> Build portable Windows -> Artifacts -> VigiEPP
