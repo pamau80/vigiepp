@@ -69,3 +69,5 @@ tests/e2e/_runtime_api_test/
 forense/data/
 dist/
 portable/logs/*.log
+portable/runtime/python/
+portable/runtime/.ready
