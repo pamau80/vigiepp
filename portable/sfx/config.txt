@@ -1,0 +1,8 @@
+;!@Install@!UTF-8!
+Title="VigiEPP"
+BeginPrompt="Abrir VigiEPP?"
+ExtractPathText="Carpeta:"
+ExtractPath="%USERPROFILE%\Desktop\VigiEPP"
+RunProgram="VigiEPP.bat"
+GUIMode="1"
+;!@InstallEnd@!
