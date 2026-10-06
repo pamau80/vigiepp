@@ -3,7 +3,6 @@ chcp 65001 >nul
 cd /d "%~dp0"
 title VigiEPP
 
-REM Todo local: esta carpeta (USB, Escritorio, Documentos). Sin admin.
 set "VIGIEPP_DATA_DIR=%~dp0backend\data"
 set "VIGIEPP_FORENSE_DATA_DIR=%~dp0forense\data"
 
@@ -15,16 +14,7 @@ if %errorlevel%==0 (
 
 if not exist "portable\runtime\python\python.exe" (
   echo.
-  echo  Falta el paquete COMPLETO pre-armado.
-  echo.
-  echo  Para PCs sin permisos de administrador use:
-  echo    vigiepp-portable-full.zip
-  echo.
-  echo  Descargalo desde GitHub:
-  echo    Actions -^> Build portable Windows -^> ultimo run -^> Artifacts
-  echo.
-  echo  Solo descomprima el ZIP en USB o Escritorio y vuelva a abrir VigiEPP.bat
-  echo  No instala nada en Windows.
+  echo  Paquete incompleto. Descargue VigiEPP.zip desde GitHub Releases.
   echo.
   pause
   exit /b 1
@@ -32,11 +22,21 @@ if not exist "portable\runtime\python\python.exe" (
 
 echo.
 echo  Abriendo VigiEPP...
-call "%~dp0scripts\portable\start.bat"
-if errorlevel 1 (
-  echo.
-  echo  Error al iniciar. Ver portable\logs\
-  pause
-  exit /b 1
-)
+start "VigiEPP" /MIN "%~dp0portable\run\launch.cmd"
+
+set /a N=0
+:wait_loop
+curl.exe -sf -m 3 http://127.0.0.1:8000/api/health >nul 2>&1
+if %errorlevel%==0 goto open_browser
+timeout /t 2 /nobreak >nul
+set /a N+=1
+if %N% lss 45 goto wait_loop
+
+echo.
+echo  No arranco. Revise portable\logs\8000.log y 8001.log
+pause
+exit /b 1
+
+:open_browser
+start "" "http://127.0.0.1:8000/"
 exit /b 0

@@ -1,9 +1,9 @@
-DOBLE CLIC en VigiEPP.vbs  (dentro del ZIP)
-  o en VigiEPP.exe  (archivo unico)
+DOBLE CLIC en VigiEPP.bat
 
-Para cerrar: CERRAR VigiEPP.vbs
+Para cerrar: CERRAR VigiEPP.bat
 
 Sin admin. Sin instalar nada.
+(No use archivos .vbs — bloqueados por antivirus corporativo)
 
-Descargar VigiEPP.exe:
-  GitHub -> Actions -> Build portable Windows -> Artifacts -> VigiEPP
+Descargar:
+https://github.com/pamau80/vigiepp/releases/download/portable-v69/VigiEPP.zip

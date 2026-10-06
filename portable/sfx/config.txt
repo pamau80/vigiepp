@@ -3,6 +3,6 @@ Title="VigiEPP"
 BeginPrompt="Abrir VigiEPP?"
 ExtractPathText="Carpeta:"
 ExtractPath="%USERPROFILE%\Desktop\VigiEPP"
-RunProgram="wscript.exe VigiEPP.vbs"
+RunProgram="VigiEPP.bat"
 GUIMode="1"
 ;!@InstallEnd@!

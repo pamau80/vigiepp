@@ -22,10 +22,12 @@ Get-ChildItem (Join-Path $staging "portable\logs") -Filter "*.log" -ErrorAction 
 
 # LEEME minimo
 @(
-    "DOBLE CLIC en VigiEPP.vbs  (o VigiEPP.exe)"
-    "Para cerrar: CERRAR VigiEPP.vbs"
+    "DOBLE CLIC en VigiEPP.bat"
+    "Para cerrar: CERRAR VigiEPP.bat"
     "Sin admin. Sin instalar nada."
 ) | Set-Content (Join-Path $staging "LEEME.txt") -Encoding UTF8
+
+Get-ChildItem -Path $staging -Filter "*.vbs" -Recurse | Remove-Item -Force -ErrorAction SilentlyContinue
 
 $zipLite = Join-Path $dist "vigiepp-portable-full.zip"
 if (Test-Path $zipLite) { Remove-Item $zipLite -Force }
