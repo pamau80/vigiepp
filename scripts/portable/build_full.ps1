@@ -49,11 +49,7 @@ if ($sevenZ) {
     $sfxModule = Join-Path (Split-Path $sevenZ -Parent) "7zSD.sfx"
     if (-not (Test-Path $sfxModule)) { $sfxModule = Join-Path (Split-Path $sevenZ -Parent) "7zS2.sfx" }
     if (-not (Test-Path $sfxModule)) {
-        $sfxModule = Join-Path $dist "7zSD.sfx"
-        if (-not (Test-Path $sfxModule)) {
-            Write-Host "Descargando modulo 7zSD.sfx ..."
-            curl.exe -fsSL -o $sfxModule "https://www.7-zip.org/a/7zSD.sfx"
-        }
+        $sfxModule = Join-Path $Root "portable\sfx\7zSD.sfx"
     }
 
     if (Test-Path $sfxModule) {
@@ -70,7 +66,8 @@ if ($sevenZ) {
     Write-Host "AVISO: 7-Zip no instalado; solo ZIP."
 }
 
-Remove-Item -Recurse -Force $staging
+cmd /c "rmdir /s /q ""$staging""" 2>$null
 $zipMb = [math]::Round((Get-Item $zipLite).Length / 1MB, 1)
 Write-Host "OK: $zipLite ($zipMb MB)"
-Write-Host "Usuario: doble clic VigiEPP.exe -> se abre el navegador. Sin admin."
+Write-Host "Usuario: doble clic VigiEPP.bat -> se abre el navegador. Sin admin."
+exit 0
