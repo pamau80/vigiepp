@@ -18,11 +18,11 @@ def client(tmp_path, monkeypatch):
     return TestClient(app)
 
 
-def test_build_v67(client):
+def test_build_v68(client):
     r = client.get("/api/health")
     assert r.status_code == 200
     body = r.json()
-    assert body["build"] == "v67"
+    assert body["build"] == "v68"
     assert body["excellence"]["capabilities"]["prometheus_readiness"] is True
     assert "epp_custom" in body
     assert body["epp_custom"] is False
