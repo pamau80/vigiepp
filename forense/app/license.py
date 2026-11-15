@@ -79,4 +79,20 @@ def verify_license(key: str | None = None) -> tuple[bool, str]:
 
 def license_status() -> dict:
     ok, detail = verify_license()
-    return {"enabled": license_enabled(), "valid": ok, "detail": detail}
+    raw = os.getenv("VIGIEPP_FORENSE_LICENSE", "").strip()
+    parsed = parse_license_key(raw)
+    days_remaining: int | None = None
+    expiring_soon = False
+    if parsed.get("expires_unix"):
+        days_remaining = max(0, (parsed["expires_unix"] - int(time.time())) // 86400)
+        expiring_soon = ok and 0 < days_remaining <= 30
+    return {
+        "enabled": license_enabled(),
+        "valid": ok,
+        "detail": detail,
+        "mode": parsed.get("mode"),
+        "site_id": parsed.get("site_id"),
+        "expires_unix": parsed.get("expires_unix"),
+        "days_remaining": days_remaining,
+        "expiring_soon": expiring_soon,
+    }

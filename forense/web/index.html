@@ -161,7 +161,12 @@
           <p id="comparisonText" class="comparison-text"></p>
         </section>
         <section class="card hidden" id="videoSection">
-          <h3>Reproductor forense — análisis en vivo</h3>
+          <div class="video-head">
+            <h3>Reproductor forense — análisis en vivo</h3>
+            <label class="small cam-select hidden" id="camSelectWrap">Cámara
+              <select id="videoCamSelect"></select>
+            </label>
+          </div>
           <p class="muted small">Personas, vehículos, velocidades y distancias persona–maquinaria mientras avanza el video.</p>
           <div class="video-stage">
             <video id="forenseVideo" controls playsinline preload="metadata"></video>
@@ -221,6 +226,28 @@
       </div>
     </main>
   </div>
+  <dialog id="learnModal" class="forense-modal">
+    <form method="dialog" id="learnModalForm">
+      <h3>Enseñar este momento</h3>
+      <p class="muted small" id="learnModalTime">Instante: —</p>
+      <label>Título
+        <input type="text" id="learnModalTitle" required maxlength="120" />
+      </label>
+      <label>¿Qué ocurrió?
+        <textarea id="learnModalDesc" rows="3" maxlength="500"></textarea>
+      </label>
+      <label>Tipo de situación
+        <select id="learnModalType"></select>
+      </label>
+      <label>Industria
+        <select id="learnModalIndustry"></select>
+      </label>
+      <div class="btn-row">
+        <button type="submit" class="btn primary">Guardar en biblioteca</button>
+        <button type="button" class="btn ghost" id="learnModalCancel">Cancelar</button>
+      </div>
+    </form>
+  </dialog>
   <script type="module" src="/forense.js"></script>
 </body>
 </html>

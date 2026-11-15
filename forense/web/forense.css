@@ -110,6 +110,18 @@ textarea { resize: vertical; min-height: 4rem; font-family: inherit; }
 .progress-bar div { height: 100%; background: var(--accent); width: 0%; transition: width 0.3s; }
 .disclaimer { font-size: 0.85rem; color: var(--warn); }
 .empty { padding: 3rem 1rem; text-align: center; color: var(--muted); }
+.video-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.video-head h3 { margin: 0; }
+.cam-select { display: flex; align-items: center; gap: 0.35rem; margin: 0; }
+.license-warn { color: var(--warn) !important; }
+.license-bad { color: var(--bad) !important; }
+.llm-badge { display: inline-block; font-size: 0.78rem; padding: 0.15rem 0.45rem; border-radius: 4px; margin-left: 0.35rem; background: var(--accent2); color: var(--muted); }
+.llm-badge.offline { border: 1px solid var(--warn); color: var(--warn); }
+.llm-badge.enriched { border: 1px solid var(--ok); color: var(--ok); }
+.forense-modal { background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; max-width: 420px; width: calc(100% - 2rem); }
+.forense-modal::backdrop { background: rgba(0, 0, 0, 0.55); }
+.forense-modal form { display: grid; gap: 0.75rem; }
+.forense-modal h3 { margin: 0; }
 @media (max-width: 900px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { border-right: none; border-bottom: 1px solid var(--border); }

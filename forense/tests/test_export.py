@@ -32,6 +32,7 @@ def test_committee_section():
         "comparison": {"available": False},
     }
     md = committee_section(job)
+    assert "CPHS" in md
     assert "Comité Paritario" in md
 
 
