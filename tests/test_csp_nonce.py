@@ -30,3 +30,5 @@ def test_index_html_injects_script_nonce(tmp_path, monkeypatch):
     csp = r.headers.get("content-security-policy", "")
     nonce = r.text.split('nonce="')[1].split('"')[0]
     assert f"'nonce-{nonce}'" in csp
+    assert "fonts.googleapis.com" in csp
+    assert "fonts.gstatic.com" in csp

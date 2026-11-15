@@ -1,7 +1,9 @@
 # Runbook — despliegue edge VigiEPP
 
 **Modelo:** un servidor por faena, en la misma red LAN que NVR/cámaras.  
-**Build referencia:** v57+ · **Edge on-prem** — datos e inferencia permanecen en sitio.
+**Build referencia:** **v68** (lanzamiento comercial edge) · **Edge on-prem** — datos e inferencia permanecen en sitio.
+
+> **Single-worker obligatorio:** Uvicorn debe correr **sin** `--workers` / sin `WEB_CONCURRENCY>1`. Workers, sesiones y config viven en JSON en disco; multi-proceso corrompe escrituras concurrentes. `Dockerfile` y `docker-compose.yml` ya usan un solo proceso.
 
 Ver [RUNBOOK_ENTRENAR_EPP_FAENA.md](RUNBOOK_ENTRENAR_EPP_FAENA.md) — color/tipo de casco, ropa, lentes y guantes se entrenan en sitio (pestaña EPP).
 

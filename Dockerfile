@@ -32,15 +32,21 @@ COPY forense /app/forense
 # Datos mutables van a VIGIEPP_DATA_DIR (/data) cuando hay volumen Railway
 RUN mkdir -p /app/backend/models /app/backend/data/models /app/backend/data/faces /data /data/forense
 
-# Descargar pesos EPP + rostros en build (mejor arranque en cloud)
-RUN curl -fsSL -o /app/backend/models/best_ppe.pt \
-      "https://huggingface.co/ayushgupta7777/safetyvision-yolov8/resolve/main/v2/best.pt" \
- && curl -fsSL -o /app/backend/data/models/face_detection_yunet_2023mar.onnx \
-      "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx" \
- && curl -fsSL -o /app/backend/data/models/face_recognition_sface_2021dec.onnx \
-      "https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx"
+# Pesos EPP + rostros en build (mejor arranque). SKIP_MODEL_DOWNLOAD=1 en CI.
+ARG SKIP_MODEL_DOWNLOAD=0
+RUN if [ "$SKIP_MODEL_DOWNLOAD" = "1" ]; then \
+      echo "CI: omitiendo descarga de modelos (arranque descarga bajo demanda)"; \
+    else \
+      curl -fsSL -o /app/backend/models/best_ppe.pt \
+        "https://huggingface.co/ayushgupta7777/safetyvision-yolov8/resolve/main/v2/best.pt" \
+      && curl -fsSL -o /app/backend/data/models/face_detection_yunet_2023mar.onnx \
+        "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx" \
+      && curl -fsSL -o /app/backend/data/models/face_recognition_sface_2021dec.onnx \
+        "https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx"; \
+    fi
 
 WORKDIR /app/backend
 EXPOSE 8000
 
+# Edge: un solo worker Uvicorn (JSON en disco no es multi-proceso seguro).
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
