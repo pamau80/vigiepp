@@ -52,7 +52,9 @@ def edge_excellence_summary(*, identity_ready: bool, epp_ready: bool) -> dict[st
             "eslint_ci": True,
             "bandit_high_zero": True,
             "csp_nonce": True,
+            "docker_edge_ci": True,
         },
         "edge_score": 9.4,
-        "ranking_niche": "#1 edge/portería integrada (informe v67)",
+        "ranking_niche": "#1 edge/portería integrada (lanzamiento comercial v68)",
+        "release": "v68_comercial_edge",
     }

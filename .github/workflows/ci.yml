@@ -41,6 +41,50 @@ jobs:
         env:
           VIGIEPP_COMBINED_INFERENCE: "0"
 
+      - name: pip-audit (advisory)
+        continue-on-error: true
+        run: |
+          pip install pip-audit
+          pip-audit -r backend/requirements.txt || true
+
+  docker-edge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate docker compose
+        run: docker compose config -q
+
+      - name: Build edge image (CI, sin pesos)
+        run: |
+          docker build \
+            --build-arg SKIP_MODEL_DOWNLOAD=1 \
+            -t vigiepp-edge:ci \
+            .
+
+      - name: Smoke /api/health
+        run: |
+          docker run -d --name vigiepp-ci \
+            -e VIGIEPP_AUTH=0 \
+            -e VIGIEPP_EPHEMERAL=0 \
+            -e VIGIEPP_DATA_DIR=/data \
+            -e VIGIEPP_COMBINED_INFERENCE=0 \
+            -e ULTRALYTICS_OFFLINE=true \
+            -p 18000:8000 \
+            vigiepp-edge:ci
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:18000/api/health | grep -q '"build"'; then
+              curl -fsS http://127.0.0.1:18000/api/health | tee /tmp/health.json
+              grep -q '"build": "v68"' /tmp/health.json
+              docker rm -f vigiepp-ci
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs vigiepp-ci || true
+          docker rm -f vigiepp-ci || true
+          exit 1
+
   browser-e2e:
     runs-on: ubuntu-latest
     steps:
