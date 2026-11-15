@@ -73,9 +73,14 @@ jobs:
             -p 18000:8000 \
             vigiepp-edge:ci
           for i in $(seq 1 60); do
-            if curl -fsS http://127.0.0.1:18000/api/health | grep -q '"build"'; then
-              curl -fsS http://127.0.0.1:18000/api/health | tee /tmp/health.json
-              grep -q '"build": "v68"' /tmp/health.json
+            if curl -fsS http://127.0.0.1:18000/api/health -o /tmp/health.json; then
+              python3 -c "
+import json
+d=json.load(open('/tmp/health.json'))
+assert d.get('status')=='ok', d
+assert d.get('build')=='v68', d
+print('OK build', d['build'], 'release', (d.get('excellence') or {}).get('release'))
+"
               docker rm -f vigiepp-ci
               exit 0
             fi
