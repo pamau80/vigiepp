@@ -90,6 +90,12 @@ Licencia edge producción: `docs/FORENSE_LICENSE_EDGE.md` + `forense/scripts/iss
 - RBAC multi-tenant con cuentas en `users.json`
 - Dashboard central multi-cliente
 
+## Lanzamiento comercial
+
+- Build edge publicado: **v68** — `docs/LANZAMIENTO_v68.md`
+- Auditoría GO: `docs/auditoria_lanzamiento_2026-10/`
+- Despliegue faena: un solo worker Uvicorn (sin `--workers`)
+
 ## Qué SÍ priorizar
 
 - Runbook edge (`docs/RUNBOOK_DEPLOY_EDGE.md`)
@@ -97,6 +103,7 @@ Licencia edge producción: `docs/FORENSE_LICENSE_EDGE.md` + `forense/scripts/iss
 - Modularización frontend (`frontend/assets/modules/`)
 - E2E browser + API (`scripts/review_*.sh`)
 - UX operador / kiosk / PWA
+- Piloto faena post-v68 (checklist legal + ops cliente)
 
 ## Cursor Cloud
 

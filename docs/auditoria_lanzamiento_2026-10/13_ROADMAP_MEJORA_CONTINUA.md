@@ -5,9 +5,9 @@
 | Prioridad | Item | Impacto | Esfuerzo | Justificación |
 |-----------|------|---------|----------|---------------|
 | P0 | Paquete legal privacidad + contrato faena | Comercial | Medio | AUD-VIG-050 |
-| P0 | CI: `docker compose build` + smoke | Confianza deploy | Medio | Gap infra auditoría |
-| P1 | `pip-audit` + npm audit en CI | Seguridad | Bajo | Supply chain |
-| P1 | Documentar **single-worker** Uvicorn edge | Integridad datos | Bajo | AUD-VIG-020 |
+| ~~P0~~ | ~~CI: `docker compose build` + smoke~~ | Hecho v68 | — | Job `docker-edge` |
+| ~~P1~~ | ~~`pip-audit` en CI~~ | Hecho v68 (advisory) | — | `continue-on-error` |
+| ~~P1~~ | ~~Documentar **single-worker** Uvicorn edge~~ | Hecho v68 | — | Runbook + Dockerfile |
 
 ## 60 días
 

@@ -41,7 +41,7 @@ No se identificaron bloqueos críticos de seguridad o funcionalidad en el alcanc
 
 ## Recomendación ejecutiva
 
-1. Publicar **v68** a clientes piloto edge con checklist 11 completo.
+1. **v68 publicado** para clientes piloto edge — ver `docs/LANZAMIENTO_v68.md` + checklist 11 (ítems de faena/cliente).
 2. Exigir paquete legal privacidad biométrica antes de facturar.
-3. Mantener CI actual; añadir `pip-audit` y build Docker en pipeline.
-4. Roadmap 30/60/90 en documento 13.
+3. CI incluye `pip-audit` (advisory) y job `docker-edge` (build + smoke health).
+4. Roadmap 30/60/90 restante en documento 13.

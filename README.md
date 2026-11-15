@@ -2,6 +2,9 @@
 
 Plataforma de **detección de EPP con IA** + **identificación de trabajadores** para faenas en Chile.
 
+**Lanzamiento comercial edge:** build **v68** — ver [`docs/LANZAMIENTO_v68.md`](docs/LANZAMIENTO_v68.md).  
+Modelo: **on-prem por faena** (no SaaS multi-tenant).
+
 ## Módulos
 
 | Módulo | Uso |
@@ -42,5 +45,7 @@ PIN admin por defecto (solo dev): `vigiepp` · portería: `porteria`
 
 ## Despliegue
 
-- **Edge faena:** `docker-compose up` o `start-edge.bat`
+- **Edge faena (producción):** `docs/RUNBOOK_DEPLOY_EDGE.md` → `docker compose up -d --build`
+- **Lanzamiento v68:** `docs/LANZAMIENTO_v68.md` + checklist en `docs/auditoria_lanzamiento_2026-10/`
+- **Windows local:** `start-edge.bat`
 - **Cloud:** Render / Railway (demo; RTSP requiere edge)

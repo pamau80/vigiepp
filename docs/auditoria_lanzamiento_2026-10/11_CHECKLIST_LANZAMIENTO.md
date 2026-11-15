@@ -17,7 +17,7 @@
 - [x] Ruff + Bandit + ESLint
 - [x] Pytest 127 + Forense 53
 - [x] E2E browser subset 7/7
-- [ ] Docker image build en pipeline (no rebuild VM auditoría)
+- [x] Docker image build en pipeline (`docker-edge` job + smoke `/api/health`, `SKIP_MODEL_DOWNLOAD=1`)
 
 ## Post-despliegue
 
