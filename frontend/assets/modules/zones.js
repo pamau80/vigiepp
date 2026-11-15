@@ -1,4 +1,4 @@
-import { $$ } from "./dom.js";
+import { $$, escapeHtml } from "./dom.js";
 import { videoCoverSize } from "./geometry.js";
 
 const ZONES_CANVAS_HANDLE = 10;
@@ -323,7 +323,7 @@ function renderZonesEditor() {
     .map(
       (z, i) => `<div class="zone-row" data-zi="${i}">
         <label class="check"><input type="checkbox" data-z="en" ${z.enabled ? "checked" : ""}/> On</label>
-        <input data-z="name" value="${String(z.name || "").replace(/"/g, "&quot;")}" placeholder="Nombre"/>
+        <input data-z="name" value="${escapeHtml(z.name || "")}" placeholder="Nombre"/>
         <select data-z="type">
           <option value="restricted" ${z.type === "restricted" || !z.type ? "selected" : ""}>Restringida</option>
           <option value="vehicle_lane" ${z.type === "vehicle_lane" ? "selected" : ""}>Vía vehículos</option>

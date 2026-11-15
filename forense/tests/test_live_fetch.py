@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from forense.app.sources.live_fetch import extract_records_from_html, fetch_live_records
 
-
 SAMPLE_HTML = """
 <html><body>
 <h2>Accidentabilidad en faenas mineras</h2>

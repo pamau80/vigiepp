@@ -12,6 +12,7 @@ def auth_client(tmp_path, monkeypatch):
     monkeypatch.setenv("VIGIEPP_AUTH", "1")
     monkeypatch.setenv("VIGIEPP_ADMIN_PIN", "audit-admin-pin")
     monkeypatch.setenv("VIGIEPP_OPERATOR_PIN", "audit-op-pin")
+    monkeypatch.setenv("VIGIEPP_STRICT_STARTUP", "0")
     from app.main import app
 
     return TestClient(app)
@@ -109,6 +110,20 @@ def test_metrics_public_when_explicit(auth_client, monkeypatch):
 
 def test_default_pins_blocked_on_cloud(auth_client, monkeypatch):
     monkeypatch.setenv("RENDER", "1")
+    monkeypatch.setenv("VIGIEPP_STRICT_STARTUP", "0")
+    monkeypatch.delenv("VIGIEPP_ADMIN_PIN", raising=False)
+    monkeypatch.delenv("VIGIEPP_OPERATOR_PIN", raising=False)
+    from app.main import app
+
+    c = TestClient(app)
+    r = c.post("/api/auth/login", json={"pin": "vigiepp"})
+    assert r.status_code == 503
+
+
+def test_default_pins_blocked_on_persistent_edge(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIGIEPP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("VIGIEPP_AUTH", "1")
+    monkeypatch.setenv("VIGIEPP_STRICT_STARTUP", "0")
     monkeypatch.delenv("VIGIEPP_ADMIN_PIN", raising=False)
     monkeypatch.delenv("VIGIEPP_OPERATOR_PIN", raising=False)
     from app.main import app

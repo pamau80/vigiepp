@@ -24,10 +24,10 @@ def auth_status() -> dict[str, Any]:
 
 @router.post("/login")
 def auth_login(body: AuthLoginRequest, request: Request, response: Response) -> dict[str, Any]:
-    if auth_mod.default_pins_blocked_on_cloud():
+    if auth_mod.default_pins_blocked():
         raise HTTPException(
             503,
-            "PIN por defecto bloqueado en cloud. Configura VIGIEPP_ADMIN_PIN y VIGIEPP_OPERATOR_PIN.",
+            "PIN por defecto bloqueado. Configura VIGIEPP_ADMIN_PIN y VIGIEPP_OPERATOR_PIN.",
         )
     if not auth_mod.auth_enabled():
         return {"ok": True, "auth_enabled": False, "role": "admin", "message": "Auth desactivada"}

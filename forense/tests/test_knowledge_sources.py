@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from forense.app.sources.registry import SYNC_SOURCES, get_source, list_sources_catalog
+from forense.app.sources.registry import get_source, list_sources_catalog
 from forense.app.sources.schema import normalize_record, validate_record
 from forense.app.sources.sync import sync_source
 from forense.app.sources.url_ingest import _host_allowed

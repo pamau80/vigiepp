@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
 
+from app import auth as auth_mod
+from app.security_headers import SecurityHeadersMiddleware, ensure_csp_nonce
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
@@ -12,9 +15,6 @@ from pydantic import BaseModel, Field
 from .auth_bridge import auth_status_payload, login_pin, logout_session, require_forense_admin
 from .config import (
     BUILD,
-    DEFAULT_MAX_MACHINERY_KMH,
-    DEFAULT_MAX_PERSON_KMH,
-    DEFAULT_MIN_DISTANCE_M,
     DOL_API_KEY,
     MAX_UPLOAD_MB,
     ROOT,
@@ -40,15 +40,14 @@ from .knowledge import (
     SITUATION_TYPES,
     create_knowledge,
     delete_knowledge,
-    get_knowledge,
     knowledge_stats,
     list_knowledge,
     promote_job_keyframe,
     reset_knowledge,
 )
 from .knowledge_import import import_osha, import_seeds, list_import_catalog
-from .sources import ingest_url, list_sources_catalog, sync_source, validate_records
 from .license import license_status, verify_license
+from .sources import ingest_url, list_sources_catalog, sync_source, validate_records
 from .teach_bridge import (
     activate_custom_model,
     ensure_custom_model_if_available,
@@ -61,10 +60,26 @@ from .templates import list_templates
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("vigiepp.forense")
 
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    ensure_dirs()
+    ok, detail = verify_license()
+    logger.info("VigiEPP Forense %s — licencia: %s (%s)", BUILD, ok, detail)
+    try:
+        loaded = ensure_custom_model_if_available()
+        if loaded.get("ok"):
+            logger.info("Modelo Teach activo: %s", loaded.get("model"))
+    except Exception as exc:
+        logger.info("Forense arranca con modelo base (Teach: %s)", exc)
+    yield
+
+
 app = FastAPI(
     title="VigiEPP Forense",
     description="Análisis forense de video e informes IA de incidentes (producto aislado)",
     version="0.2.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -74,6 +89,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(SecurityHeadersMiddleware)
 
 
 def _require_license() -> None:
@@ -99,16 +115,24 @@ async def _read_upload(video: UploadFile | None, label: str) -> dict | None:
 
 
 @app.get("/api/forense/health")
-def health() -> dict:
-    lic = license_status()
-    return {
+def health(request: Request) -> dict:
+    payload: dict = {
         "status": "ok",
         "product": "VigiEPP Forense",
         "build": BUILD,
-        "license": lic,
-        "isolated": True,
-        "vigiepp_core": "untouched",
     }
+    if auth_mod.auth_enabled():
+        token = auth_mod.extract_token(request)
+        if auth_mod.session_role(token) != auth_mod.ROLE_ADMIN:
+            return payload
+    payload.update(
+        {
+            "license": license_status(),
+            "isolated": True,
+            "vigiepp_core": "untouched",
+        }
+    )
+    return payload
 
 
 @app.post("/api/forense/auth/login")
@@ -747,26 +771,16 @@ def forense_promote_teach(job_id: str, body: PromoteTeachBody, request: Request)
     return {"ok": True, **result}
 
 
-@app.on_event("startup")
-def startup() -> None:
-    ensure_dirs()
-    ok, detail = verify_license()
-    logger.info("VigiEPP Forense %s — licencia: %s (%s)", BUILD, ok, detail)
-    try:
-        loaded = ensure_custom_model_if_available()
-        if loaded.get("ok"):
-            logger.info("Modelo Teach activo: %s", loaded.get("model"))
-    except Exception as exc:
-        logger.info("Forense arranca con modelo base (Teach: %s)", exc)
-
-
 @app.get("/", response_class=HTMLResponse)
-def index() -> HTMLResponse:
+def index(request: Request) -> HTMLResponse:
     html_path = WEB_DIR / "index.html"
     if not html_path.is_file():
         return HTMLResponse("<h1>VigiEPP Forense</h1><p>UI no encontrada</p>")
+    html = html_path.read_text(encoding="utf-8")
+    nonce = ensure_csp_nonce(request)
+    html = html.replace('<script type="module" src="/forense.js">', f'<script type="module" nonce="{nonce}" src="/forense.js">')
     return HTMLResponse(
-        html_path.read_text(encoding="utf-8"),
+        html,
         headers={"Cache-Control": "no-store"},
     )
 

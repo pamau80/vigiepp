@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..knowledge_import import load_seed_packs, list_import_catalog
+from ..knowledge_import import list_import_catalog, load_seed_packs
 
 # Fuentes sincronizables vía POST /knowledge/sources/sync
 SYNC_SOURCES: list[dict[str, Any]] = [

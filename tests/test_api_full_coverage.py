@@ -73,6 +73,7 @@ def test_all_get_endpoints(client):
 def test_auth_flow(client, monkeypatch):
     monkeypatch.setenv("VIGIEPP_AUTH", "1")
     monkeypatch.setenv("VIGIEPP_ADMIN_PIN", "testadmin")
+    monkeypatch.setenv("VIGIEPP_OPERATOR_PIN", "testoperator")
     from app.main import app
 
     c = TestClient(app)

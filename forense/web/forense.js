@@ -1,5 +1,13 @@
 import { statusLabel, kindLabel, eventTypeLabel, sourceLabel } from "./i18n-es-cl.js";
 
+function escapeHtml(str) {
+  return String(str ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 const API = "";
 const TOKEN_KEY = "forense.token";
 
@@ -625,12 +633,12 @@ async function loadKnowledge() {
     const body = document.createElement("div");
     body.className = "kn-body";
     const src = e.source && e.source !== "user"
-      ? `<span class="kn-source-badge">${sourceLabel(e.source) || e.source}</span>`
+      ? `<span class="kn-source-badge">${escapeHtml(sourceLabel(e.source) || e.source)}</span>`
       : "";
     body.innerHTML = `
-        <strong>${e.title}${src}</strong>
-        <span class="muted small">${e.situation_label || e.situation_type} · ${e.industry}${e.reinforce_count ? ` · ×${e.reinforce_count}` : ""}</span>
-        <p class="small">${e.description || ""}</p>
+        <strong>${escapeHtml(e.title)}${src}</strong>
+        <span class="muted small">${escapeHtml(e.situation_label || e.situation_type)} · ${escapeHtml(e.industry)}${e.reinforce_count ? ` · ×${e.reinforce_count}` : ""}</span>
+        <p class="small">${escapeHtml(e.description || "")}</p>
       `;
     const delBtn = document.createElement("button");
     delBtn.type = "button";
@@ -1050,7 +1058,7 @@ async function loadJob(id, quiet = false) {
     for (const m of knMatches) {
       const li = document.createElement("li");
       const tag = m.conjecture ? "Conjetura" : "Coincidencia";
-      li.innerHTML = `<strong>${tag}: ${m.title}</strong> (${m.situation_label}) — ${m.confidence_pct}% · ${(m.reasons || []).join(", ")}`;
+      li.innerHTML = `<strong>${escapeHtml(tag)}: ${escapeHtml(m.title)}</strong> (${escapeHtml(m.situation_label)}) — ${escapeHtml(m.confidence_pct)}% · ${escapeHtml((m.reasons || []).join(", "))}`;
       if (m.description) {
         const p = document.createElement("p");
         p.className = "muted small";

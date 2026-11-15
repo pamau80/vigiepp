@@ -115,10 +115,12 @@ def hydrate(force: bool = False) -> dict[str, Any]:
         from huggingface_hub import hf_hub_download
 
         ensure_repo()
+        revision = os.getenv("VIGIEPP_HF_DATA_REVISION", "main").strip() or "main"
         path = hf_hub_download(
             repo_id=_repo_id(),
             filename=_file_name(),
             repo_type="dataset",
+            revision=revision,
             token=_token(),
         )
         blob = Path(path).read_bytes()

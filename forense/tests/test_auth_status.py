@@ -9,11 +9,21 @@ def _client(tmp_path, monkeypatch):
     monkeypatch.setenv("VIGIEPP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("VIGIEPP_AUTH", "1")
     monkeypatch.setenv("VIGIEPP_ADMIN_PIN", "forense-admin")
+    monkeypatch.setenv("VIGIEPP_OPERATOR_PIN", "forense-op")
     monkeypatch.setenv("VIGIEPP_FORENSE", "1")
     monkeypatch.setenv("VIGIEPP_FORENSE_LICENSE", "dev")
     from forense.app.main import app
 
     return TestClient(app)
+
+
+def test_health_public_minimal(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    r = client.get("/api/forense/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["build"]
+    assert "license" not in body
 
 
 def test_auth_status_without_session(tmp_path, monkeypatch):
